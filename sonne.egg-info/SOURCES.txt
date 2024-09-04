@@ -1,0 +1,7 @@
+README.md
+setup.py
+sonne.egg-info/PKG-INFO
+sonne.egg-info/SOURCES.txt
+sonne.egg-info/dependency_links.txt
+sonne.egg-info/entry_points.txt
+sonne.egg-info/top_level.txt
