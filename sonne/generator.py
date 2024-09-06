@@ -16,11 +16,11 @@ def generate_site(base_dir):
     # Process variables in all documents
     process_variables(base_dir, config)
 
-    # Process and copy files
-    process_and_copy_files(base_dir, output_dir, config)
-
     # Generate blog pages from markdown files
     process_blogs(base_dir, output_dir, config)
+
+    # Process and copy files
+    process_and_copy_files(base_dir, output_dir, config)
 
     # Optimize images
     optimize_images(base_dir, output_dir)

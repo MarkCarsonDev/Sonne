@@ -34,7 +34,7 @@ class Config:
                 'BlogDirectory': 'blog',
                 'DitherImages': 'yes',
                 'IndexPage': 'index.html',
-                'SubstitutionTargets': ['html', 'css', 'js'],
+                'SubstitutionTargets': ['html', 'css', 'js', 'md'],
                 'OutputDirectory': 'output',
                 'SourceDirectory': 'sonne_sources',
                 'VariablesFile': 'sonne_variables.json',
