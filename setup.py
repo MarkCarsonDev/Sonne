@@ -11,6 +11,7 @@ setup(
     },
     install_requires=[
         # List your project's dependencies here.
-        # e.g., 'requests', 'markdown2', 'Pillow'
+        # e.g., 'requests', 'markdown2', 'Pillow
+        'markdown'
     ],
 )

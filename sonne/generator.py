@@ -20,7 +20,7 @@ def generate_site(base_dir):
     process_and_copy_files(base_dir, output_dir, config)
 
     # Generate blog pages from markdown files
-    process_blogs(base_dir, output_dir)
+    process_blogs(base_dir, output_dir, config)
 
     # Optimize images
     optimize_images(base_dir, output_dir)

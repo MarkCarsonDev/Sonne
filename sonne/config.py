@@ -39,6 +39,7 @@ class Config:
                 'SourceDirectory': 'sonne_sources',
                 'VariablesFile': 'sonne_variables.json',
                 'PreservePriorVariables': False,
+                'BlogBase': 'blog_base.html'
             }
         }
         self.save_config()
