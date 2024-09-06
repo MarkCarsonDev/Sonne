@@ -14,18 +14,36 @@ def execute_scripts(source_dir):
             spec = importlib.util.spec_from_file_location("module.name", file_path)
             module = importlib.util.module_from_spec(spec)
 
-            module.__dict__['sonne_var'] = report_variable
+            module.__dict__['sonne_var'] = report_variable_init
 
             spec.loader.exec_module(module)
             print(f"Ran {filename}")
 
-def report_variable(key, value):
+def report_variable_init(key, value):
     global sonne_variables
     sonne_variables[key] = {
         "data": value,
         "datetime": str(datetime.now())
     }
     print(f"Reported variable {key} with {value}")
+
+def report_variable(key, value, variables_path):
+    """Update or add a variable in the global sonne_variables dictionary and save to file."""
+    global sonne_variables
+
+    # Load the current variables from the file
+    sonne_variables = load_variables(variables_path)
+
+    # Update the variable
+    sonne_variables[key] = {
+        "data": value,
+        "datetime": str(datetime.now())
+    }
+    print(f"Reported late variable {key} with value updated at {sonne_variables[key]['datetime']}")
+
+    # Save the updated variables back to the file
+    save_variables(sonne_variables, variables_path)
+
     
 
 def process_variables(base_dir, config):
