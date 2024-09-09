@@ -14,10 +14,11 @@ def initialize_sonne(base_dir):
     config = Config(os.path.join(base_dir, 'sonne.config'))
 
     # Ensure directories as specified in the configuration
-    ensure_directory(os.path.join(base_dir, config.get_setting('DEFAULT', 'PagesDirectory')))
-    ensure_directory(os.path.join(base_dir, config.get_setting('DEFAULT', 'BlogDirectory')))
     ensure_directory(os.path.join(base_dir, config.get_setting('DEFAULT', 'OutputDirectory')))
+    ensure_directory(os.path.join(base_dir, config.get_setting('DEFAULT', 'BlogDirectory')))
+    ensure_directory(os.path.join(base_dir, config.get_setting('DEFAULT', 'PagesDirectory')))
     ensure_directory(os.path.join(base_dir, config.get_setting('DEFAULT', 'SourceDirectory')))
+    ensure_directory(os.path.join(base_dir, config.get_setting('DEFAULT', 'OutputDirectory'), config.get_setting('DEFAULT', 'BlogDirectory')))
 
 
     print(f"Sonne configuration verified in `{base_dir}`.")

@@ -31,8 +31,11 @@ def process_and_copy_files(source_dir, output_dir, config):
     # Define exclusions and target extensions
     exclusions = [config.get_setting('DEFAULT', 'OutputDirectory'),
                   config.get_setting('DEFAULT', 'SourceDirectory'),
-                  'sonne.config']
+                  config.get_setting('DEFAULT', 'BlogDirectory'),
+                  'sonne.config',
+                  ]
     target_ext = config.get_setting('DEFAULT', 'SubstitutionTargets')
+
 
     # Process each file within the source directory
     for root, dirs, files in os.walk(source_dir):
