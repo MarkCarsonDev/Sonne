@@ -57,7 +57,7 @@ def process_variables(base_dir, config):
 
 
 def save_variables(data, filepath):
-
+    print(f'\n\n\n{data}\n\n\n')
     with open(filepath, 'w') as file:
         json.dump(data, file)
 
@@ -85,21 +85,31 @@ def get_variable_data(data_name, data):
 
     
 def substitute_variables(content, filepath):
-    # Load the variable data from JSON file
     data = load_variables(filepath)
 
-    # Function to replace each matched variable placeholder
     def replace_sonne_variable(match):
         var_name = match.group(1)
-
-        # Retrieve the variable data if it exists
         try:
             return get_variable_data(var_name, data)
         except KeyError:
             print(f"Variable {var_name} not found.")
-            # Return modified placeholder on KeyError
             return f"{{x}}{{{var_name}}}"
 
-    # Correct the regex pattern and replace the placeholders in the content
+    def execute_embedded_python(match):
+        python_code = match.group(1)
+        try:
+            # Create a local scope and include the data dictionary for use by the Python code
+            local_scope = {'data': data}
+            exec(python_code, {}, local_scope)
+            # Assuming the last line of the code contains the return statement or the code explicitly returns a value
+            return str(local_scope.get('result'))  # Expecting that the Python code sets 'result' variable
+        except Exception as e:
+            print(f"Error executing embedded Python: {e}")
+            return "Error in Python Code"
+
+    # First replace Python code blocks
+    content = re.sub(r'\{p\}\{([\s\S]*?)\}', execute_embedded_python, content)
+    # Then replace variable placeholders
     updated_content = re.sub(r'\{\+\}\{(.*?)\}', replace_sonne_variable, content)
+
     return updated_content
