@@ -94,21 +94,28 @@ def substitute_variables(content, filepath):
         except KeyError:
             print(f"Variable {var_name} not found.")
             return f"{{x}}{{{var_name}}}"
-
+        
     def execute_embedded_python(match):
-        python_code = match.group(1)
+        python_code = match.group(1).strip()  # Clean and prepare the code for execution
+
+        print(f'----EXECUTION BLOCK-----\n\n{python_code}\n\n----/EXECUTION BLOCK----')
+
+
+        # Prepare code for execution to properly capture the output without using 'return'
+        complete_code = f'result = None\n{python_code}\n'  # Assuming the code modifies 'result'
+
         try:
-            # Create a local scope and include the data dictionary for use by the Python code
+            # Create a local scope, including the data dictionary
             local_scope = {'data': data}
-            exec(python_code, {}, local_scope)
-            # Assuming the last line of the code contains the return statement or the code explicitly returns a value
-            return str(local_scope.get('result'))  # Expecting that the Python code sets 'result' variable
+            exec(complete_code, {}, local_scope)  # Execute the prepared code in the local scope
+            # Retrieve the 'result' variable set by the executed code
+            return str(local_scope['result']) if 'result' in local_scope else ''
         except Exception as e:
             print(f"Error executing embedded Python: {e}")
             return "Error in Python Code"
 
     # First replace Python code blocks
-    content = re.sub(r'\{p\}\{([\s\S]*?)\}', execute_embedded_python, content)
+    content = re.sub(r'\{p\}\{#([\s\S]*?)#\}', execute_embedded_python, content)
     # Then replace variable placeholders
     updated_content = re.sub(r'\{\+\}\{(.*?)\}', replace_sonne_variable, content)
 
