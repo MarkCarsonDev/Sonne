@@ -21,12 +21,16 @@ def process_blogs(base_dir, output_dir, config):
                 post_metadata = {
                     "title": mond_variables.get("title", "No Title"),
                     "date_posted": mond_variables.get("date_posted", ""),
+                    "date_edited": mond_variables.get("date_edited", ""),
+                    "description": mond_variables.get("description", ""),
                     "featured": mond_variables.get("featured", False),
-                    # "url": os.path.join("blog", mond_variables.get("date_posted"), mond_variables.get("page_url", "")),
+                    "author": mond_variables.get("author", "Unattributed"),
+                    "full_url": os.path.join("blog", mond_variables.get("date_posted"), mond_variables.get("page_url", "") + '.html'),
                     "url": os.path.join(mond_variables.get("page_url", "")),
                     "page_url": mond_variables.get("page_url", ""),
-                    "content": html_content
+                    "content": html_content,
                 }
+
                 blog_posts_metadata.append(post_metadata)
 
     # Sort posts
@@ -36,8 +40,8 @@ def process_blogs(base_dir, output_dir, config):
     for i, post in enumerate(blog_posts_metadata):
         next_index = i + 1 if i + 1 < len(blog_posts_metadata) else None
         prev_index = i - 1 if i > 0 else None
-        blog_posts_metadata[i]['next_post'] = blog_posts_metadata[next_index]['url'] if next_index is not None else None
-        blog_posts_metadata[i]['prev_post'] = blog_posts_metadata[prev_index]['url'] if prev_index is not None else None
+        blog_posts_metadata[i]['next_post'] = f"../{blog_posts_metadata[next_index]['full_url'][5:-5]}" if next_index is not None else None
+        blog_posts_metadata[i]['prev_post'] = f"../{blog_posts_metadata[prev_index]['full_url'][5:-5]}" if prev_index is not None else None
 
     # Save all blog posts metadata as a global variable
     report_variable("all_blog_posts", blog_posts_metadata, variables_path)
@@ -46,7 +50,7 @@ def process_blogs(base_dir, output_dir, config):
     for post in blog_posts_metadata:
         mond_variables.update(post)  # Include next/prev post URLs and any additional metadata
         rendered_content = apply_template(post['content'], mond_variables, template_path, variables_path)
-        write_output(post['page_url'] + '.html', rendered_content, output_blog_dir)
+        write_output(post['page_url'] + '.html', rendered_content, output_blog_dir + '/' + post['date_posted'])
 
 
 def apply_template(html_content, mond_variables, template_path, variables_file):
@@ -118,6 +122,9 @@ def front_matter_to_json(front_matter_text):
     return json_str
 
 def write_output(filename, content, output_dir):
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
     output_path = os.path.join(output_dir, filename.replace('.md', '.html'))
     with open(output_path, 'w', encoding='utf-8') as file:
         file.write(content)
