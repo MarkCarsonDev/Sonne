@@ -1,13 +1,27 @@
-# Handles variable substitutions
 import os
 import re
 import importlib.util
 import json
 from datetime import datetime
+import subprocess  # Added import for subprocess
+import sys         # Added import for sys to get the Python executable path
 
 sonne_variables = {};
 
 def execute_scripts(source_dir):
+    # Check if requirements.txt exists in source_dir
+    requirements_path = os.path.join(source_dir, 'requirements.txt')
+    if os.path.exists(requirements_path):
+        print("Found requirements.txt. Installing packages...")
+        try:
+            subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', requirements_path], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to install packages from requirements.txt: {e}")
+            # Optionally, you can exit the script or handle the error as needed
+            # sys.exit(1)
+    else:
+        print("No requirements.txt found in the source directory.")
+        
     for filename in os.listdir(source_dir):
         if filename.endswith('.py') and not filename.startswith('__'):
             file_path = os.path.join(source_dir, filename)
@@ -44,8 +58,6 @@ def report_variable(key, value, variables_path):
     # Save the updated variables back to the file
     save_variables(sonne_variables, variables_path)
 
-    
-
 def process_variables(base_dir, config):
     global sonne_variables
     variables_path = os.path.join(base_dir, config.get_setting('DEFAULT', 'VariablesFile'))
@@ -54,7 +66,6 @@ def process_variables(base_dir, config):
     source_dir = os.path.join(base_dir, config.get_setting('DEFAULT', 'SourceDirectory'))
     execute_scripts(source_dir)
     save_variables(sonne_variables, variables_path)
-
 
 def save_variables(data, filepath):
     print(f'\n\n\n{data}\n\n\n')
@@ -74,16 +85,15 @@ def oneshot_get_variable_data(data_name, filepath):
 
     with open(filepath, 'r') as file:
         variables = json.load(file)
-        if not variables[data_name]: 
+        if data_name not in variables: 
             return
         return variables[data_name]["data"]
-    
+
 def get_variable_data(data_name, data):
-    if not data[data_name]: 
+    if data_name not in data: 
         return
     return str(data[data_name]["data"])
 
-    
 def substitute_variables(content, filepath):
     data = load_variables(filepath)
 
@@ -99,7 +109,6 @@ def substitute_variables(content, filepath):
         python_code = match.group(1).strip()  # Clean and prepare the code for execution
 
         print(f'----EXECUTION BLOCK-----\n\n{python_code}\n\n----/EXECUTION BLOCK----')
-
 
         # Prepare code for execution to properly capture the output without using 'return'
         complete_code = f'result = None\n{python_code}\n'  # Assuming the code modifies 'result'
