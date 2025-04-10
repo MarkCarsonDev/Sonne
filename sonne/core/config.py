@@ -68,12 +68,14 @@ DEFAULT_CONFIG = {
 class Config:
     """Configuration management for Sonne."""
     
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: Optional[str] = None, base_dir: Optional[str] = None):
         """Initialize configuration with optional path to config file.
         
         Args:
             config_path: Path to configuration file. If None, looks for default locations.
+            base_dir: Base directory to search for config files. If None, uses current directory.
         """
+        self.base_dir = base_dir or os.getcwd()
         self.config_path = config_path or self._find_config()
         self.config = self._load_config()
         
@@ -88,12 +90,24 @@ class Config:
             'sonne.config', '.sonne.yaml', '.sonne.json'
         ]
         
-        for path in search_paths:
-            if os.path.exists(path):
-                logger.debug(f"Found configuration file at {path}")
-                return path
+        # Look in specified base directory and parent directories
+        current_dir = os.path.abspath(self.base_dir)
+        
+        # Search in current and parent directories (up to 3 levels)
+        for _ in range(3):
+            for path in search_paths:
+                full_path = os.path.join(current_dir, path)
+                if os.path.exists(full_path):
+                    print(f"Found configuration file at {full_path}")
+                    return full_path
+            
+            # Move up one directory
+            parent_dir = os.path.dirname(current_dir)
+            if parent_dir == current_dir:  # Reached root
+                break
+            current_dir = parent_dir
                 
-        logger.debug("No configuration file found, using defaults")
+        print("No configuration file found, using defaults")
         return None
         
     def _load_config(self) -> Dict[str, Any]:
@@ -151,14 +165,19 @@ class Config:
         Returns:
             Configuration value or default if not found.
         """
+        if not keys:
+            return default
+            
         current = self.config
         for key in keys:
-            if not isinstance(current, dict) or key not in current:
+            if not isinstance(current, dict):
+                return default
+            if key not in current:
                 return default
             current = current[key]
         return current
         
-    def set(self, *keys: str, value: Any) -> None:
+    def set(self, *keys: str, value: Any = None) -> None:
         """Set configuration value using dot notation or nested keys.
         
         Args:
