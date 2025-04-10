@@ -1,0 +1,12 @@
+markdown>=3.4.0
+Pillow>=9.0.0
+click>=8.0.0
+PyYAML>=6.0
+Jinja2>=3.0.0
+
+[dev]
+pytest>=7.0.0
+pytest-cov>=3.0.0
+black>=22.0.0
+isort>=5.10.0
+flake8>=4.0.0
