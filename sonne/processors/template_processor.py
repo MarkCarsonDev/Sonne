@@ -43,19 +43,28 @@ class TemplateProcessor:
         # Initialize Jinja2 environment if available
         self.jinja_env = None
         if JINJA_AVAILABLE:
-            self.jinja_env = jinja2.Environment(
-                loader=jinja2.FileSystemLoader([
-                    paths.get('templates', ''),
-                    # Also add built-in templates
-                    os.path.join(os.path.dirname(__file__), '..', 'templates'),
-                ]),
-                autoescape=jinja2.select_autoescape(['html', 'xml']),
-                trim_blocks=True,
-                lstrip_blocks=True,
-            )
+            # Make sure templates directory exists
+            template_dirs = []
+            if 'templates' in paths and paths['templates'] and os.path.exists(paths['templates']):
+                template_dirs.append(paths['templates'])
             
-            # Add custom filters
-            self._register_jinja_filters()
+            # Also add built-in templates
+            built_in_templates = os.path.join(os.path.dirname(__file__), '..', 'templates')
+            if os.path.exists(built_in_templates):
+                template_dirs.append(built_in_templates)
+                
+            if template_dirs:
+                self.jinja_env = jinja2.Environment(
+                    loader=jinja2.FileSystemLoader(template_dirs),
+                    autoescape=jinja2.select_autoescape(['html', 'xml']),
+                    trim_blocks=True,
+                    lstrip_blocks=True,
+                )
+                
+                # Add custom filters
+                self._register_jinja_filters()
+            else:
+                logger.warning("No template directories found, template processing is disabled")
             
     def _register_jinja_filters(self) -> None:
         """Register custom Jinja2 filters."""
@@ -155,41 +164,66 @@ class TemplateProcessor:
         front_matter['source_path'] = source_path
         
         # Add relative URL
-        rel_url = os.path.relpath(
-            source_path, 
-            os.path.join(self.paths.get('content', ''))
-        )
-        
-        # Convert to web path format
-        if is_markdown:
-            rel_url = rel_url.replace('\\', '/').replace('.md', '.html').replace('.markdown', '.html')
-        else:
-            rel_url = rel_url.replace('\\', '/')
+        try:
+            rel_url = os.path.relpath(
+                source_path, 
+                self.paths.get('content', '')
+            )
             
-        front_matter['url'] = '/' + rel_url
+            # Convert to web path format
+            if is_markdown:
+                rel_url = rel_url.replace('\\', '/').replace('.md', '.html').replace('.markdown', '.html')
+            else:
+                rel_url = rel_url.replace('\\', '/')
+                
+            front_matter['url'] = '/' + rel_url
+        except Exception as e:
+            logger.warning(f"Error calculating relative URL for {source_path}: {e}")
+            front_matter['url'] = '/'
         
         # Process template
         template_name = front_matter.get('template')
+        
         if template_name and self.jinja_env:
-            variables_with_content = dict(variables)
-            variables_with_content['content'] = html_content
-            variables_with_content['page'] = front_matter
+            # Create a structured variables dictionary with proper namespaces
+            variables_for_template = {
+                'content': html_content,
+                'page': front_matter,
+                # Important: Make sure 'site' is properly defined for templates
+                'site': variables.get('site', {})
+            }
+            
+            # Add global variables directly
+            for key, value in variables.get('global', {}).items():
+                variables_for_template[key] = value
             
             try:
                 template = self.jinja_env.get_template(template_name)
-                processed_content = template.render(**variables_with_content)
+                processed_content = template.render(**variables_for_template)
             except jinja2.exceptions.TemplateNotFound:
                 logger.warning(f"Template not found: {template_name}")
                 # Fall back to simple variable substitution
                 from sonne.core.variable_manager import VariableManager
                 vm = VariableManager(self.config, '')
-                vm.variables = {'global': {}, 'site': variables, 'page': front_matter}
+                vm.variables = {
+                    'global': variables.get('global', {}),
+                    'site': variables.get('site', {}),
+                    'page': front_matter
+                }
                 processed_content = vm.substitute_variables(html_content)
+            except Exception as e:
+                logger.error(f"Error rendering template {template_name}: {e}")
+                # Fall back to simple content
+                processed_content = f"<html><body><h1>Error rendering template</h1><p>{e}</p><div>{html_content}</div></body></html>"
         else:
             # Use simple variable substitution
             from sonne.core.variable_manager import VariableManager
             vm = VariableManager(self.config, '')
-            vm.variables = {'global': {}, 'site': variables, 'page': front_matter}
+            vm.variables = {
+                'global': variables.get('global', {}),
+                'site': variables.get('site', {}),
+                'page': front_matter
+            }
             processed_content = vm.substitute_variables(html_content)
             
         return front_matter, processed_content
