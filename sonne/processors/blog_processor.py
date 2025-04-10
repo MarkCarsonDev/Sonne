@@ -32,15 +32,22 @@ class BlogProcessor:
         self.template_processor = template_processor
         self.variable_manager = variable_manager
         
-        # Blog directory paths
-        self.blog_content_dir = os.path.join(
-            self.paths.get('content', ''), 
-            self.config.get('blog', 'directory', 'blog')
-        )
-        self.blog_output_dir = os.path.join(
-            self.paths.get('output', ''), 
-            self.config.get('blog', 'directory', 'blog')
-        )
+        # Blog directory paths - Add safety checks
+        content_path = self.paths.get('content', '')
+        if content_path is None:
+            content_path = ''
+            
+        output_path = self.paths.get('output', '')
+        if output_path is None:
+            output_path = ''
+            
+        blog_dir = self.config.get('blog', 'directory', 'blog')
+        if blog_dir is None:
+            blog_dir = 'blog'
+
+        
+        self.blog_content_dir = os.path.join(content_path, blog_dir)
+        self.blog_output_dir = os.path.join(output_path, blog_dir)
         
         # Ensure blog output directory exists
         os.makedirs(self.blog_output_dir, exist_ok=True)
