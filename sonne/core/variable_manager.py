@@ -2,7 +2,6 @@
 Variable management for Sonne.
 Handles loading, processing, and substituting variables in templates.
 """
-
 import os
 import json
 import yaml
@@ -22,7 +21,7 @@ logger = logging.getLogger('sonne')
 
 class VariableManager:
     """Manages variables and their substitution in templates."""
-    
+        
     def __init__(self, config, base_dir: str):
         """Initialize variable manager.
         
@@ -31,7 +30,7 @@ class VariableManager:
             base_dir: Base directory of the site.
         """
         self.config = config
-        self.base_dir = base_dir
+        self.base_dir = base_dir or os.getcwd()  # Use current directory if base_dir is None
         self.variables = {
             'global': {},
             'site': {},
@@ -39,16 +38,24 @@ class VariableManager:
         }
         
         # Prepare variable file path
-        var_file = config.get('variables', 'file', 'sonne_variables.json')
-        self.variable_file = os.path.join(base_dir, var_file)
+        var_file = config.get('variables', 'file', default='sonne_variables.json')
+        
+        # Ensure both parts are strings before joining
+        if var_file:
+            self.variable_file = os.path.join(self.base_dir, var_file)
+        else:
+            self.variable_file = os.path.join(self.base_dir, 'sonne_variables.json')
         
         # Prepare data directory path
-        data_dir = os.path.join(base_dir, config.get('paths', 'data', 'data'))
-        self.data_dir = data_dir if os.path.exists(data_dir) else None
+        data_path = config.get('paths', 'data', default='data')
+        data_dir = os.path.join(self.base_dir, data_path) if data_path else None
+        self.data_dir = data_dir if data_dir and os.path.exists(data_dir) else None
         
         # Prepare scripts directory path
-        scripts_dir = os.path.join(base_dir, config.get('paths', 'data', 'scripts'))
-        self.scripts_dir = scripts_dir if os.path.exists(scripts_dir) else None
+        scripts_path = config.get('paths', 'data', default='scripts') 
+        scripts_dir = os.path.join(self.base_dir, scripts_path) if scripts_path else None
+        self.scripts_dir = scripts_dir if scripts_dir and os.path.exists(scripts_dir) else None
+
         
     def _get_version(self) -> str:
         """Get the current version of Sonne."""
@@ -152,11 +159,27 @@ class VariableManager:
             },
             'page': {}
         }
-        
-        # Add configuration to site variables
-        site_config = self.config.get('site', {})
-        self.variables['site'].update(site_config)
-        
+
+        # Add configuration to site variables - safely get site config
+        try:
+            # Get site configuration safely
+            if hasattr(self.config, 'config') and isinstance(self.config.config, dict):
+                site_config = self.config.config.get('site', {})
+                if isinstance(site_config, dict):
+                    # Process site configuration
+                    for key, value in site_config.items():
+                        # Safely handle the title field which might be a nested dict
+                        if key == 'title' and isinstance(value, dict):
+                            # If title is a dictionary, try to extract a usable title or use a default
+                            if 'text' in value:
+                                self.variables['site'][key] = value['text']
+                            else:
+                                self.variables['site'][key] = "My Sonne Site"
+                        else:
+                            self.variables['site'][key] = value
+        except Exception as e:
+            logger.error(f"Error processing site configuration: {e}")
+            
         # Load from variable file if it exists
         if os.path.exists(self.variable_file):
             try:
@@ -180,6 +203,7 @@ class VariableManager:
                 logger.debug(f"Ran data scripts from {self.scripts_dir}")
             except Exception as e:
                 logger.error(f"Error running data scripts from {self.scripts_dir}: {e}")
+        
                 
     def get(self, key: str, default: Any = None, scope: Optional[str] = None) -> Any:
         """Get a variable value, optionally from a specific scope.
