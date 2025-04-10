@@ -155,7 +155,7 @@ class Config:
             else:
                 destination[key] = value
                 
-    def get(self, *keys: str, default: Any = None) -> Any:
+    def get(self, *keys, default=None):
         """Get configuration value using dot notation or nested keys.
         
         Args:
@@ -167,17 +167,19 @@ class Config:
         """
         if not keys:
             return default
-            
+        
         current = self.config
+
         for key in keys:
             if not isinstance(current, dict):
                 return default
             if key not in current:
                 return default
             current = current[key]
+
         return current
         
-    def set(self, *keys, value=None) -> None:
+    def set(self, *keys, value=None):
         """Set configuration value using dot notation or nested keys.
         
         Args:

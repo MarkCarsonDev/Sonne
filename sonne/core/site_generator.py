@@ -109,8 +109,7 @@ class SiteGenerator:
             # Process blog posts if enabled
             if self.config.get('blog', 'enabled', default=True):
                 logger.info("Processing blog posts...")
-                self.blog_processor.process_all_posts()
-                
+                self.blog_processor.process_all_posts()    
             # Process templates and pages
             logger.info("Processing pages...")
             self._process_pages()
