@@ -19,6 +19,17 @@ from typing import Dict, Any, Optional, List, Tuple, Union
 
 logger = logging.getLogger('sonne')
 
+# Try to import Markup from the correct location
+try:
+    from markupsafe import Markup
+except ImportError:
+    try:
+        from jinja2 import Markup
+    except ImportError:
+        # Fallback if Markup is not available
+        class Markup(str):
+            pass
+
 class VariableManager:
     """Manages variables and their substitution in templates."""
         
@@ -214,31 +225,52 @@ class VariableManager:
             except Exception as e:
                 logger.error(f"Error running data scripts from {self.scripts_dir}: {e}")
                 
-        # Look for the footer.py script specifically
-        footer_py_path = os.path.join(self.base_dir, 'data', 'footer.py')
-        if os.path.exists(footer_py_path):
-            try:
-                # Create a module spec and load the module
-                spec = importlib.util.spec_from_file_location(
-                    "sonne_script_footer", 
-                    footer_py_path
-                )
-                module = importlib.util.module_from_spec(spec)
-                
-                # Add the sonne_var function to the module's namespace
-                module.sonne_var = lambda k, v: self.set(k, v, 'global')
-                
-                # Execute the module
-                spec.loader.exec_module(module)
-                
-                # Check if footer_custom was set
-                if 'footer_custom' in self.variables.get('global', {}):
-                    self.variables['site']['footer']['custom'] = self.variables['global']['footer_custom']
-                    
-                logger.debug(f"Loaded footer script: {footer_py_path}")
-            except Exception as e:
-                logger.error(f"Error running footer script: {e}")
+        # Look for the footer.py script specifically in various locations
+        footer_py_paths = [
+            os.path.join(self.base_dir, 'data', 'footer.py'),
+            os.path.join(self.paths_get('data'), 'footer.py') if self.paths_get('data') else None,
+            os.path.join(self.base_dir, 'scripts', 'footer.py')
+        ]
         
+        footer_found = False
+        for footer_path in footer_py_paths:
+            if footer_path and os.path.exists(footer_path):
+                try:
+                    # Create a module spec and load the module
+                    spec = importlib.util.spec_from_file_location(
+                        "sonne_script_footer", 
+                        footer_path
+                    )
+                    module = importlib.util.module_from_spec(spec)
+                    
+                    # Add the sonne_var function to the module's namespace
+                    module.sonne_var = lambda k, v: self.set(k, v, 'global')
+                    
+                    # Execute the module
+                    spec.loader.exec_module(module)
+                    
+                    # Check if footer_custom was set
+                    if 'footer_custom' in self.variables.get('global', {}):
+                        # Mark the HTML content as safe
+                        footer_content = self.variables['global']['footer_custom']
+                        self.variables['global']['footer_custom'] = Markup(footer_content)
+                        self.variables['site']['footer']['custom'] = Markup(footer_content)
+                        
+                    logger.debug(f"Loaded footer script: {footer_path}")
+                    footer_found = True
+                    break
+                except Exception as e:
+                    logger.error(f"Error running footer script at {footer_path}: {e}")
+                    
+        if not footer_found:
+            logger.debug("No footer.py script found")
+        
+    def paths_get(self, key, default=None):
+        """Helper to get path from config.paths."""
+        paths = self.config.get('paths', default={})
+        if isinstance(paths, dict):
+            return paths.get(key, default)
+        return default
                 
     def get(self, key: str, default: Any = None, scope: Optional[str] = None) -> Any:
         """Get a variable value, optionally from a specific scope.
@@ -285,6 +317,11 @@ class VariableManager:
         if scope not in self.variables:
             self.variables[scope] = {}
             
+        # Special handling for HTML content in certain variables
+        if key in ['footer_custom'] and isinstance(value, str) and ('<' in value and '>' in value):
+            # Likely HTML content, mark it as safe
+            value = Markup(value)
+        
         self.variables[scope][key] = value
         
         # Special handling for footer_custom
@@ -369,6 +406,10 @@ class VariableManager:
             # Convert to old format for backward compatibility
             old_format = {}
             for key, value in self.variables.get('global', {}).items():
+                # Convert Markup to string
+                if hasattr(value, '__html__'):
+                    value = str(value)
+                    
                 old_format[key] = {
                     "data": value,
                     "datetime": datetime.now().isoformat()

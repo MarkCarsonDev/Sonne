@@ -15,7 +15,7 @@ from sonne.core.variable_manager import VariableManager
 from sonne.processors.blog_processor import BlogProcessor
 from sonne.processors.template_processor import TemplateProcessor
 from sonne.processors.image_processor import ImageProcessor
-from sonne.utils.file_utils import copy_static_files, ensure_dir
+from sonne.utils.file_utils import copy_static_files, ensure_dir, copy_template_static_files
 
 logger = logging.getLogger('sonne')
 
@@ -109,14 +109,23 @@ class SiteGenerator:
             # Process blog posts if enabled
             if self.config.get('blog', 'enabled', default=True):
                 logger.info("Processing blog posts...")
-                self.blog_processor.process_all_posts()    
+                self.blog_processor.process_all_posts()                
             # Process templates and pages
             logger.info("Processing pages...")
             self._process_pages()
             
             # Copy static files
             logger.info("Copying static files...")
-            copy_static_files(self.paths.get('static', ''), self.paths['output'])
+            static_dir = self.paths.get('static')
+            output_dir = self.paths['output']
+            
+            # First try user's static directory
+            copy_static_files(static_dir, output_dir)
+            
+            # If it was empty or didn't exist, try template static files
+            if not static_dir or not os.path.exists(static_dir):
+                logger.info("Copying template static files...")
+                copy_template_static_files(self.base_dir, output_dir)
             
             # Process images
             if not skip_images:

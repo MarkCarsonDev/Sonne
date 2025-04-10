@@ -26,9 +26,29 @@ def copy_static_files(static_dir: str, output_dir: str) -> None:
         static_dir: Path to the static directory.
         output_dir: Path to the output directory.
     """
-    if not os.path.exists(static_dir):
-        logger.warning(f"Static directory does not exist: {static_dir}")
-        return
+    if not static_dir or not os.path.exists(static_dir):
+        logger.warning(f"Static directory does not exist or is not specified: {static_dir}")
+        
+        # Look for common static files in standard locations
+        fallback_dirs = [
+            # Check if there's a default static directory next to the executable
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static'),
+            # Check for static in templates/minimal directory
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'minimal', 'static'),
+            # Check current directory
+            os.path.join(os.getcwd(), 'static')
+        ]
+        
+        # Try each fallback directory
+        for fallback_dir in fallback_dirs:
+            if os.path.exists(fallback_dir):
+                logger.info(f"Using fallback static directory: {fallback_dir}")
+                static_dir = fallback_dir
+                break
+                
+        if not static_dir or not os.path.exists(static_dir):
+            logger.error("No static directory found. CSS and JS files will be missing.")
+            return
         
     # Copy all files from static directory to output directory
     for root, dirs, files in os.walk(static_dir):
@@ -99,7 +119,7 @@ def get_all_files(directory: str, extensions: Optional[List[str]] = None) -> Lis
     """
     files = []
     
-    if not os.path.exists(directory):
+    if not directory or not os.path.exists(directory):
         return files
         
     for root, _, filenames in os.walk(directory):
@@ -116,7 +136,7 @@ def clean_directory(directory: str, exclude: Optional[List[str]] = None) -> None
         directory: Path to the directory.
         exclude: List of filenames or directories to exclude from cleaning.
     """
-    if not os.path.exists(directory):
+    if not directory or not os.path.exists(directory):
         return
         
     exclude_set = set(exclude or [])
@@ -133,3 +153,30 @@ def clean_directory(directory: str, exclude: Optional[List[str]] = None) -> None
                 shutil.rmtree(item_path)
         except Exception as e:
             logger.error(f"Error cleaning directory {directory}: {e}")
+
+def copy_template_static_files(base_dir: str, output_dir: str) -> None:
+    """Copy static files from the template directory to the output directory.
+    
+    Args:
+        base_dir: Base directory of the site.
+        output_dir: Path to the output directory.
+    """
+    # Try to find the template static directory
+    template_static_dirs = [
+        os.path.join(base_dir, 'templates', 'static'),
+        os.path.join(base_dir, 'templates', 'minimal', 'static'),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates', 'minimal', 'static')
+    ]
+    
+    copied = False
+    
+    for static_dir in template_static_dirs:
+        if os.path.exists(static_dir):
+            logger.info(f"Found template static directory: {static_dir}")
+            # Copy all files from template static directory to output directory
+            copy_static_files(static_dir, output_dir)
+            copied = True
+            break
+    
+    if not copied:
+        logger.warning("No template static directory found. Some CSS/JS files may be missing.")
