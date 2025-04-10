@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" width="200" height="60">
+  <!-- Sun/Solar Icon -->
+  <circle cx="30" cy="30" r="10" fill="#FFC107" />
+  
+  <!-- Rays -->
+  <line x1="30" y1="5" x2="30" y2="10" stroke="#FFC107" stroke-width="3" stroke-linecap="round" />
+  <line x1="30" y1="50" x2="30" y2="55" stroke="#FFC107" stroke-width="3" stroke-linecap="round" />
+  <line x1="5" y1="30" x2="10" y2="30" stroke="#FFC107" stroke-width="3" stroke-linecap="round" />
+  <line x1="50" y1="30" x2="55" y2="30" stroke="#FFC107" stroke-width="3" stroke-linecap="round" />
+  <line x1="12" y1="12" x2="16" y2="16" stroke="#FFC107" stroke-width="3" stroke-linecap="round" />
+  <line x1="44" y1="44" x2="48" y2="48" stroke="#FFC107" stroke-width="3" stroke-linecap="round" />
+  <line x1="12" y1="48" x2="16" y2="44" stroke="#FFC107" stroke-width="3" stroke-linecap="round" />
+  <line x1="44" y1="16" x2="48" y2="12" stroke="#FFC107" stroke-width="3" stroke-linecap="round" />
+</svg>

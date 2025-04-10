@@ -1,0 +1,67 @@
+projects:
+  - title: "Mountain Retreat Website"
+    description: "A responsive website for a luxury mountain retreat resort"
+    category: "Web Design"
+    image: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800"
+    technologies:
+      - HTML
+      - CSS
+      - JavaScript
+      - Sonne
+    url: "/portfolio/mountain-retreat/"
+    featured: true
+    
+  - title: "Tech Blog Redesign"
+    description: "Complete redesign of a popular technology blog focusing on readability"
+    category: "Blog Design"
+    image: "https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?w=800"
+    technologies:
+      - Sonne
+      - CSS Grid
+      - Responsive Design
+    url: "/portfolio/tech-blog/"
+    featured: true
+    
+  - title: "Organic Farm E-commerce"
+    description: "E-commerce website for a local organic farm with online ordering"
+    category: "E-commerce"
+    image: "https://images.unsplash.com/photo-1500651230702-0e2d8a49d4ad?w=800"
+    technologies:
+      - Sonne
+      - JavaScript
+      - API Integration
+    url: "/portfolio/organic-farm/"
+    featured: true
+    
+  - title: "Photography Portfolio"
+    description: "Minimalist portfolio website for a professional photographer"
+    category: "Portfolio"
+    image: "https://images.unsplash.com/photo-1452587925148-ce544e77e70d?w=800"
+    technologies:
+      - Sonne
+      - CSS
+      - Image Optimization
+    url: "/portfolio/photography/"
+    featured: false
+    
+  - title: "Personal Finance Blog"
+    description: "Blog focused on personal finance tips and resources"
+    category: "Blog"
+    image: "https://images.unsplash.com/photo-1579621970588-a35d0e7ab9b6?w=800"
+    technologies:
+      - Sonne
+      - Markdown
+      - SEO Optimization
+    url: "/portfolio/finance-blog/"
+    featured: false
+    
+  - title: "Travel Agency Site"
+    description: "Website for a boutique travel agency specializing in eco-tourism"
+    category: "Web Design"
+    image: "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=800"
+    technologies:
+      - Sonne
+      - Responsive Design
+      - SEO
+    url: "/portfolio/travel-agency/"
+    featured: false

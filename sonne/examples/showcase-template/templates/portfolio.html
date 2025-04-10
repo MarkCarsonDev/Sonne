@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <header class="page-header text-center mb-8">
+        <h1>{{ page.title }}</h1>
+        
+        {% if page.description %}
+        <p class="page-description">{{ page.description }}</p>
+        {% endif %}
+    </header>
+    
+    {% if projects %}
+    <!-- Portfolio Filter -->
+    <div class="portfolio-filter text-center mb-6">
+        <button class="btn btn-secondary active" data-filter="all">All</button>
+        
+        {% set categories = [] %}
+        {% for project in projects %}
+            {% if project.category not in categories %}
+                {% set categories = categories + [project.category] %}
+            {% endif %}
+        {% endfor %}
+        
+        {% for category in categories %}
+        <button class="btn btn-secondary" data-filter="{{ category|lower|replace(' ', '-') }}">{{ category }}</button>
+        {% endfor %}
+    </div>
+    
+    <!-- Portfolio Grid -->
+    <div class="portfolio-grid">
+        {% for project in projects %}
+        <div class="portfolio-item animate-on-scroll" data-category="{{ project.category|lower|replace(' ', '-') }}">
+            <img src="{{ project.image }}" alt="{{ project.title }}" class="portfolio-image">
+            
+            <div class="portfolio-overlay">
+                <h3 class="portfolio-title">{{ project.title }}</h3>
+                <div class="portfolio-category">{{ project.category }}</div>
+                <p class="portfolio-description">{{ project.description }}</p>
+                
+                {% if project.technologies %}
+                <div class="portfolio-technologies">
+                    {% for tech in project.technologies %}
+                    <span class="portfolio-tech">{{ tech }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <a href="{{ project.url }}" class="btn btn-primary">View Project</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="no-projects">
+        <p>No projects found.</p>
+    </div>
+    {% endif %}
+    
+    {% if page.content %}
+    <div class="portfolio-content mt-8">
+        {{ content }}
+    </div>
+    {% endif %}
+    
+    <!-- Call to Action -->
+    {% if page.cta %}
+    <div class="cta-section mt-10">
+        <div class="cta-content text-center">
+            <h2>{{ page.cta.title }}</h2>
+            <p>{{ page.cta.description }}</p>
+            <a href="{{ page.cta.url }}" class="btn btn-primary">{{ page.cta.text }}</a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

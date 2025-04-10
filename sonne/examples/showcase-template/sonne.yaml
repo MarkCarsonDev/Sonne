@@ -1,0 +1,76 @@
+site:
+  title: Sonne Showcase
+  base_url: https://example.com
+  description: A showcase of Sonne's features and capabilities
+  author: Sonne Developer
+  keywords:
+    - static site generator
+    - web development
+    - markdown
+    - blog
+    - python
+  language: en
+  footer:
+    text: Powered by Sonne Static Site Generator
+    links:
+      - text: GitHub
+        url: https://github.com/MarkCarsonDev/Sonne
+      - text: Documentation
+        url: /docs/
+  nav:
+    - text: Home
+      url: /
+    - text: Features
+      url: /features.html
+    - text: Blog
+      url: /blog/index.html
+    - text: Portfolio
+      url: /portfolio.html
+    - text: About
+      url: /about.html
+    - text: Contact
+      url: /contact.html
+paths:
+  content: content
+  output: output
+  static: static
+  templates: templates
+  data: data
+  scripts: scripts
+  cache: .cache
+
+blog:
+  enabled: true
+  directory: blog
+  template: blog_post.html
+  list_template: blog_list.html
+  posts_per_page: 5
+  excerpt_length: 250
+  url_pattern: '{year}/{month}/{day}/{slug}'
+  include_drafts: false
+  taxonomies:
+    tags:
+      enabled: true
+      template: tag.html
+      list_template: tags.html
+    categories:
+      enabled: true
+      template: category.html
+      list_template: categories.html
+
+images:
+  dither: false
+  optimize: true
+  formats:
+    - webp
+    - jpg
+    - png
+  sizes:
+    - 1200
+    - 800
+    - 400
+  lazy_loading: true
+
+variables:
+  file: sonne_variables.json
+  preserve_prior: true

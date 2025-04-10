@@ -77,7 +77,17 @@ class BlogProcessor:
             return
             
         # Sort posts by date (newest first)
-        self.posts.sort(key=lambda x: x.get('date', ''), reverse=True)
+        def get_sort_date(post):
+            date_val = post.get('date', '')
+            if isinstance(date_val, datetime):
+                return date_val
+            elif hasattr(date_val, 'year') and hasattr(date_val, 'month') and hasattr(date_val, 'day'):
+                # Convert date to datetime
+                return datetime(date_val.year, date_val.month, date_val.day)
+            else:
+                return datetime(1970, 1, 1)  # Default for invalid dates
+
+        self.posts.sort(key=get_sort_date, reverse=True)
         
         # Set navigation links (next/prev)
         self._set_navigation_links()
@@ -150,8 +160,13 @@ class BlogProcessor:
         try:
             if isinstance(date_str, str):
                 date = datetime.strptime(date_str, '%Y-%m-%d')
-            else:
+            elif isinstance(date_str, datetime):
                 date = date_str
+            elif hasattr(date_str, 'year') and hasattr(date_str, 'month') and hasattr(date_str, 'day'):
+                # If it's a date object, convert to datetime
+                date = datetime(date_str.year, date_str.month, date_str.day)
+            else:
+                date = datetime.now()
         except (ValueError, TypeError):
             logger.warning(f"Invalid date format in {file_path}, using current date")
             date = datetime.now()
