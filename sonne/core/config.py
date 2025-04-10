@@ -177,7 +177,7 @@ class Config:
             current = current[key]
         return current
         
-    def set(self, *keys: str, value: Any = None) -> None:
+    def set(self, *keys, value=None) -> None:
         """Set configuration value using dot notation or nested keys.
         
         Args:

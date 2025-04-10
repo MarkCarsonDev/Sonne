@@ -130,7 +130,7 @@ def new(path, template, name, force):
         config_path = site_path / 'sonne.yaml'
         if config_path.exists():
             config = Config(config_path)
-            config.set('site', 'title', site_name)
+            config.set('site', 'title', value=site_name)
             config.save()
         
         logger.info(f"Site created successfully at {site_path}")
