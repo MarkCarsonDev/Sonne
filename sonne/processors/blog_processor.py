@@ -41,7 +41,7 @@ class BlogProcessor:
         if output_path is None:
             output_path = ''
             
-        blog_dir = self.config.get('blog', 'directory', 'blog')
+        blog_dir = self.config.get('blog', 'directory', default='blog')
         if blog_dir is None:
             blog_dir = 'blog'
 
@@ -106,7 +106,7 @@ class BlogProcessor:
         """Collect all blog posts."""
         for file_path in Path(self.blog_content_dir).glob('**/*.md'):
             # Skip files in _drafts directory unless include_drafts is enabled
-            if '_drafts' in str(file_path) and not self.config.get('blog', 'include_drafts', False):
+            if '_drafts' in str(file_path) and not self.config.get('blog', 'include_drafts', default=False):
                 continue
                 
             try:
@@ -133,7 +133,7 @@ class BlogProcessor:
         front_matter, html_content = self.template_processor.process_markdown(content)
         
         # Skip draft posts unless include_drafts is enabled
-        if front_matter.get('draft', False) and not self.config.get('blog', 'include_drafts', False):
+        if front_matter.get('draft', False) and not self.config.get('blog', 'include_drafts', default=False):
             return None
             
         # Process date
@@ -164,7 +164,10 @@ class BlogProcessor:
             slug = self._slugify(title)
             
         # Build URL based on pattern
-        url_pattern = self.config.get('blog', 'url_pattern', '{year}/{month}/{day}/{slug}')
+        url_pattern = self.config.get('blog', 'url_pattern', default='{year}/{month}/{day}/{slug}')
+        if not url_pattern:
+            url_pattern = '{year}/{month}/{day}/{slug}'  # Set a default if None
+            
         url = url_pattern.format(
             year=date.year,
             month=f"{date.month:02d}",
@@ -176,7 +179,7 @@ class BlogProcessor:
         excerpt = front_matter.get('excerpt', front_matter.get('description', None))
         if not excerpt:
             # Generate excerpt from content
-            excerpt_length = self.config.get('blog', 'excerpt_length', 200)
+            excerpt_length = self.config.get('blog', 'excerpt_length', default=200)
             excerpt = self._generate_excerpt(html_content, excerpt_length)
             
         # Process taxonomies
@@ -190,16 +193,16 @@ class BlogProcessor:
             'date_str': date.strftime('%Y-%m-%d'),
             'date_formatted': date.strftime('%B %d, %Y'),
             'modified': front_matter.get('modified', front_matter.get('date_edited', date)),
-            'author': front_matter.get('author', self.config.get('site', 'author', 'Anonymous')),
+            'author': front_matter.get('author', self.config.get('site', 'author', default='Anonymous')),
             'slug': slug,
             'url': url,
-            'full_url': '/' + os.path.join(self.config.get('blog', 'directory', 'blog'), url).replace('\\', '/'),
+            'full_url': '/' + os.path.join(self.config.get('blog', 'directory', default='blog'), url).replace('\\', '/'),
             'content': html_content,
             'excerpt': excerpt,
             'tags': tags,
             'categories': categories,
             'featured': front_matter.get('featured', False),
-            'template': front_matter.get('template', self.config.get('blog', 'template', 'blog_post.html')),
+            'template': front_matter.get('template', self.config.get('blog', 'template', default='blog_post.html')),
             'cover_img': front_matter.get('cover_img', front_matter.get('cover_image', None)),
             'source_path': str(file_path),
             'metadata': front_matter,
@@ -270,7 +273,11 @@ class BlogProcessor:
                 self.variable_manager.set_page_variables(post)
                 
                 # Get all variables
-                variables = self.variable_manager.get_all()
+                variables = {
+                    'global': self.variable_manager.variables.get('global', {}),
+                    'site': self.variable_manager.variables.get('site', {}),
+                    'page': post
+                }
                 
                 # Get template
                 template_name = post.get('template')
@@ -300,7 +307,7 @@ class BlogProcessor:
         """Generate blog index pages with pagination."""
         try:
             # Determine pagination
-            posts_per_page = self.config.get('blog', 'posts_per_page', 10)
+            posts_per_page = self.config.get('blog', 'posts_per_page', default=10)
             total_pages = math.ceil(len(self.posts) / posts_per_page)
             
             # Generate each page
@@ -330,11 +337,15 @@ class BlogProcessor:
                 # Set page variables
                 self.variable_manager.set_page_variables(page_data)
                 
-                # Get all variables
-                variables = self.variable_manager.get_all()
+                # Get all variables with proper structure
+                variables = {
+                    'global': self.variable_manager.variables.get('global', {}),
+                    'site': self.variable_manager.variables.get('site', {}),
+                    'page': page_data
+                }
                 
                 # Get template
-                template_name = self.config.get('blog', 'list_template', 'blog_list.html')
+                template_name = self.config.get('blog', 'list_template', default='blog_list.html')
                 
                 # Fake content for template processor
                 content = f"<!-- Blog Index Page {page_num} -->"
@@ -402,8 +413,12 @@ class BlogProcessor:
                 # Set page variables
                 self.variable_manager.set_page_variables(page_data)
                 
-                # Get all variables
-                variables = self.variable_manager.get_all()
+                # Get all variables with proper structure
+                variables = {
+                    'global': self.variable_manager.variables.get('global', {}),
+                    'site': self.variable_manager.variables.get('site', {}),
+                    'page': page_data
+                }
                 
                 # Get template
                 template_name = taxonomy_config.get('template', f"{singular}.html")
@@ -439,8 +454,12 @@ class BlogProcessor:
             # Set page variables
             self.variable_manager.set_page_variables(page_data)
             
-            # Get all variables
-            variables = self.variable_manager.get_all()
+            # Get all variables with proper structure
+            variables = {
+                'global': self.variable_manager.variables.get('global', {}),
+                'site': self.variable_manager.variables.get('site', {}),
+                'page': page_data
+            }
             
             # Get template
             template_name = taxonomy_config.get('list_template', f"{taxonomy_type}.html")
@@ -478,9 +497,9 @@ class BlogProcessor:
                 return
                 
             # Get site information
-            site_title = self.config.get('site', 'title', 'My Sonne Site')
-            site_description = self.config.get('site', 'description', '')
-            site_url = self.config.get('site', 'base_url', '')
+            site_title = self.config.get('site', 'title', default='My Sonne Site')
+            site_description = self.config.get('site', 'description', default='')
+            site_url = self.config.get('site', 'base_url', default='')
             
             # Build RSS feed
             rss_items = []
