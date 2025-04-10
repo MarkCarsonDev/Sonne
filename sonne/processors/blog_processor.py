@@ -379,11 +379,11 @@ class BlogProcessor:
     def _generate_taxonomy_pages(self) -> None:
         """Generate taxonomy (tags, categories) pages."""
         # Process tags
-        if self.config.get('blog', 'taxonomies', {}).get('tags', {}).get('enabled', True):
+        if self.config.get('blog', 'taxonomies', default={}).get('tags', {}).get('enabled', True):
             self._generate_taxonomy_type_pages('tags')
             
         # Process categories
-        if self.config.get('blog', 'taxonomies', {}).get('categories', {}).get('enabled', True):
+        if self.config.get('blog', 'taxonomies', default={}).get('categories', {}).get('enabled', True):
             self._generate_taxonomy_type_pages('categories')
             
     def _generate_taxonomy_type_pages(self, taxonomy_type: str) -> None:
@@ -394,7 +394,7 @@ class BlogProcessor:
         """
         try:
             # Get taxonomy configuration
-            taxonomy_config = self.config.get('blog', 'taxonomies', {}).get(taxonomy_type, {})
+            taxonomy_config = self.config.get('blog', 'taxonomies', default={}).get(taxonomy_type, {})
             singular = taxonomy_type[:-1]  # Remove 's' to get singular form
             
             # Skip if no taxonomies of this type

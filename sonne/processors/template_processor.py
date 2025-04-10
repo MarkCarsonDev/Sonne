@@ -14,6 +14,16 @@ from typing import Dict, Any, Optional, List, Tuple, Union
 
 try:
     import jinja2
+    # Try to import Markup from the correct location
+    try:
+        from markupsafe import Markup
+    except ImportError:
+        try:
+            from jinja2 import Markup
+        except ImportError:
+            # Fallback if Markup is not available
+            class Markup(str):
+                pass
     JINJA_AVAILABLE = True
 except ImportError:
     JINJA_AVAILABLE = False
@@ -187,9 +197,9 @@ class TemplateProcessor:
         if template_name and self.jinja_env:
             # Create a structured variables dictionary with proper namespaces
             variables_for_template = {
-                'content': html_content,
+                # Mark HTML content as safe to prevent auto-escaping
+                'content': Markup(html_content),
                 'page': front_matter,
-                # Important: Make sure 'site' is properly defined for templates
                 'site': variables.get('site', {})
             }
             
