@@ -2,7 +2,7 @@ site:
   title: Sonne Showcase
   base_url: https://example.com
   description: A showcase of Sonne's features and capabilities
-  author: Sonne Developer
+  author: Mark Carson
   keywords:
     - static site generator
     - web development

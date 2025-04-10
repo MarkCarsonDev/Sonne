@@ -1,7 +1,7 @@
 ---
 title: Getting Started with Sonne Static Site Generator
 date: 2025-04-01
-author: Sonne Developer
+author: Mark Carson
 tags:
   - tutorial
   - beginner
