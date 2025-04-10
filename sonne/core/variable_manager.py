@@ -52,7 +52,7 @@ class VariableManager:
         self.data_dir = data_dir if data_dir and os.path.exists(data_dir) else None
         
         # Prepare scripts directory path
-        scripts_path = config.get('paths', 'data', default='scripts') 
+        scripts_path = config.get('paths', 'scripts', default='scripts') 
         scripts_dir = os.path.join(self.base_dir, scripts_path) if scripts_path else None
         self.scripts_dir = scripts_dir if scripts_dir and os.path.exists(scripts_dir) else None
 
@@ -156,6 +156,13 @@ class VariableManager:
                 'generator_version': self._get_version(),
                 'build_time': datetime.now().isoformat(),
                 'year': datetime.now().year,
+                # Add default footer structure
+                'footer': {
+                    'custom': None
+                },
+                # Add other defaults needed by templates
+                'nav': [],
+                'language': 'en'
             },
             'page': {}
         }
@@ -175,6 +182,9 @@ class VariableManager:
                                 self.variables['site'][key] = value['text']
                             else:
                                 self.variables['site'][key] = "My Sonne Site"
+                        elif key == 'footer' and isinstance(value, dict):
+                            # Merge with existing footer structure
+                            self.variables['site']['footer'].update(value)
                         else:
                             self.variables['site'][key] = value
         except Exception as e:
@@ -203,6 +213,31 @@ class VariableManager:
                 logger.debug(f"Ran data scripts from {self.scripts_dir}")
             except Exception as e:
                 logger.error(f"Error running data scripts from {self.scripts_dir}: {e}")
+                
+        # Look for the footer.py script specifically
+        footer_py_path = os.path.join(self.base_dir, 'data', 'footer.py')
+        if os.path.exists(footer_py_path):
+            try:
+                # Create a module spec and load the module
+                spec = importlib.util.spec_from_file_location(
+                    "sonne_script_footer", 
+                    footer_py_path
+                )
+                module = importlib.util.module_from_spec(spec)
+                
+                # Add the sonne_var function to the module's namespace
+                module.sonne_var = lambda k, v: self.set(k, v, 'global')
+                
+                # Execute the module
+                spec.loader.exec_module(module)
+                
+                # Check if footer_custom was set
+                if 'footer_custom' in self.variables.get('global', {}):
+                    self.variables['site']['footer']['custom'] = self.variables['global']['footer_custom']
+                    
+                logger.debug(f"Loaded footer script: {footer_py_path}")
+            except Exception as e:
+                logger.error(f"Error running footer script: {e}")
         
                 
     def get(self, key: str, default: Any = None, scope: Optional[str] = None) -> Any:
@@ -251,6 +286,15 @@ class VariableManager:
             self.variables[scope] = {}
             
         self.variables[scope][key] = value
+        
+        # Special handling for footer_custom
+        if key == 'footer_custom' and scope == 'global':
+            # Also set in site.footer.custom
+            if 'site' not in self.variables:
+                self.variables['site'] = {}
+            if 'footer' not in self.variables['site']:
+                self.variables['site']['footer'] = {}
+            self.variables['site']['footer']['custom'] = value
         
     def set_page_variables(self, variables: Dict[str, Any]) -> None:
         """Set page-level variables.
