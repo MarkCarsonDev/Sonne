@@ -1,64 +1,28 @@
 site:
-  title: "My Sonne Site"
-  base_url: "http://localhost"
-  description: "A site built with Sonne static site generator"
-  author: "Sonne User"
-  keywords:
-    - static site
-    - blog
-    - minimalist
-  language: "en"
-  banner_message:
-    text: "This site was built with Sonne, a lightweight static site generator."
-    link: "https://github.com/MarkCarsonDev/Sonne"
-    link_text: "Learn more"
-  nav:
-    - text: "About"
-      url: "/#about"
-    - text: "Projects"
-      url: "/#projects"
-    - text: "Contact"
-      url: "/contact"
-  
+  title: My Minimal Site
+  base_url: http://localhost
+  description: A clean, minimal site built with Sonne
+  author: Your Name
+  language: en
+
 paths:
-  content: "content"
-  output: "output"
-  static: "static"
-  templates: "templates"
-  data: "data"
-  cache: ".cache"
+  content: content
+  output: output
+  static: static
+  templates: templates
+  data: data
+  cache: .cache
 
 blog:
-  enabled: true
-  directory: "blog"
-  template: "blog_post.html"
-  list_template: "blog_list.html"
-  posts_per_page: 10
-  excerpt_length: 200
-  url_pattern: "{year}/{month}/{day}/{slug}"
-  include_drafts: false
-  taxonomies:
-    tags:
-      enabled: true
-      template: "tag.html"
-      list_template: "tags.html"
-    categories:
-      enabled: true
-      template: "category.html"
-      list_template: "categories.html"
+  enabled: false
 
 images:
-  dither: true
+  dither: false
   optimize: true
-  formats: 
-    - "webp"
-    - "png"
+  formats:
+    - webp
+    - jpg
   sizes:
     - 1200
     - 800
     - 400
-  lazy_loading: true
-
-variables:
-  file: "sonne_variables.json"
-  preserve_prior: false

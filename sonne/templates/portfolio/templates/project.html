@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="project-section">
+    <div class="container">
+        <header class="project-header">
+            <h1 class="project-title">{{ page.title }}</h1>
+            
+            {% if page.subtitle %}
+            <p class="project-subtitle">{{ page.subtitle }}</p>
+            {% endif %}
+            
+            <div class="project-meta">
+                {% if page.category %}
+                <span class="project-category">{{ page.category }}</span>
+                {% endif %}
+                
+                {% if page.date %}
+                <span class="project-date">{{ page.date }}</span>
+                {% endif %}
+                
+                {% if page.client %}
+                <span class="project-client">Client: {{ page.client }}</span>
+                {% endif %}
+            </div>
+        </header>
+        
+        {% if page.gallery %}
+        <div class="project-gallery">
+            {% for image in page.gallery %}
+            <div class="gallery-item">
+                <img src="{{ image.url }}" alt="{{ image.alt|default(page.title) }}">
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <div class="project-content">
+            {{ content }}
+        </div>
+        
+        {% if page.technologies %}
+        <div class="project-technologies">
+            <h3>Technologies Used</h3>
+            <ul class="tech-list">
+                {% for tech in page.technologies %}
+                <li class="tech-item">{{ tech }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        
+        <div class="project-navigation">
+            <a href="/portfolio/" class="back-to-portfolio">Back to Portfolio</a>
+            
+            {% if page.prev_project %}
+            <a href="{{ page.prev_project.url }}" class="prev-project">
+                <span class="nav-label">Previous</span>
+                <span class="nav-title">{{ page.prev_project.title }}</span>
+            </a>
+            {% endif %}
+            
+            {% if page.next_project %}
+            <a href="{{ page.next_project.url }}" class="next-project">
+                <span class="nav-label">Next</span>
+                <span class="nav-title">{{ page.next_project.title }}</span>
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}

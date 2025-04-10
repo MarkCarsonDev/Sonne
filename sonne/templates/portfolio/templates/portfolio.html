@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="portfolio-section">
+    <div class="container">
+        <header class="page-header">
+            <h1 class="page-title">{{ page.title }}</h1>
+            
+            {% if page.subtitle %}
+            <p class="page-subtitle">{{ page.subtitle }}</p>
+            {% endif %}
+        </header>
+        
+        {% if page.content_before %}
+        <div class="content-before">
+            {{ page.content_before }}
+        </div>
+        {% endif %}
+        
+        {% if projects %}
+        <div class="portfolio-filters">
+            <button class="filter-btn active" data-filter="all">All</button>
+            
+            {% set categories = [] %}
+            {% for project in projects %}
+                {% if project.category not in categories %}
+                    {% set categories = categories + [project.category] %}
+                {% endif %}
+            {% endfor %}
+            
+            {% for category in categories %}
+            <button class="filter-btn" data-filter="{{ category|lower }}">{{ category }}</button>
+            {% endfor %}
+        </div>
+        
+        <div class="portfolio-grid">
+            {% for project in projects %}
+            <div class="portfolio-item" data-category="{{ project.category|lower }}">
+                <a href="{{ project.url }}" class="portfolio-link">
+                    <div class="portfolio-img">
+                        <img src="{{ project.image }}" alt="{{ project.title }}">
+                    </div>
+                    <div class="portfolio-overlay">
+                        <h3 class="portfolio-title">{{ project.title }}</h3>
+                        <p class="portfolio-category">{{ project.category }}</p>
+                    </div>
+                </a>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <div class="page-content">
+            {{ content }}
+        </div>
+    </div>
+</section>
+{% endblock %}

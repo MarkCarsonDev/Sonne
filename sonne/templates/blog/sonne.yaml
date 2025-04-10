@@ -1,0 +1,52 @@
+site:
+  title: My Blog
+  base_url: http://localhost
+  description: A personal blog built with Sonne
+  author: Your Name
+  language: en
+  nav:
+    - text: Home
+      url: /
+    - text: Blog
+      url: /blog/
+    - text: About
+      url: /about/
+
+paths:
+  content: content
+  output: output
+  static: static
+  templates: templates
+  data: data
+  cache: .cache
+
+blog:
+  enabled: true
+  directory: blog
+  template: blog_post.html
+  list_template: blog_list.html
+  posts_per_page: 5
+  excerpt_length: 150
+  url_pattern: '{year}/{month}/{day}/{slug}'
+  include_drafts: false
+  taxonomies:
+    tags:
+      enabled: true
+      template: tag.html
+      list_template: tags.html
+    categories:
+      enabled: true
+      template: category.html
+      list_template: categories.html
+
+images:
+  dither: false
+  optimize: true
+  formats:
+    - webp
+    - jpg
+  sizes:
+    - 1200
+    - 800
+    - 400
+  lazy_loading: true

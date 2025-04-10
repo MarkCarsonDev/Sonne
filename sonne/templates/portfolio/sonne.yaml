@@ -1,0 +1,47 @@
+site:
+  title: My Portfolio
+  base_url: http://localhost
+  description: Personal portfolio and showcase
+  author: Your Name
+  language: en
+  nav:
+    - text: Home
+      url: /
+    - text: Portfolio
+      url: /portfolio/
+    - text: About
+      url: /about/
+    - text: Blog
+      url: /blog/
+    - text: Contact
+      url: /contact/
+
+paths:
+  content: content
+  output: output
+  static: static
+  templates: templates
+  data: data
+  cache: .cache
+
+blog:
+  enabled: true
+  directory: blog
+  template: blog_post.html
+  list_template: blog_list.html
+  posts_per_page: 5
+  excerpt_length: 200
+  url_pattern: 'blog/{slug}'
+  include_drafts: false
+
+images:
+  dither: false
+  optimize: true
+  formats:
+    - webp
+    - jpg
+  sizes:
+    - 1200
+    - 800
+    - 400
+  lazy_loading: true
