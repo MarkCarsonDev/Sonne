@@ -1,6 +1,6 @@
 <div id="footer">
     <div class="footer-content">
-        {% if site.footer.custom %}
+        {% if site.footer and site.footer.custom %}
             {{ site.footer.custom }}
         {% else %}
             <p>© {{ site.year|default('2025') }} {{ site.author|default('Sonne User') }}. All rights reserved.</p>
