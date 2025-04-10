@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="{{ site.language|default('en') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Posts in category {{ category }} - {{ site.description }}">
+    <meta name="author" content="{{ site.author }}">
+    
+    <!-- Open Graph Metadata -->
+    <meta property="og:title" content="Posts in category {{ category }} - {{ site.title }}">
+    <meta property="og:description" content="Posts in category {{ category }} - {{ site.description }}">
+    <meta property="og:url" content="{{ site.base_url }}/blog/categories/{{ category|lower|replace(' ', '-') }}">
+    <meta property="og:type" content="website">
+    
+    <title>{{ page.title }} - {{ site.title }}</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/blog.css">
+</head>
+
+<body>
+    <div id="main">
+        {% include 'partials/header.html' %}
+        {% include 'partials/nav.html' %}
+        
+        <div id="content">
+            <div class="blog-list">
+                <header class="page-header">
+                    <h1>Posts in category "{{ category }}"</h1>
+                </header>
+                
+                {% for post in posts %}
+                <article class="post-preview">
+                    <header>
+                        <h2><a href="{{ post.full_url }}">{{ post.title }}</a></h2>
+                        <div class="post-meta">
+                            <span class="post-date">{{ post.date_formatted }}</span>
+                            <span class="post-author">by {{ post.author }}</span>
+                        </div>
+                    </header>
+                    
+                    {% if post.cover_img %}
+                    <div class="post-cover">
+                        <a href="{{ post.full_url }}">
+                            <img src="/{{ post.cover_img }}" alt="{{ post.title }}">
+                        </a>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="post-excerpt">
+                        <p>{{ post.excerpt }}</p>
+                        <a href="{{ post.full_url }}" class="read-more">Read more →</a>
+                    </div>
+                    
+                    {% if post.tags %}
+                    <div class="post-tags">
+                        {% for tag in post.tags %}
+                        <a href="/blog/tags/{{ tag|lower|replace(' ', '-') }}" class="tag">{{ tag }}</a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </article>
+                {% endfor %}
+                
+                <div class="back-link">
+                    <a href="/blog/categories/">← Back to all categories</a>
+                </div>
+            </div>
+        </div>
+        
+        <nav id="sidebar">
+            <ul>
+                <a href="/"><li id="kpH" class="keypress"><span>Home</span></li></a>
+                <a href="/blog"><li id="kpB" class="keypress"><span>All Posts</span></li></a>
+                <a href="/blog/categories"><li id="kpC" class="keypress"><span>All Categories</span></li></a>
+            </ul>
+        </nav>
+        
+        {% include 'partials/footer.html' %}
+    </div>
+
+    <script src="/js/script.js"></script>
+</body>
+</html>

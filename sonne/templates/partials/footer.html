@@ -1,0 +1,11 @@
+<div id="footer">
+    <div class="footer-content">
+        {% if site.footer.custom %}
+            {{ site.footer.custom }}
+        {% else %}
+            <p>© {{ site.year|default('2025') }} {{ site.author|default('Sonne User') }}. All rights reserved.</p>
+            <p>Designed to be lightweight. Built with <a href="https://github.com/MarkCarsonDev/Sonne">Sonne</a>, a minimalist static site generator.</p>
+            <p>Build time: {{ site.build_time }}</p>
+        {% endif %}
+    </div>
+</div>

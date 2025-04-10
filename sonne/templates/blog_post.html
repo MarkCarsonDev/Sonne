@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="{{ site.language|default('en') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{{ page.excerpt }}">
+    <meta name="author" content="{{ page.author }}">
+    <meta name="keywords" content="{{ page.tags|join(', ') }}">
+    
+    <!-- Open Graph Metadata -->
+    <meta property="og:title" content="{{ page.title }}">
+    <meta property="og:description" content="{{ page.excerpt }}">
+    <meta property="og:url" content="{{ site.base_url }}{{ page.full_url }}">
+    <meta property="og:type" content="article">
+    {% if page.cover_img %}
+    <meta property="og:image" content="{{ site.base_url }}/{{ page.cover_img }}">
+    {% endif %}
+    
+    <!-- Twitter Card Metadata -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ page.title }}">
+    <meta name="twitter:description" content="{{ page.excerpt }}">
+    {% if page.cover_img %}
+    <meta name="twitter:image" content="{{ site.base_url }}/{{ page.cover_img }}">
+    {% endif %}
+
+    <title>{{ page.title }} - {{ site.title }}</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/blog.css">
+</head>
+
+<body>
+    <div id="main">
+        {% include 'partials/header.html' %}
+        {% include 'partials/nav.html' %}
+        
+        <div id="content">
+            <article class="blog-post">
+                <header class="post-header">
+                    <h1>{{ page.title }}</h1>
+                    <div class="post-meta">
+                        <span class="post-date">{{ page.date_formatted }}</span>
+                        <span class="post-author">by {{ page.author }}</span>
+                        {% if page.categories %}
+                        <span class="post-categories">
+                            in 
+                            {% for category in page.categories %}
+                            <a href="/blog/categories/{{ category|lower|replace(' ', '-') }}">{{ category }}</a>{% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                        </span>
+                        {% endif %}
+                    </div>
+                </header>
+                
+                {% if page.cover_img %}
+                <div class="post-cover">
+                    <img src="/{{ page.cover_img }}" alt="{{ page.title }}">
+                </div>
+                {% endif %}
+                
+                <div class="post-content">
+                    {{ content }}
+                </div>
+                
+                {% if page.tags %}
+                <div class="post-tags">
+                    <span>Tags:</span>
+                    {% for tag in page.tags %}
+                    <a href="/blog/tags/{{ tag|lower|replace(' ', '-') }}" class="tag">{{ tag }}</a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </article>
+            
+            <div class="post-navigation">
+                {% if page.prev_post %}
+                <a href="{{ page.prev_post.url }}" class="prev-post">
+                    <span class="nav-label">Previous Post</span>
+                    <span class="post-title">{{ page.prev_post.title }}</span>
+                </a>
+                {% endif %}
+                
+                {% if page.next_post %}
+                <a href="{{ page.next_post.url }}" class="next-post">
+                    <span class="nav-label">Next Post</span>
+                    <span class="post-title">{{ page.next_post.title }}</span>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+        
+        <nav id="sidebar">
+            <ul>
+                <a href="/blog"><li id="kpB" class="keypress"><span>All Posts</span></li></a>
+                <li class="listsep"></li>
+                {% if page.prev_post %}
+                <a href="{{ page.prev_post.url }}"><li id="kpArrowLeft" class="keypress"><span>Previous</span></li></a>
+                {% endif %}
+                {% if page.next_post %}
+                <a href="{{ page.next_post.url }}"><li id="kpArrowRight" class="keypress"><span>Next</span></li></a>
+                {% endif %}
+            </ul>
+        </nav>
+        
+        {% include 'partials/footer.html' %}
+    </div>
+
+    <script src="/js/script.js"></script>
+    <script>
+        // Image toggle for dithered/original images
+        function swapImage(imageId, originalSrc, ditheredSrc) {
+            const img = document.getElementById(imageId);
+            const isOriginal = img.getAttribute('data-original') === 'true';
+            
+            if (isOriginal) {
+                img.src = ditheredSrc;
+                img.setAttribute('data-original', 'false');
+            } else {
+                img.src = originalSrc;
+                img.setAttribute('data-original', 'true');
+            }
+        }
+    </script>
+</body>
+</html>

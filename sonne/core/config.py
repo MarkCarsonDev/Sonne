@@ -1,0 +1,240 @@
+"""
+Configuration management for Sonne.
+Supports multiple configuration formats and provides validation.
+"""
+
+import os
+import json
+import yaml
+from pathlib import Path
+import logging
+from typing import Dict, Any, Optional, List
+
+logger = logging.getLogger('sonne')
+
+# Default configuration settings
+DEFAULT_CONFIG = {
+    'site': {
+        'title': 'My Sonne Site',
+        'base_url': 'http://localhost',
+        'description': 'A site built with Sonne',
+        'author': 'Sonne User',
+        'keywords': [],
+        'language': 'en',
+    },
+    'paths': {
+        'content': 'content',
+        'output': 'output',
+        'static': 'static',
+        'templates': 'templates',
+        'data': 'data',
+        'cache': '.cache',
+    },
+    'blog': {
+        'enabled': True,
+        'directory': 'blog',
+        'template': 'blog_post.html',
+        'list_template': 'blog_list.html',
+        'posts_per_page': 10,
+        'excerpt_length': 200,
+        'url_pattern': '{year}/{month}/{day}/{slug}',
+        'include_drafts': False,
+        'taxonomies': {
+            'tags': {
+                'enabled': True,
+                'template': 'tag.html',
+                'list_template': 'tags.html',
+            },
+            'categories': {
+                'enabled': True,
+                'template': 'category.html',
+                'list_template': 'categories.html',
+            },
+        },
+    },
+    'images': {
+        'dither': True,
+        'optimize': True,
+        'formats': ['webp', 'png'],
+        'sizes': [1200, 800, 400],
+        'lazy_loading': True,
+    },
+    'variables': {
+        'file': 'sonne_variables.json',
+        'preserve_prior': False,
+    },
+}
+
+class Config:
+    """Configuration management for Sonne."""
+    
+    def __init__(self, config_path: Optional[str] = None):
+        """Initialize configuration with optional path to config file.
+        
+        Args:
+            config_path: Path to configuration file. If None, looks for default locations.
+        """
+        self.config_path = config_path or self._find_config()
+        self.config = self._load_config()
+        
+    def _find_config(self) -> Optional[str]:
+        """Search for configuration file in standard locations.
+        
+        Returns:
+            Path to config file if found, None otherwise.
+        """
+        search_paths = [
+            'sonne.yaml', 'sonne.yml', 'sonne.json', '.sonne/config.yaml',
+            'sonne.config', '.sonne.yaml', '.sonne.json'
+        ]
+        
+        for path in search_paths:
+            if os.path.exists(path):
+                logger.debug(f"Found configuration file at {path}")
+                return path
+                
+        logger.debug("No configuration file found, using defaults")
+        return None
+        
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration from file and merge with defaults.
+        
+        Returns:
+            Complete configuration dictionary.
+        """
+        config = DEFAULT_CONFIG.copy()
+        
+        if not self.config_path:
+            return config
+            
+        try:
+            ext = Path(self.config_path).suffix.lower()
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                if ext in ['.yaml', '.yml']:
+                    user_config = yaml.safe_load(f)
+                elif ext == '.json' or ext == '.config':
+                    user_config = json.load(f)
+                else:
+                    logger.warning(f"Unsupported config format: {ext}")
+                    return config
+                    
+                # Deep merge with defaults
+                self._deep_merge(user_config, config)
+                logger.debug(f"Loaded configuration from {self.config_path}")
+                
+        except Exception as e:
+            logger.error(f"Error loading configuration file: {e}")
+            logger.warning("Using default configuration")
+            
+        return config
+        
+    def _deep_merge(self, source: Dict[str, Any], destination: Dict[str, Any]) -> None:
+        """Recursively merge source dictionary into destination.
+        
+        Args:
+            source: Source dictionary with new values.
+            destination: Destination dictionary to update.
+        """
+        for key, value in source.items():
+            if key in destination and isinstance(destination[key], dict) and isinstance(value, dict):
+                self._deep_merge(value, destination[key])
+            else:
+                destination[key] = value
+                
+    def get(self, *keys: str, default: Any = None) -> Any:
+        """Get configuration value using dot notation or nested keys.
+        
+        Args:
+            *keys: Key path to the desired configuration value.
+            default: Default value if key is not found.
+            
+        Returns:
+            Configuration value or default if not found.
+        """
+        current = self.config
+        for key in keys:
+            if not isinstance(current, dict) or key not in current:
+                return default
+            current = current[key]
+        return current
+        
+    def set(self, *keys: str, value: Any) -> None:
+        """Set configuration value using dot notation or nested keys.
+        
+        Args:
+            *keys: Key path to the configuration value to set.
+            value: Value to set.
+        """
+        if not keys:
+            return
+            
+        # Navigate to the nested dictionary
+        current = self.config
+        for key in keys[:-1]:
+            if key not in current:
+                current[key] = {}
+            elif not isinstance(current[key], dict):
+                current[key] = {}
+            current = current[key]
+            
+        # Set the value
+        current[keys[-1]] = value
+        
+    def save(self, path: Optional[str] = None) -> None:
+        """Save configuration to file.
+        
+        Args:
+            path: Path to save configuration to. If None, uses current config path.
+        """
+        save_path = path or self.config_path
+        
+        if not save_path:
+            logger.warning("No configuration path specified, not saving")
+            return
+            
+        try:
+            ext = Path(save_path).suffix.lower()
+            os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+            
+            with open(save_path, 'w', encoding='utf-8') as f:
+                if ext in ['.yaml', '.yml']:
+                    yaml.dump(self.config, f, default_flow_style=False, sort_keys=False)
+                elif ext == '.json' or ext == '.config':
+                    json.dump(self.config, f, indent=2)
+                else:
+                    logger.warning(f"Unsupported config format for saving: {ext}")
+                    return
+                    
+            logger.debug(f"Configuration saved to {save_path}")
+            
+        except Exception as e:
+            logger.error(f"Error saving configuration: {e}")
+            
+    def normalize_paths(self, base_dir: str) -> Dict[str, str]:
+        """Normalize all path configurations to absolute paths.
+        
+        Args:
+            base_dir: Base directory to resolve relative paths against.
+            
+        Returns:
+            Dictionary of normalized paths.
+        """
+        paths = {}
+        path_keys = self.get('paths')
+        
+        for key, value in path_keys.items():
+            if not value:
+                continue
+                
+            if not os.path.isabs(value):
+                full_path = os.path.abspath(os.path.join(base_dir, value))
+            else:
+                full_path = value
+                
+            # Ensure the directory exists for output paths
+            if key in ['output', 'cache']:
+                os.makedirs(full_path, exist_ok=True)
+                
+            paths[key] = full_path
+            
+        return paths

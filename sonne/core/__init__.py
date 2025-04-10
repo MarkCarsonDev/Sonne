@@ -1,0 +1,1 @@
+"""Core functionality for Sonne static site generator."""
