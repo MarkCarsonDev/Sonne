@@ -32,14 +32,46 @@ class SiteGenerator:
         self.config = config
         self.base_dir = os.path.abspath(base_dir or os.getcwd())
         
+        # Set default paths if not in config
+        if 'paths' not in self.config.config:
+            self.config.config['paths'] = {}
+        
+        # Ensure required path keys exist with defaults
+        default_paths = {
+            'content': 'content',
+            'output': 'output',
+            'static': 'static',
+            'templates': 'templates',
+            'data': 'data',
+            'cache': '.cache',
+        }
+        
+        for key, default in default_paths.items():
+            if key not in self.config.config['paths'] or not self.config.config['paths'][key]:
+                self.config.config['paths'][key] = default
+        
         # Normalize paths
-        self.paths = config.normalize_paths(self.base_dir)
+        self.paths = {}
+        for key, value in self.config.config['paths'].items():
+            if value:  # Only add paths that have a value
+                if not os.path.isabs(value):
+                    full_path = os.path.abspath(os.path.join(self.base_dir, value))
+                else:
+                    full_path = value
+                    
+                # Ensure the directory exists for output paths
+                if key in ['output', 'cache']:
+                    os.makedirs(full_path, exist_ok=True)
+                    
+                self.paths[key] = full_path
+            
         
         # Initialize processors
         self.variable_manager = VariableManager(config, self.base_dir)
         self.template_processor = TemplateProcessor(config, self.paths)
         self.blog_processor = BlogProcessor(config, self.paths, self.template_processor, self.variable_manager)
         self.image_processor = ImageProcessor(config, self.paths)
+
         
     def clean_output(self) -> None:
         """Clean the output directory by removing all files."""
@@ -75,7 +107,7 @@ class SiteGenerator:
             self.variable_manager.load_variables()
             
             # Process blog posts if enabled
-            if self.config.get('blog', 'enabled', True):
+            if self.config.get('blog', 'enabled', default=True):
                 logger.info("Processing blog posts...")
                 self.blog_processor.process_all_posts()
                 
@@ -85,13 +117,13 @@ class SiteGenerator:
             
             # Copy static files
             logger.info("Copying static files...")
-            copy_static_files(self.paths['static'], self.paths['output'])
+            copy_static_files(self.paths.get('static', ''), self.paths['output'])
             
             # Process images
             if not skip_images:
                 logger.info("Processing images...")
                 self.image_processor.process_all(
-                    os.path.join(self.base_dir, self.config.get('paths', 'content')),
+                    self.paths.get('content', ''),
                     skip_cache=skip_cache
                 )
                 
@@ -109,19 +141,20 @@ class SiteGenerator:
             
     def _process_pages(self) -> None:
         """Process all pages in the content directory."""
-        content_dir = self.paths['content']
+        content_dir = self.paths.get('content')
         
         # Skip if content directory doesn't exist
-        if not os.path.exists(content_dir):
+        if not content_dir or not os.path.exists(content_dir):
             logger.warning(f"Content directory does not exist: {content_dir}")
             return
             
         # Process pages in the content directory, excluding blog directory
-        blog_dir = os.path.join(content_dir, self.config.get('blog', 'directory', 'blog'))
+        blog_dir_name = self.config.get('blog', 'directory', default='blog')
+        blog_dir = os.path.join(content_dir, blog_dir_name) if blog_dir_name else None
         
         for file_path in Path(content_dir).glob('**/*.*'):
             # Skip blog directory, it's handled separately
-            if str(file_path).startswith(blog_dir):
+            if blog_dir and str(file_path).startswith(blog_dir):
                 continue
                 
             # Process HTML and Markdown files
@@ -153,12 +186,19 @@ class SiteGenerator:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
             
+        # Get variables with proper structure
+        variables = {
+            'global': self.variable_manager.variables.get('global', {}),
+            'site': self.variable_manager.variables.get('site', {}),
+            'page': {}
+        }
+            
         # Process the page
         front_matter, processed_content = self.template_processor.process_page(
             content, 
             file_path.suffix.lower() in ['.md', '.markdown'],
             str(file_path),
-            self.variable_manager.get_all()
+            variables
         )
         
         # Write the processed content to output
