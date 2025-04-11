@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="{{ site.language }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if page.title %}{{ page.title }} - {% endif %}{{ site.title }}</title>
+    <meta name="description" content="{{ page.description | default(site.description) }}">
+    
+    <!-- Preconnect to weather API (if needed) -->
+    {% if weather %}
+    <link rel="preconnect" href="https://api.openweathermap.org">
+    {% endif %}
+    
+    <!-- Critical CSS inline for performance -->
+    <style>
+        /* Base styles */
+        :root {
+            --bg-color: #121212;
+            --text-color: #b0b0b0;
+            --heading-color: #e0e0e0;
+            --link-color: #7eb77f;
+            --link-hover: #90c991;
+            --border-color: #333333;
+            --accent-color: #5e8c5f;
+            --card-bg: #1c1c1c;
+            --font-size: 14px;
+        }
+        
+        /* Light theme (optional) */
+        [data-theme="light"] {
+            --bg-color: #f9f9f9;
+            --text-color: #555555;
+            --heading-color: #333333;
+            --link-color: #2e7b32;
+            --link-hover: #3a9c3f;
+            --border-color: #dddddd;
+            --accent-color: #4caf50;
+            --card-bg: #ffffff;
+        }
+        
+        /* Higher contrast option */
+        [data-contrast="high"] {
+            --text-color: #e0e0e0;
+            --heading-color: #ffffff;
+        }
+        
+        /* Base styling */
+        html {
+            font-size: var(--font-size);
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.5;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        
+        /* No JS fallback */
+        .no-js body {
+            background-color: #ffffff;
+            color: #333333;
+        }
+        
+        /* Main layout */
+        .container {
+            width: 90%;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 1rem;
+        }
+        
+        .site-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 2rem;
+        }
+        
+        .site-footer {
+            border-top: 1px solid var(--border-color);
+            margin-top: 2rem;
+            padding: 1rem 0;
+            font-size: 0.9rem;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            color: var(--heading-color);
+            margin-top: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        a {
+            color: var(--link-color);
+            text-decoration: none;
+        }
+        
+        a:hover {
+            color: var(--link-hover);
+        }
+        
+        /* Navigation */
+        .site-nav ul {
+            display: flex;
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            gap: 1.5rem;
+        }
+        
+        .site-title {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: var(--heading-color);
+            text-decoration: none;
+        }
+        
+        /* Status indicators */
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 1rem;
+            background-color: var(--card-bg);
+            border-radius: 4px;
+            margin-bottom: 2rem;
+            font-size: 0.85rem;
+        }
+        
+        .battery-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .battery-level {
+            width: 2.5rem;
+            height: 1rem;
+            border: 1px solid var(--text-color);
+            border-radius: 2px;
+            position: relative;
+        }
+        
+        .battery-fill {
+            height: 100%;
+            background-color: var(--accent-color);
+            width: 0%;
+        }
+        
+        .weather-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        /* Dark mode toggle button */
+        .theme-toggle {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-color);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+        
+        /* Helper classes */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
+        
+        .content-wrapper {
+            min-height: 70vh;
+        }
+    </style>
+    
+    <!-- Non-critical CSS -->
+    <link rel="stylesheet" href="/static/css/minimal.css" media="print" onload="this.media='all'">
+    
+    <!-- Preload link -->
+    <link rel="preload" href="/static/js/minimal.js" as="script">
+</head>
+<body data-theme="dark" data-contrast="low">
+    <header class="site-header">
+        <div class="container">
+            <div class="header-content">
+                <a href="/" class="site-title">{{ site.title }}</a>
+                
+                <nav class="site-nav">
+                    <ul>
+                        {% for item in site.nav %}
+                        <li><a href="{{ item.url }}" {% if page.url == item.url %}class="active"{% endif %}>{{ item.text }}</a></li>
+                        {% endfor %}
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </header>
+    
+    <div class="container">
+        {% if battery or weather %}
+        <div class="status-bar">
+            {% if battery %}
+            <div class="battery-status">
+                <span class="battery-icon">⚡</span>
+                <div class="battery-level">
+                    <div class="battery-fill" style="width: {{ battery.percentage }}%;"></div>
+                </div>
+                <span>{{ battery.percentage }}%{% if battery.charging %} (Charging){% endif %}</span>
+            </div>
+            {% endif %}
+            
+            {% if weather %}
+            <div class="weather-status">
+                <span class="weather-icon">{{ weather.icon_text }}</span>
+                <span>{{ weather.temperature }}°{% if site.weather.units == 'metric' %}C{% else %}F{% endif %} | {{ weather.location }}</span>
+            </div>
+            {% endif %}
+            
+            <button class="theme-toggle" aria-label="Toggle dark/light mode">
+                ☀️
+            </button>
+        </div>
+        {% endif %}
+        
+        <div class="content-wrapper">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+    
+    <footer class="site-footer">
+        <div class="container">
+            <div class="footer-content">
+                <p>&copy; {{ site.year }} {{ site.author }} | Powered by <a href="https://github.com/MarkCarsonDev/Sonne">Sonne</a> | Solar Template</p>
+                {% if site.footer.custom %}{{ site.footer.custom }}{% endif %}
+            </div>
+        </div>
+    </footer>
+    
+    <!-- Deferred JavaScript -->
+    <script src="/static/js/minimal.js" defer></script>
+</body>
+</html>

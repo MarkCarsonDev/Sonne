@@ -15,7 +15,6 @@ cta:
     text: Install Sonne
     url: /docs/installation/
 ---
-
 ## Welcome to Sonne
 
 Sonne is a minimalist static site generator designed to create efficient websites with minimal resource requirements. It combines simplicity, flexibility, and performance to help you create beautiful static websites without the bloat.
@@ -69,9 +68,8 @@ result = "Random number: " + str(random.randint(1, 100))
 #### Custom Data Sources
 
 ```python
-def sonne_var(key, value):
-    # This function is provided by Sonne
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 # Generate data
 projects = [

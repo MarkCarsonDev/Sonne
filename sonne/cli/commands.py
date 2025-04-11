@@ -56,8 +56,9 @@ def cli(ctx, verbose, quiet):
 @click.option('--clean', is_flag=True, help='Clean the output directory before building.')
 @click.option('--skip-images', is_flag=True, help='Skip image processing during build.')
 @click.option('--skip-cache', is_flag=True, help='Ignore cache and rebuild everything.')
+@click.option('--dev', is_flag=True, help='Build site for development environment.')
 @click.pass_context
-def build(ctx, path, config, clean, skip_images, skip_cache):
+def build(ctx, path, config, clean, skip_images, skip_cache, dev):
     """Build the static site."""
     try:
         logger.info(f"Building site in {path}")
@@ -65,6 +66,11 @@ def build(ctx, path, config, clean, skip_images, skip_cache):
         # Load configuration
         config_path = config or None
         config_obj = Config(config_path)
+        
+        # Set environment if --dev flag is used
+        if dev:
+            config_obj.set('environment', value='dev')
+            logger.info("Building in development environment")
         
         # Initialize site generator
         generator = SiteGenerator(config_obj, base_dir=path)
@@ -95,7 +101,7 @@ def build(ctx, path, config, clean, skip_images, skip_cache):
 @cli.command()
 @click.option('--path', '-p', type=click.Path(), default=os.getcwd(),
               help='Path where the new site will be created.')
-@click.option('--template', '-t', type=click.Choice(['blog', 'portfolio', 'minimal']),
+@click.option('--template', '-t', type=click.Choice(['blog', 'portfolio', 'minimal', 'solar']),
               default='minimal', help='Site template to use.')
 @click.option('--name', '-n', help='Site name (used in configuration).')
 @click.option('--force', '-f', is_flag=True, help='Overwrite existing files.')

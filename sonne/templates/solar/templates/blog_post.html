@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article class="blog-post">
+    <header class="blog-post-header">
+        <h1>{{ page.title }}</h1>
+        
+        <div class="blog-meta">
+            <time datetime="{{ page.date_str }}">{{ page.date_formatted }}</time>
+            {% if page.author %} • By {{ page.author }}{% endif %}
+            
+            {% if page.categories %}
+            • In 
+            {% for category in page.categories %}
+            <a href="/blog/categories/{{ category | lower | replace(' ', '-') }}/">{{ category }}</a>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+            {% endif %}
+        </div>
+    </header>
+    
+    {% if page.cover_img %}
+    <div class="post-cover">
+        <!-- Use dithered image if dithering is enabled -->
+        <picture>
+            {% if site.images.dither | default(true) %}
+            <source srcset="{{ page.cover_img | replace('.jpg', '_800_dithered.webp') | replace('.png', '_800_dithered.webp') }}" type="image/webp">
+            <img src="{{ page.cover_img | replace('.jpg', '_800_dithered.png') | replace('.png', '_800_dithered.png') }}" alt="{{ page.title }}" class="dithered" loading="lazy">
+            {% else %}
+            <source srcset="{{ page.cover_img | replace('.jpg', '_800.webp') | replace('.png', '_800.webp') }}" type="image/webp">
+            <img src="{{ page.cover_img | replace('.jpg', '_800.png') | replace('.png', '_800.png') }}" alt="{{ page.title }}" loading="lazy">
+            {% endif %}
+        </picture>
+    </div>
+    {% endif %}
+    
+    <div class="blog-content">
+        {{ content }}
+    </div>
+    
+    {% if page.tags %}
+    <footer class="blog-tags">
+        <h3>Tags</h3>
+        <div class="tags">
+            {% for tag in page.tags %}
+            <a href="/blog/tags/{{ tag | lower | replace(' ', '-') }}/" class="tag">{{ tag }}</a>
+            {% endfor %}
+        </div>
+    </footer>
+    {% endif %}
+    
+    <nav class="post-navigation">
+        {% if page.prev_post %}
+        <a href="{{ page.prev_post.url }}" class="prev-post">
+            &larr; {{ page.prev_post.title }}
+        </a>
+        {% endif %}
+        
+        {% if page.next_post %}
+        <a href="{{ page.next_post.url }}" class="next-post">
+            {{ page.next_post.title }} &rarr;
+        </a>
+        {% endif %}
+    </nav>
+</article>
+{% endblock %}

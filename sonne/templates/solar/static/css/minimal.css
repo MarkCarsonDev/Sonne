@@ -1,0 +1,277 @@
+/* 
+ * Solar Template - Extended Styles
+ * A minimal, energy-efficient stylesheet
+ */
+
+/* Basic elements */
+p {
+    margin-bottom: 1rem;
+}
+
+ul, ol {
+    padding-left: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+blockquote {
+    border-left: 3px solid var(--accent-color);
+    padding-left: 1rem;
+    margin: 1.5rem 0;
+    color: var(--text-color);
+    font-style: italic;
+}
+
+pre {
+    background-color: var(--card-bg);
+    padding: 1rem;
+    overflow-x: auto;
+    border-radius: 4px;
+    margin: 1.5rem 0;
+}
+
+code {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.9em;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+}
+
+th, td {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
+}
+
+th {
+    color: var(--heading-color);
+}
+
+/* Images */
+img {
+    max-width: 100%;
+    height: auto;
+    margin: 1.5rem 0;
+    border-radius: 4px;
+}
+
+.dithered {
+    filter: grayscale(100%);
+}
+
+figure {
+    margin: 1.5rem 0;
+}
+
+figcaption {
+    font-size: 0.9rem;
+    color: var(--text-color);
+    text-align: center;
+}
+
+/* Blog styles */
+.blog-list {
+    margin-bottom: 2rem;
+}
+
+.blog-post {
+    margin-bottom: 2rem;
+}
+
+.blog-card {
+    margin-bottom: 2rem;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--card-bg);
+}
+
+.blog-card-title {
+    margin-top: 0;
+}
+
+.blog-meta {
+    font-size: 0.9rem;
+    color: var(--text-color);
+    margin-bottom: 1rem;
+}
+
+.blog-excerpt {
+    margin-bottom: 1rem;
+}
+
+.blog-tags {
+    margin-top: 1rem;
+}
+
+.tag {
+    display: inline-block;
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    margin-right: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 2rem;
+}
+
+.pagination-item {
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.pagination-item.active {
+    background-color: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+}
+
+/* Project styles */
+.project-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1.5rem;
+}
+
+.project-card {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+    background-color: var(--card-bg);
+}
+
+.project-content {
+    padding: 1rem;
+}
+
+.project-title {
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+}
+
+.project-description {
+    margin-bottom: 1rem;
+}
+
+.btn {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    background-color: var(--accent-color);
+    color: white;
+    border-radius: 4px;
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.btn:hover {
+    background-color: var(--link-hover);
+    color: white;
+    text-decoration: none;
+}
+
+/* Weather forecast */
+.forecast {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.forecast-day {
+    background-color: var(--card-bg);
+    padding: 0.75rem;
+    border-radius: 4px;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.forecast-date {
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+}
+
+.forecast-icon {
+    font-size: 1.5rem;
+    margin: 0.5rem 0;
+}
+
+/* Battery status additional styles */
+.battery-details {
+    background-color: var(--card-bg);
+    padding: 1rem;
+    border-radius: 4px;
+    margin-top: 1.5rem;
+    font-size: 0.9rem;
+}
+
+.battery-detail {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+    .site-header .container {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .site-title {
+        margin-bottom: 1rem;
+    }
+    
+    .site-nav ul {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .status-bar {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .project-list {
+        grid-template-columns: 1fr;
+    }
+    
+    .forecast {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* High contrast overrides */
+[data-contrast="high"] .tag {
+    border-width: 2px;
+}
+
+[data-contrast="high"] .pagination-item {
+    border-width: 2px;
+}
+
+[data-contrast="high"] .btn {
+    font-weight: bold;
+}
+
+/* Print styles */
+@media print {
+    body {
+        background-color: white;
+        color: black;
+    }
+    
+    .site-header, .site-footer, .status-bar, .pagination {
+        display: none;
+    }
+}

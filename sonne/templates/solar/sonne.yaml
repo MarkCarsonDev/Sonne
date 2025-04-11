@@ -1,0 +1,74 @@
+site:
+  title: Solar Site
+  base_url: http://localhost
+  description: An energy-efficient website powered by solar energy
+  author: Solar User
+  language: en
+  nav:
+    - text: Home
+      url: /
+    - text: About
+      url: /about/
+    - text: Blog
+      url: /blog/
+    - text: Projects
+      url: /projects/
+  weather:
+    location: Long Beach, CA
+    latitude: 33.77
+    longitude: -118.19
+    units: metric  # metric or imperial
+
+paths:
+  content: content
+  output: output
+  static: static
+  templates: templates
+  data: data
+  scripts: scripts
+  cache: .cache
+
+blog:
+  enabled: true
+  directory: blog
+  template: blog_post.html
+  list_template: blog_list.html
+  posts_per_page: 5
+  excerpt_length: 150
+  url_pattern: '{slug}'
+  include_drafts: false
+  taxonomies:
+    tags:
+      enabled: true
+      template: tag.html
+      list_template: tags.html
+    categories:
+      enabled: true
+      template: category.html
+      list_template: categories.html
+
+images:
+  dither: true
+  optimize: true
+  formats:
+    - webp
+    - png
+  sizes:
+    - 600
+    - 300
+  lazy_loading: true
+
+url_style: 
+  prod: directory
+  dev: directory
+
+# Solar template specific settings
+solar:
+  theme: dark  # dark or light
+  contrast: low  # low, medium, high
+  battery_simulation: true  # true to simulate, false to use real data (if available)
+  weather_update_interval: 3600  # in seconds
+  font_size: 14  # base font size in px
+  reduce_motion: true  # reduce animations for better energy efficiency
+  minimize_images: true  # aggressively optimize images for bandwidth
+  data_saver: true  # use techniques to minimize data usage

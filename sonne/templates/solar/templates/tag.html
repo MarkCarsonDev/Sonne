@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="tag-page">
+    <header class="page-header">
+        <h1>Posts Tagged: {{ tag }}</h1>
+    </header>
+    
+    {% if posts %}
+    <div class="posts-grid">
+        {% for post in posts %}
+        <article class="blog-card">
+            <header>
+                <h2 class="blog-card-title"><a href="{{ post.full_url }}">{{ post.title }}</a></h2>
+                <div class="blog-meta">
+                    <time datetime="{{ post.date_str }}">{{ post.date_formatted }}</time>
+                    {% if post.author %} • {{ post.author }}{% endif %}
+                </div>
+            </header>
+            
+            <div class="blog-excerpt">
+                {{ post.excerpt }}
+            </div>
+            
+            <footer>
+                {% if post.tags %}
+                <div class="blog-tags">
+                    {% for post_tag in post.tags %}
+                    <a href="/blog/tags/{{ post_tag | lower | replace(' ', '-') }}/" class="tag {% if post_tag == tag %}active{% endif %}">{{ post_tag }}</a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <a href="{{ post.full_url }}" class="btn">Read More</a>
+            </footer>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p>No posts found with this tag.</p>
+    {% endif %}
+    
+    <div class="tag-nav">
+        <a href="/blog/tags/" class="btn">View All Tags</a>
+        <a href="/blog/" class="btn">Back to Blog</a>
+    </div>
+</div>
+{% endblock %}

@@ -33,6 +33,7 @@ pip install sonne
 ### Dependencies
 
 Sonne has the following dependencies:
+
 - Python 3.8+
 - markdown
 - Pillow (for image processing)
@@ -49,6 +50,7 @@ sonne new -p my-site -t blog
 ```
 
 Available templates:
+
 - `blog`: Full-featured blog template
 - `portfolio`: Portfolio/showcase site template
 - `minimal`: Bare-bones template
@@ -222,7 +224,7 @@ Therefore, in your templates, you should reference these files without the "stat
         {% block content %}{% endblock %}
     </main>
     <footer>
-        <p>&copy; {{ site.year }} {{ site.author }}</p>
+        <p>© {{ site.year }} {{ site.author }}</p>
         {% if site.footer.custom %}{{ site.footer.custom }}{% endif %}
     </footer>
 </body>
@@ -258,15 +260,15 @@ Therefore, in your templates, you should reference these files without the "stat
             {% if page.author %} by {{ page.author }}{% endif %}
         </div>
     </header>
-    
+  
     {% if page.cover_img %}
     <img src="{{ page.cover_img }}" alt="{{ page.title }}" class="post-cover">
     {% endif %}
-    
+  
     <div class="content">
         {{ content }}
     </div>
-    
+  
     {% if page.tags %}
     <div class="tags">
         <h3>Tags:</h3>
@@ -277,14 +279,14 @@ Therefore, in your templates, you should reference these files without the "stat
         </ul>
     </div>
     {% endif %}
-    
+  
     <nav class="post-navigation">
         {% if page.prev_post %}
-        <a href="{{ page.prev_post.url }}" class="prev">&larr; {{ page.prev_post.title }}</a>
+        <a href="{{ page.prev_post.url }}" class="prev">← {{ page.prev_post.title }}</a>
         {% endif %}
-        
+      
         {% if page.next_post %}
-        <a href="{{ page.next_post.url }}" class="next">{{ page.next_post.title }} &rarr;</a>
+        <a href="{{ page.next_post.url }}" class="next">{{ page.next_post.title }} →</a>
         {% endif %}
     </nav>
 </article>
@@ -296,6 +298,7 @@ Therefore, in your templates, you should reference these files without the "stat
 To create a custom template for Sonne:
 
 1. Create a directory structure similar to:
+
    ```
    my-template/
    ├── static/
@@ -314,7 +317,6 @@ To create a custom template for Sonne:
    │       └── first-post.md
    └── sonne.yaml
    ```
-
 2. Define templates in Jinja2 format
 3. Add static assets (CSS, JS, images)
 4. Create sample content
@@ -336,6 +338,7 @@ Available across all templates:
 ### Variable Files
 
 Variables can be defined in:
+
 - JSON files in the `data` directory
 - YAML files in the `data` directory
 - CSV files in the `data` directory
@@ -356,9 +359,8 @@ You can create Python scripts to generate dynamic data:
 ```python
 # data/team.py
 
-def sonne_var(key, value):
-    # This function will be injected by Sonne
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 # Generate team data
 team_members = [
@@ -432,6 +434,7 @@ By default, Sonne generates HTML files with the `.html` extension (e.g., `about.
 1. **Configure URL rewriting on your web server**:
 
    For Nginx:
+
    ```
    location / {
        try_files $uri $uri.html $uri/ =404;
@@ -439,6 +442,7 @@ By default, Sonne generates HTML files with the `.html` extension (e.g., `about.
    ```
 
    For Apache (.htaccess):
+
    ```
    RewriteEngine On
    RewriteCond %{REQUEST_FILENAME} !-f
@@ -446,8 +450,8 @@ By default, Sonne generates HTML files with the `.html` extension (e.g., `about.
    RewriteCond %{REQUEST_FILENAME}.html -f
    RewriteRule ^(.*)$ $1.html [L]
    ```
-
 2. **Manually structure your output as directories with index.html files**:
+
    - `/about.md` → `/about/index.html` (accessible as `/about/`)
    - This requires additional post-processing of the generated files
 
@@ -488,7 +492,7 @@ To add custom Jinja2 filters, modify the `_register_jinja_filters` method in `te
 ```python
 def _register_jinja_filters(self) -> None:
     # Existing filters...
-    
+  
     # Add your custom filter
     self.jinja_env.filters['my_filter'] = lambda text: text.upper()
 ```
@@ -514,8 +518,9 @@ sonne new -p PATH -t TEMPLATE -n NAME [-f]
 ```
 
 Options:
+
 - `-p, --path`: Where to create the site (default: current directory)
-- `-t, --template`: Template to use (blog, portfolio, minimal)
+- `-t, --template`: Template to use (solar, blog, portfolio, minimal)
 - `-n, --name`: Site name
 - `-f, --force`: Overwrite existing files
 
@@ -526,6 +531,7 @@ sonne build [-p PATH] [-c CONFIG] [--clean] [--skip-images] [--skip-cache]
 ```
 
 Options:
+
 - `-p, --path`: Site directory (default: current directory)
 - `-c, --config`: Path to config file
 - `--clean`: Clean output directory before building
@@ -539,6 +545,7 @@ sonne serve [-p PATH] [--port PORT] [--host HOST] [--browser/--no-browser] [--wa
 ```
 
 Options:
+
 - `-p, --path`: Site directory (default: current directory)
 - `--port`: Port to serve on (default: 8000)
 - `--host`: Host to serve on (default: localhost)
@@ -550,17 +557,18 @@ Options:
 ### Common Issues
 
 1. **Missing dependencies**
+
    - Ensure you have all required packages installed
    - For image processing, make sure Pillow is installed: `pip install Pillow`
-
 2. **Template not found**
+
    - Check the template path in your configuration
    - Ensure template files have the correct names
-
 3. **Live reloading not working**
-   - Install the watchdog package: `pip install watchdog`
 
+   - Install the watchdog package: `pip install watchdog`
 4. **Image processing errors**
+
    - Ensure Pillow is properly installed
    - Check if source images are valid
 

@@ -12,7 +12,6 @@ featured: true
 cover_img: /assets/images/python-data.jpg
 description: Learn how to leverage Python scripts as dynamic data sources for your Sonne static site.
 ---
-
 # Using Python Data Sources in Sonne
 
 One of Sonne's most powerful features is its ability to use Python scripts as data sources for your static site. This allows you to generate dynamic content at build time, pulling from databases, APIs, or performing calculations that would be impossible with traditional static site generators.
@@ -42,9 +41,7 @@ This script generates data that can be used in templates.
 """
 
 # The sonne_var function will be injected by Sonne at runtime
-def sonne_var(key, value):
-    """Set a global variable in Sonne."""
-    pass
+# Ignore any linting warnings
 
 # Generate some data
 data = {
@@ -84,8 +81,8 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-def sonne_var(key, value):
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 def count_files(directory, extensions=None):
     """Count files in a directory, optionally filtering by extension."""
@@ -127,21 +124,21 @@ Fetch data from an external API:
 import requests
 from datetime import datetime
 
-def sonne_var(key, value):
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 # Fetch weather data (example)
 try:
     API_KEY = "your_api_key"  # In production, load from environment variable
     city = "San Francisco"
-    
+  
     response = requests.get(
         f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units=metric"
     )
-    
+  
     if response.status_code == 200:
         weather_data = response.json()
-        
+  
         weather = {
             "city": city,
             "temperature": weather_data["main"]["temp"],
@@ -151,7 +148,7 @@ try:
             "wind_speed": weather_data["wind"]["speed"],
             "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M')
         }
-        
+  
         sonne_var("weather", weather)
     else:
         sonne_var("weather_error", f"API error: {response.status_code}")
@@ -192,8 +189,8 @@ import csv
 import statistics
 from collections import Counter
 
-def sonne_var(key, value):
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 # Path to CSV data file
 data_file = os.path.join(os.getcwd(), 'data', 'site_stats.csv')
@@ -203,23 +200,23 @@ try:
         with open(data_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             data = list(reader)
-            
+      
             # Convert string values to numbers where appropriate
             for row in data:
                 for key in ['page_views', 'unique_visitors']:
                     row[key] = int(row[key])
                 for key in ['bounce_rate', 'avg_time_on_site']:
                     row[key] = float(row[key])
-            
+      
             # Calculate statistics
             total_views = sum(row['page_views'] for row in data)
             total_visitors = sum(row['unique_visitors'] for row in data)
             avg_bounce_rate = statistics.mean(row['bounce_rate'] for row in data)
             avg_time = statistics.mean(row['avg_time_on_site'] for row in data)
-            
+      
             # Month with most traffic
             max_traffic_month = max(data, key=lambda x: x['page_views'])['month']
-            
+      
             # Prepare summary
             summary = {
                 "total_views": total_views,
@@ -229,9 +226,9 @@ try:
                 "max_traffic_month": max_traffic_month,
                 "data": data  # Include full data set
             }
-            
+      
             sonne_var("analytics_summary", summary)
-        
+  
 except Exception as e:
     sonne_var("analytics_error", f"Error processing analytics data: {str(e)}")
 ```
@@ -241,7 +238,7 @@ Use in templates:
 ```html
 <div class="analytics-summary">
     <h2>Site Analytics</h2>
-    
+  
     {% if analytics_summary %}
     <div class="summary-cards">
         <div class="card">
@@ -261,7 +258,7 @@ Use in templates:
             <div class="card-label">Avg. Time on Site</div>
         </div>
     </div>
-    
+  
     <div class="analytics-chart">
         <h3>Monthly Traffic</h3>
         <div class="chart-placeholder" data-chart="{{ analytics_summary.data | tojson }}">
@@ -285,8 +282,8 @@ Generate content programmatically:
 import random
 from datetime import datetime, timedelta
 
-def sonne_var(key, value):
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 # Generate random testimonials
 names = ["John Smith", "Jane Doe", "Robert Johnson", "Emily Chen", "Michael Wong"]
@@ -303,20 +300,20 @@ testimonials = []
 for i in range(5):
     name = random.choice(names)
     names.remove(name)  # Ensure no duplicates
-    
+  
     company = random.choice(companies)
     companies.remove(company)  # Ensure no duplicates
-    
+  
     template = random.choice(templates)
     templates.remove(template)  # Ensure no duplicates
-    
+  
     # Replace placeholder with "Sonne" if present
     quote = template.format("Sonne") if "{}" in template else template
-    
+  
     # Generate a random date in the last 3 months
     days_ago = random.randint(1, 90)
     date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y-%m-%d')
-    
+  
     testimonials.append({
         "name": name,
         "company": company,
@@ -337,7 +334,7 @@ Use in templates:
 ```html
 <section class="testimonials">
     <h2>What People Are Saying</h2>
-    
+  
     <div class="testimonials-slider">
         {% for testimonial in testimonials %}
         <div class="testimonial-item">
@@ -345,19 +342,19 @@ Use in templates:
                 <blockquote>
                     "{{ testimonial.quote }}"
                 </blockquote>
-                
+              
                 <div class="testimonial-meta">
                     <div class="testimonial-rating">
                         {% for i in range(5) %}
                         <span class="star {% if i < testimonial.rating %}filled{% endif %}">★</span>
                         {% endfor %}
                     </div>
-                    
+                  
                     <div class="testimonial-author">
                         <span class="name">{{ testimonial.name }}</span>
                         <span class="role">{{ testimonial.role }}, {{ testimonial.company }}</span>
                     </div>
-                    
+                  
                     <div class="testimonial-date">{{ testimonial.date }}</div>
                 </div>
             </div>
@@ -374,8 +371,8 @@ Use in templates:
 You can use Python scripts to modify the build process itself:
 
 ```python
-def sonne_var(key, value):
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 def on_pre_build():
     """Hook that runs before the build process."""
@@ -401,8 +398,8 @@ import sqlite3
 import json
 from pathlib import Path
 
-def sonne_var(key, value):
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 # Connect to SQLite database
 db_path = Path(__file__).parent.parent / "data" / "content.db"
@@ -410,7 +407,7 @@ db_path = Path(__file__).parent.parent / "data" / "content.db"
 try:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row  # This enables column access by name
-    
+  
     # Query products
     cursor = conn.cursor()
     cursor.execute("""
@@ -419,13 +416,13 @@ try:
         WHERE active = 1
         ORDER BY category, name
     """)
-    
+  
     # Convert to list of dictionaries
     products = []
     for row in cursor.fetchall():
         product = {key: row[key] for key in row.keys()}
         products.append(product)
-    
+  
     # Group by category
     categories = {}
     for product in products:
@@ -433,13 +430,13 @@ try:
         if cat not in categories:
             categories[cat] = []
         categories[cat].append(product)
-    
+  
     # Make data available to templates
     sonne_var("products", products)
     sonne_var("product_categories", categories)
-    
+  
     conn.close()
-    
+  
 except Exception as e:
     sonne_var("db_error", f"Database error: {str(e)}")
 ```
@@ -454,14 +451,14 @@ from pathlib import Path
 import yaml
 import re
 
-def sonne_var(key, value):
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 def extract_front_matter(file_path):
     """Extract front matter from a markdown file."""
     with open(file_path, 'r', encoding='utf-8') as f:
         content = f.read()
-    
+  
     # Look for YAML front matter
     match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
     if match:
@@ -476,28 +473,28 @@ def generate_site_map():
     """Generate a site map from the content directory."""
     content_dir = os.path.join(os.getcwd(), 'content')
     site_map = []
-    
+  
     # Process root level pages first
     root_pages = []
     for file_path in Path(content_dir).glob('*.md'):
         # Skip files that start with underscore (drafts or partials)
         if file_path.name.startswith('_'):
             continue
-            
+      
         # Get front matter
         front_matter = extract_front_matter(file_path)
-        
+  
         # Calculate URL
         if file_path.stem == 'index':
             url = '/'
         else:
             url = f'/{file_path.stem}/'
-            
+      
         # Extract title and other metadata
         title = front_matter.get('title', file_path.stem.replace('-', ' ').title())
         nav_order = front_matter.get('nav_order', 999)
         nav_title = front_matter.get('nav_title', title)
-        
+  
         # Add to site map
         root_pages.append({
             'title': title,
@@ -505,21 +502,21 @@ def generate_site_map():
             'url': url,
             'order': nav_order
         })
-    
+  
     # Sort root pages by order
     root_pages.sort(key=lambda x: x['order'])
     site_map = root_pages
-    
+  
     # Process sections
     sections = {}
     for dir_path in Path(content_dir).glob('*/'):
         # Skip special directories
         if dir_path.name in ['blog', '_drafts', '_includes']:
             continue
-            
+      
         section_name = dir_path.name
         section_index = dir_path / 'index.md'
-        
+  
         if section_index.exists():
             index_data = extract_front_matter(section_index)
             section_title = index_data.get('title', section_name.replace('-', ' ').title())
@@ -527,23 +524,23 @@ def generate_site_map():
         else:
             section_title = section_name.replace('-', ' ').title()
             section_order = 999
-            
+      
         # Get pages in this section
         section_pages = []
         for file_path in dir_path.glob('*.md'):
             if file_path.name == 'index.md' or file_path.name.startswith('_'):
                 continue
-                
+          
             front_matter = extract_front_matter(file_path)
-            
+      
             # Calculate URL
             url = f'/{section_name}/{file_path.stem}/'
-                
+          
             # Extract title and other metadata
             title = front_matter.get('title', file_path.stem.replace('-', ' ').title())
             nav_order = front_matter.get('nav_order', 999)
             nav_title = front_matter.get('nav_title', title)
-            
+      
             # Add to section pages
             section_pages.append({
                 'title': title,
@@ -551,10 +548,10 @@ def generate_site_map():
                 'url': url,
                 'order': nav_order
             })
-            
+      
         # Sort section pages by order
         section_pages.sort(key=lambda x: x['order'])
-        
+  
         # Add section to site map
         site_map.append({
             'title': section_title,
@@ -563,10 +560,10 @@ def generate_site_map():
             'order': section_order,
             'children': section_pages
         })
-    
+  
     # Sort site map by order
     site_map.sort(key=lambda x: x['order'])
-    
+  
     return site_map
 
 # Generate site map
@@ -584,7 +581,7 @@ Use in templates:
             <a href="{{ item.url }}" {% if page.url == item.url %}class="active"{% endif %}>
                 {{ item.nav_title }}
             </a>
-            
+          
             {% if item.children %}
             <ul class="submenu">
                 {% for child in item.children %}
@@ -628,12 +625,12 @@ import os
 import json
 import time
 
-def sonne_var(key, value):
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 def fetch_with_cache(url, cache_file, cache_duration=3600):
     """Fetch data with caching.
-    
+  
     Args:
         url: The URL to fetch data from
         cache_file: Path to the cache file
@@ -646,18 +643,18 @@ def fetch_with_cache(url, cache_file, cache_duration=3600):
             # Cache is fresh, use it
             with open(cache_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
-    
+  
     # Cache doesn't exist or is stale, fetch new data
     import requests
     response = requests.get(url)
     response.raise_for_status()
     data = response.json()
-    
+  
     # Save to cache
     os.makedirs(os.path.dirname(cache_file), exist_ok=True)
     with open(cache_file, 'w', encoding='utf-8') as f:
         json.dump(data, f)
-    
+  
     return data
 
 # Example usage
@@ -743,20 +740,20 @@ def better_process():
     import time
     results = []
     total = 1000
-    
+  
     print(f"Processing {total} items...")
-    
+  
     for i in range(total):
         # Complex processing
         results.append(i)
-        
+      
         # Report progress every 10%
         if i % (total // 10) == 0:
             print(f"Progress: {i / total * 100:.0f}%")
-            
+          
         # Simulate work
         time.sleep(0.001)
-        
+      
     print("Processing complete!")
     return results
 ```

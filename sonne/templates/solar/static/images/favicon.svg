@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Ultra-minimal solar panel icon for energy efficiency -->
+  <rect width="100" height="100" fill="none"/>
+  <path d="M25,30 L75,30 L75,70 L25,70 Z" stroke="#5e8c5f" stroke-width="4" fill="none"/>
+  <path d="M25,30 L75,70 M25,70 L75,30" stroke="#5e8c5f" stroke-width="2" fill="none"/>
+  <circle cx="50" cy="50" r="8" fill="#5e8c5f"/>
+  <path d="M50,20 L50,5 M80,50 L95,50 M50,80 L50,95 M20,50 L5,50" stroke="#5e8c5f" stroke-width="3" stroke-linecap="round"/>
+</svg>

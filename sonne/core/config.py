@@ -63,6 +63,11 @@ DEFAULT_CONFIG = {
         'file': 'sonne_variables.json',
         'preserve_prior': False,
     },
+    'url_style': {
+        'prod': 'clean',
+        'dev': 'directory',
+    },
+    'environment': 'prod',
 }
 
 class Config:
@@ -259,3 +264,63 @@ class Config:
             paths[key] = full_path
             
         return paths
+    
+    def get_url_style(self) -> str:
+        """Get the URL style based on configuration and environment.
+        
+        Returns:
+            One of 'clean', 'html', or 'directory'.
+        """
+        url_style = self.get('url_style')
+        environment = self.get('environment', default='prod')
+        
+        logger.debug(f"URL style from config: {url_style}, Environment: {environment}")
+        
+        # If url_style is a string, use it directly
+        if isinstance(url_style, str):
+            return url_style
+        
+        # If url_style is a dict, get the environment-specific value
+        if isinstance(url_style, dict):
+            style = url_style.get(environment, 'clean')
+            logger.debug(f"Using URL style '{style}' for environment '{environment}'")
+            return style
+        
+        # Default to 'clean' if not specified
+        logger.debug("Using default URL style 'clean'")
+        return 'clean'
+        
+    def format_url(self, url: str) -> str:
+        """Format a URL based on the current URL style configuration.
+        
+        Args:
+            url: The URL to format (e.g. '/about')
+            
+        Returns:
+            Formatted URL according to the current URL style.
+        """
+        # Skip external URLs or URLs that already have an extension
+        if url.startswith(('http://', 'https://')) or url.endswith(('.html', '.htm')):
+            return url
+            
+        url_style = self.get_url_style()
+        logger.debug(f"Formatting URL '{url}' with style '{url_style}'")
+        
+        # Handle different URL styles
+        if url_style == 'html':
+            # Add .html extension
+            if url.endswith('/'):
+                # For URLs ending with /, use index.html
+                return f"{url}index.html"
+            else:
+                return f"{url}.html"
+        elif url_style == 'directory':
+            # Ensure URL ends with / for directory style
+            if not url.endswith('/'):
+                return f"{url}/"
+            return url
+        else:  # 'clean' style - default
+            # For clean URLs, strip trailing slash if present
+            if url.endswith('/') and url != '/':
+                return url[:-1]
+            return url

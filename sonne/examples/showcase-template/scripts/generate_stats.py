@@ -10,12 +10,6 @@ import random
 from datetime import datetime
 from pathlib import Path
 
-# The sonne_var function will be injected by Sonne at runtime
-# This is just a placeholder declaration for linting/IDE support
-def sonne_var(key, value):
-    """Set a global variable in Sonne."""
-    pass
-
 def count_posts():
     """Count the number of blog posts."""
     try:

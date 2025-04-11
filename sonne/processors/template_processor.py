@@ -64,15 +64,24 @@ class TemplateProcessor:
                 template_dirs.append(built_in_templates)
                 
             if template_dirs:
-                self.jinja_env = jinja2.Environment(
-                    loader=jinja2.FileSystemLoader(template_dirs),
-                    autoescape=jinja2.select_autoescape(['html', 'xml']),
-                    trim_blocks=True,
-                    lstrip_blocks=True,
-                )
+                logger.info(f"Template directories: {template_dirs}")
                 
-                # Add custom filters
-                self._register_jinja_filters()
+                # Create Jinja environment
+                try:
+                    self.jinja_env = jinja2.Environment(
+                        loader=jinja2.FileSystemLoader(template_dirs),
+                        autoescape=jinja2.select_autoescape(['html', 'xml']),
+                        trim_blocks=True,
+                        lstrip_blocks=True,
+                    )
+                    
+                    # Add custom filters
+                    self._register_jinja_filters()
+                    
+                    logger.info("Jinja environment initialized successfully")
+                except Exception as e:
+                    logger.error(f"Error initializing Jinja environment: {e}")
+                    self.jinja_env = None
             else:
                 logger.warning("No template directories found, template processing is disabled")
             
@@ -182,58 +191,74 @@ class TemplateProcessor:
             
             # Convert to web path format
             if is_markdown:
-                rel_url = rel_url.replace('\\', '/').replace('.md', '.html').replace('.markdown', '.html')
+                rel_url = rel_url.replace('\\', '/').replace('.md', '').replace('.markdown', '')
             else:
                 rel_url = rel_url.replace('\\', '/')
                 
             front_matter['url'] = '/' + rel_url
+            
+            # Format URL according to URL style configuration
+            if hasattr(self.config, 'format_url'):
+                url_before = front_matter['url']
+                front_matter['url'] = self.config.format_url(front_matter['url'])
+                logger.debug(f"Formatted URL: {url_before} -> {front_matter['url']}")
+            
         except Exception as e:
             logger.warning(f"Error calculating relative URL for {source_path}: {e}")
             front_matter['url'] = '/'
-        
+            
         # Process template
         template_name = front_matter.get('template')
+        logger.debug(f"Template for {source_path}: {template_name}")
         
         if template_name and self.jinja_env:
-            # Create a structured variables dictionary with proper namespaces
-            variables_for_template = {
-                # Mark HTML content as safe to prevent auto-escaping
-                'content': Markup(html_content),
-                'page': front_matter,
-                'site': variables.get('site', {})
-            }
-            
-            # Add global variables directly
-            for key, value in variables.get('global', {}).items():
-                variables_for_template[key] = value
-            
             try:
+                # Try to get the template
                 template = self.jinja_env.get_template(template_name)
+                logger.debug(f"Found template: {template_name}")
+                
+                # Copy all global variables to both root and site for maximum compatibility
+                variables_for_template = {}
+                
+                # First, add all global variables to root level
+                for key, value in variables.get('global', {}).items():
+                    variables_for_template[key] = value
+                
+                # Then add site variables, which might override some globals
+                for key, value in variables.get('site', {}).items():
+                    variables_for_template[key] = value
+                
+                # Also ensure site has all global variables
+                site_vars = dict(variables.get('site', {}))
+                for key, value in variables.get('global', {}).items():
+                    if key not in site_vars:
+                        site_vars[key] = value
+                
+                # Add structured namespaces
+                variables_for_template['site'] = site_vars
+                variables_for_template['page'] = front_matter
+                variables_for_template['content'] = Markup(html_content)  # Mark as safe
+                
+                # Debug: Print out variables that should be available
+                logger.debug(f"Template variables (keys): {list(variables_for_template.keys())}")
+                logger.debug(f"Site variables (keys): {list(variables_for_template['site'].keys())}")
+                
+                # Render the template
                 processed_content = template.render(**variables_for_template)
+                logger.debug(f"Rendered template {template_name} for {source_path}")
+                return front_matter, processed_content
+                
             except jinja2.exceptions.TemplateNotFound:
                 logger.warning(f"Template not found: {template_name}")
-                # Fall back to simple variable substitution
-                from sonne.core.variable_manager import VariableManager
-                vm = VariableManager(self.config, '')
-                vm.variables = {
-                    'global': variables.get('global', {}),
-                    'site': variables.get('site', {}),
-                    'page': front_matter
-                }
-                processed_content = vm.substitute_variables(html_content)
+                # Fall back to direct HTML content
+                processed_content = f"<html><body><h1>{front_matter.get('title', 'Untitled')}</h1>{html_content}</body></html>"
+                
             except Exception as e:
                 logger.error(f"Error rendering template {template_name}: {e}")
                 # Fall back to simple content
                 processed_content = f"<html><body><h1>Error rendering template</h1><p>{e}</p><div>{html_content}</div></body></html>"
         else:
-            # Use simple variable substitution
-            from sonne.core.variable_manager import VariableManager
-            vm = VariableManager(self.config, '')
-            vm.variables = {
-                'global': variables.get('global', {}),
-                'site': variables.get('site', {}),
-                'page': front_matter
-            }
-            processed_content = vm.substitute_variables(html_content)
+            # No template or Jinja not available - use simple HTML
+            processed_content = f"<html><body><h1>{front_matter.get('title', 'Untitled')}</h1>{html_content}</body></html>"
             
         return front_matter, processed_content

@@ -3,7 +3,6 @@ title: Sonne Features
 template: page.html
 description: Explore the powerful features of the Sonne static site generator
 ---
-
 # Sonne Features
 
 Sonne combines simplicity with power to create an efficient static site generator that works for a wide range of projects. Here's a detailed overview of Sonne's key features.
@@ -11,6 +10,7 @@ Sonne combines simplicity with power to create an efficient static site generato
 ## Content Management
 
 ### Markdown-based Content
+
 Write content in Markdown with front matter for metadata and easy formatting.
 
 ```markdown
@@ -28,6 +28,7 @@ This is my first post using **Sonne**!
 ```
 
 ### Front Matter
+
 Define metadata for your content using YAML or JSON front matter.
 
 ```yaml
@@ -40,6 +41,7 @@ featured_image: /images/team.jpg
 ```
 
 ### Directory Structure
+
 Intuitive content organization that maps directly to your site structure.
 
 ```
@@ -54,6 +56,7 @@ content/
 ## Templating System
 
 ### Jinja2 Templates
+
 Flexible and powerful templating with Jinja2.
 
 ```html
@@ -71,6 +74,7 @@ Flexible and powerful templating with Jinja2.
 ```
 
 ### Template Inheritance
+
 Create reusable layouts with template inheritance.
 
 ```html
@@ -85,6 +89,7 @@ Create reusable layouts with template inheritance.
 ```
 
 ### Template Functions & Filters
+
 Extend templates with custom functions and filters.
 
 ```html
@@ -95,20 +100,25 @@ Extend templates with custom functions and filters.
 ## Blog Engine
 
 ### Post Management
+
 Built-in blog functionality with automatic post listing and pagination.
 
 ### Categories & Tags
+
 Organize posts with categories and tags, with automatic archive pages.
 
 ### RSS Feed
+
 Automatic RSS feed generation for your blog.
 
 ### Pagination
+
 Paginated blog listing pages with customizable posts per page.
 
 ## Image Processing
 
 ### Automatic Resizing
+
 Generate multiple sizes of images for responsive design.
 
 ```html
@@ -120,20 +130,25 @@ Generate multiple sizes of images for responsive design.
 ```
 
 ### Format Conversion
+
 Convert images to modern formats like WebP for better performance.
 
 ### Image Optimization
+
 Automatically optimize images for web delivery.
 
 ### Dithering Effects
+
 Apply dithering for artistic effect or size reduction.
 
 ## Data Management
 
 ### Multiple Data Sources
+
 Load data from JSON, YAML, CSV, and Python sources.
 
 ### JSON & YAML Files
+
 Define structured data in JSON or YAML files.
 
 ```json
@@ -146,12 +161,12 @@ Define structured data in JSON or YAML files.
 ```
 
 ### Python Data Generation
+
 Create dynamic data with Python scripts.
 
 ```python
-def sonne_var(key, value):
-    # This function is provided by Sonne
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 # Generate data
 stats = {
@@ -165,6 +180,7 @@ sonne_var("stats", stats)
 ```
 
 ### Variable Substitution
+
 Use variables directly in content.
 
 ```markdown
@@ -174,20 +190,25 @@ There are {+}{stats.posts} posts on this site.
 ## Performance Features
 
 ### Fast Build Times
+
 Efficient build process with minimal overhead.
 
 ### Caching System
+
 Smart caching to avoid unnecessary processing.
 
 ### Minification
+
 Automatic minification of HTML, CSS, and JavaScript (optional).
 
 ### Optimized Output
+
 Clean, optimized output ready for deployment.
 
 ## Development Experience
 
 ### Live Development Server
+
 Development server with automatic reloading on changes.
 
 ```bash
@@ -195,6 +216,7 @@ sonne serve
 ```
 
 ### Configurable Builds
+
 Customize the build process to suit your needs.
 
 ```bash
@@ -202,9 +224,11 @@ sonne build --clean --skip-images
 ```
 
 ### Detailed Logging
+
 Helpful logs for troubleshooting and monitoring.
 
 ### Multiple Templates
+
 Choose from several built-in templates or create your own.
 
 ```bash
@@ -214,6 +238,7 @@ sonne new -p my-site -t blog
 ## Customization
 
 ### Simple Configuration
+
 Customize your site with a simple YAML configuration file.
 
 ```yaml
@@ -231,41 +256,48 @@ images:
 ```
 
 ### Plugin System
+
 Extend functionality with plugins (coming soon).
 
 ### Custom Templates
+
 Create and share your own templates.
 
 ### Advanced Scripting
+
 Use Python scripts for custom functionality.
 
 ## Deployment Features
 
 ### Flexible Output
+
 Generate static files ready for any hosting platform.
 
 ### Clean URLs
+
 Support for clean URLs without file extensions.
 
 ### Optimized Assets
+
 Optimized static assets for fast loading.
 
 ### Deployment Scripts
+
 Helper scripts for common deployment targets (coming soon).
 
 ## Feature Comparison
 
 Here's how Sonne compares to other popular static site generators:
 
-| Feature | Sonne | Jekyll | Hugo | Gatsby |
-|---------|-------|--------|------|--------|
-| Language | Python | Ruby | Go | JavaScript |
-| Build Speed | Fast | Slow | Very Fast | Medium |
-| Image Processing | ✓ | ✗ | ✓ | ✓ |
-| Templating | Jinja2 | Liquid | Go Templates | React |
-| Learning Curve | Easy | Medium | Medium | Steep |
-| Blog Support | Built-in | Built-in | Built-in | Plugin |
-| Data Sources | Multiple | YAML/JSON | Multiple | GraphQL |
+| Feature          | Sonne    | Jekyll    | Hugo         | Gatsby     |
+| ---------------- | -------- | --------- | ------------ | ---------- |
+| Language         | Python   | Ruby      | Go           | JavaScript |
+| Build Speed      | Fast     | Slow      | Very Fast    | Medium     |
+| Image Processing | ✓       | ✗        | ✓           | ✓         |
+| Templating       | Jinja2   | Liquid    | Go Templates | React      |
+| Learning Curve   | Easy     | Medium    | Medium       | Steep      |
+| Blog Support     | Built-in | Built-in  | Built-in     | Plugin     |
+| Data Sources     | Multiple | YAML/JSON | Multiple     | GraphQL    |
 
 ## Examples in Action
 

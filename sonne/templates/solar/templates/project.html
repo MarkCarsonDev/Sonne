@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article class="project-page">
+    <header class="page-header">
+        <h1>{{ page.title }}</h1>
+        {% if page.subtitle %}
+        <p class="page-subtitle">{{ page.subtitle }}</p>
+        {% endif %}
+        
+        <div class="project-meta">
+            {% if page.category %}
+            <span class="project-category">{{ page.category }}</span>
+            {% endif %}
+            
+            {% if page.client %}
+            <span class="project-client">Client: {{ page.client }}</span>
+            {% endif %}
+            
+            {% if page.date %}
+            <span class="project-date">{{ page.date }}</span>
+            {% endif %}
+        </div>
+    </header>
+    
+    {% if page.image %}
+    <div class="project-featured-image">
+        <picture>
+            {% if site.images.dither | default(true) %}
+            <source srcset="{{ page.image | replace('.jpg', '_800_dithered.webp') | replace('.png', '_800_dithered.webp') }}" type="image/webp">
+            <img src="{{ page.image | replace('.jpg', '_800_dithered.png') | replace('.png', '_800_dithered.png') }}" alt="{{ page.title }}" class="dithered" loading="lazy">
+            {% else %}
+            <source srcset="{{ page.image | replace('.jpg', '_800.webp') | replace('.png', '_800.webp') }}" type="image/webp">
+            <img src="{{ page.image | replace('.jpg', '_800.png') | replace('.png', '_800.png') }}" alt="{{ page.title }}" loading="lazy">
+            {% endif %}
+        </picture>
+    </div>
+    {% endif %}
+    
+    <div class="project-content">
+        {{ content }}
+    </div>
+    
+    {% if page.technologies %}
+    <div class="project-technologies-section">
+        <h2>Technologies Used</h2>
+        <ul class="technologies-list">
+            {% for tech in page.technologies %}
+            <li>{{ tech }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+    
+    {% if page.gallery %}
+    <div class="project-gallery">
+        <h2>Project Gallery</h2>
+        <div class="gallery-grid">
+            {% for image in page.gallery %}
+            <figure class="gallery-item">
+                <picture>
+                    {% if site.images.dither | default(true) %}
+                    <source srcset="{{ image.url | replace('.jpg', '_400_dithered.webp') | replace('.png', '_400_dithered.webp') }}" type="image/webp">
+                    <img src="{{ image.url | replace('.jpg', '_400_dithered.png') | replace('.png', '_400_dithered.png') }}" alt="{{ image.alt|default(page.title) }}" class="dithered" loading="lazy">
+                    {% else %}
+                    <source srcset="{{ image.url | replace('.jpg', '_400.webp') | replace('.png', '_400.webp') }}" type="image/webp">
+                    <img src="{{ image.url | replace('.jpg', '_400.png') | replace('.png', '_400.png') }}" alt="{{ image.alt|default(page.title) }}" loading="lazy">
+                    {% endif %}
+                </picture>
+                {% if image.caption %}
+                <figcaption>{{ image.caption }}</figcaption>
+                {% endif %}
+            </figure>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    <nav class="project-navigation">
+        <a href="/projects/" class="btn">Back to Projects</a>
+    </nav>
+</article>
+{% endblock %}

@@ -341,8 +341,8 @@ If you're using Python scripts to fetch external data:
 ```python
 import requests
 
-def sonne_var(key, value):
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 try:
     response = requests.get('https://api.example.com/data')

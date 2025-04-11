@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="blog-list">
+    <header class="page-header">
+        <h1>{{ page.title }}</h1>
+        {% if page.description %}
+        <p class="page-subtitle">{{ page.description }}</p>
+        {% endif %}
+    </header>
+    
+    {% if page.posts %}
+    <div class="posts-grid">
+        {% for post in page.posts %}
+        <article class="blog-card">
+            <header>
+                <h2 class="blog-card-title"><a href="{{ post.full_url }}">{{ post.title }}</a></h2>
+                <div class="blog-meta">
+                    <time datetime="{{ post.date_str }}">{{ post.date_formatted }}</time>
+                    {% if post.author %} • {{ post.author }}{% endif %}
+                </div>
+            </header>
+            
+            <div class="blog-excerpt">
+                {{ post.excerpt }}
+            </div>
+            
+            <footer>
+                {% if post.tags %}
+                <div class="blog-tags">
+                    {% for tag in post.tags %}
+                    <a href="/blog/tags/{{ tag | lower | replace(' ', '-') }}/" class="tag">{{ tag }}</a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <a href="{{ post.full_url }}" class="btn">Read More</a>
+            </footer>
+        </article>
+        {% endfor %}
+    </div>
+    
+    {% if page.pagination %}
+    <nav class="pagination" aria-label="Pagination">
+        {% if page.pagination.has_prev %}
+        <a href="{{ page.pagination.prev_url }}" class="pagination-item" aria-label="Previous page">&laquo; Previous</a>
+        {% endif %}
+        
+        <span class="pagination-info">Page {{ page.pagination.current }} of {{ page.pagination.total }}</span>
+        
+        {% if page.pagination.has_next %}
+        <a href="{{ page.pagination.next_url }}" class="pagination-item" aria-label="Next page">Next &raquo;</a>
+        {% endif %}
+    </nav>
+    {% endif %}
+    
+    {% else %}
+    <p>No posts found.</p>
+    {% endif %}
+</div>
+{% endblock %}

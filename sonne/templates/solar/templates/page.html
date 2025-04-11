@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article class="page">
+    <header class="page-header">
+        <h1>{{ page.title }}</h1>
+        {% if page.subtitle %}
+        <p class="page-subtitle">{{ page.subtitle }}</p>
+        {% endif %}
+    </header>
+    
+    <div class="page-content">
+        {{ content }}
+    </div>
+    
+    {% if forecast and page.show_forecast %}
+    <div class="forecast-section">
+        <h2>3-Day Forecast for {{ weather.location }}</h2>
+        <div class="forecast">
+            {% for day in forecast %}
+            <div class="forecast-day">
+                <div class="forecast-date">{{ day.day_name }} ({{ day.date }})</div>
+                <div class="forecast-icon">{{ day.icon_text }}</div>
+                <div class="forecast-temp">{{ day.temperature }}°{% if site.weather.units == 'metric' %}C{% else %}F{% endif %}</div>
+                <div class="forecast-desc">{{ day.description }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if battery and page.show_battery %}
+    <div class="battery-details">
+        <h2>Battery Status</h2>
+        <div class="battery-detail">
+            <span>Battery Level:</span>
+            <span>{{ battery.percentage }}%</span>
+        </div>
+        <div class="battery-detail">
+            <span>Status:</span>
+            <span>{% if battery.charging %}Charging{% else %}Discharging{% endif %}</span>
+        </div>
+        {% if battery.remaining_formatted %}
+        <div class="battery-detail">
+            <span>{% if battery.charging %}Time to Full:{% else %}Time Remaining:{% endif %}</span>
+            <span>{{ battery.remaining_formatted }}</span>
+        </div>
+        {% endif %}
+        <div class="battery-detail">
+            <span>Updated:</span>
+            <span>{{ battery.formatted_time }}</span>
+        </div>
+        <div class="battery-detail">
+            <span>Power Source:</span>
+            <span>{% if battery.is_daytime and battery.charging %}Solar{% else %}Battery{% endif %}</span>
+        </div>
+    </div>
+    {% endif %}
+    
+</article>
+{% endblock %}

@@ -8,11 +8,6 @@ inserted into all pages of the site.
 from datetime import datetime
 import os
 
-# The sonne_var function will be injected by Sonne
-def sonne_var(key, value):
-    """Set a global variable in Sonne."""
-    pass
-
 # Get the current year
 current_year = datetime.now().year
 

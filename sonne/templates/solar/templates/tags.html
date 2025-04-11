@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="tags-page">
+    <header class="page-header">
+        <h1>All Tags</h1>
+    </header>
+    
+    {% if tags %}
+    <div class="tag-cloud">
+        {% for tag_name, tag_data in tags.items() %}
+        <a href="/blog/tags/{{ tag_data.slug }}/" class="tag">
+            {{ tag_name }} ({{ tag_data.posts|length }})
+        </a>
+        {% endfor %}
+    </div>
+    
+    <div class="tags-list">
+        <h2>Tags by Name</h2>
+        <ul>
+            {% for tag_name, tag_data in tags.items()|sort %}
+            <li>
+                <a href="/blog/tags/{{ tag_data.slug }}/">{{ tag_name }}</a> 
+                ({{ tag_data.posts|length }} post{% if tag_data.posts|length > 1 %}s{% endif %})
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% else %}
+    <p>No tags found.</p>
+    {% endif %}
+    
+    <div class="tag-nav">
+        <a href="/blog/" class="btn">Back to Blog</a>
+    </div>
+</div>
+{% endblock %}

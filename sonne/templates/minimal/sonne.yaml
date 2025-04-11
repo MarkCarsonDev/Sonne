@@ -26,3 +26,7 @@ images:
     - 1200
     - 800
     - 400
+
+url_style: 
+  prod: directory
+  dev: directory

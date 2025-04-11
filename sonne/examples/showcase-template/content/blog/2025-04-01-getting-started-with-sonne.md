@@ -159,9 +159,8 @@ Create a JSON file in the `data` directory:
 Create Python scripts in the `scripts` directory:
 
 ```python
-def sonne_var(key, value):
-    # This function is provided by Sonne
-    pass
+# The sonne_var function will be injected by Sonne at runtime
+# Ignore any linting warnings
 
 # Generate data
 projects = [

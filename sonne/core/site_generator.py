@@ -44,6 +44,7 @@ class SiteGenerator:
             'templates': 'templates',
             'data': 'data',
             'cache': '.cache',
+            'scripts': 'scripts',
         }
         
         for key, default in default_paths.items():
@@ -65,6 +66,8 @@ class SiteGenerator:
                     
                 self.paths[key] = full_path
             
+        logger.info(f"Using URL style: {self.config.get_url_style()}")
+        logger.info(f"Paths: {self.paths}")
         
         # Initialize processors
         self.variable_manager = VariableManager(config, self.base_dir)
@@ -102,14 +105,19 @@ class SiteGenerator:
             # Ensure output directory exists
             ensure_dir(self.paths['output'])
             
-            # Load variables
+            # Load variables - Scripts will be run here
             logger.info("Loading variables...")
             self.variable_manager.load_variables()
+            
+            # Debug: Print out all variables 
+            logger.info("Global variables loaded: " + str(list(self.variable_manager.variables.get('global', {}).keys())))
+            logger.info("Site variables loaded: " + str(list(self.variable_manager.variables.get('site', {}).keys())))
             
             # Process blog posts if enabled
             if self.config.get('blog', 'enabled', default=True):
                 logger.info("Processing blog posts...")
-                self.blog_processor.process_all_posts()                
+                self.blog_processor.process_all_posts()
+                
             # Process templates and pages
             logger.info("Processing pages...")
             self._process_pages()
@@ -171,6 +179,9 @@ class SiteGenerator:
                     self._process_page(file_path)
                 except Exception as e:
                     logger.error(f"Error processing page {file_path}: {e}")
+                    if logger.level <= logging.DEBUG:
+                        import traceback
+                        traceback.print_exc()
                     
     def _process_page(self, file_path: Path) -> None:
         """Process an individual page file.
@@ -178,14 +189,39 @@ class SiteGenerator:
         Args:
             file_path: Path to the page file.
         """
-        # Determine output path
+        # Determine relative path from content directory
         rel_path = file_path.relative_to(self.paths['content'])
         
         # For Markdown files, change extension to .html
         if file_path.suffix.lower() in ['.md', '.markdown']:
-            output_path = Path(self.paths['output']) / rel_path.with_suffix('.html')
+            output_rel_path = rel_path.with_suffix('.html')
         else:
-            output_path = Path(self.paths['output']) / rel_path
+            output_rel_path = rel_path
+            
+        # Get the URL style
+        url_style = self.config.get_url_style()
+        
+        # Format output path based on URL style
+        if url_style == 'directory':
+            # For directory style, use path/to/file/index.html
+            if output_rel_path.stem == 'index':
+                # If it's already index.html, keep it as is
+                output_path = Path(self.paths['output']) / output_rel_path.parent / 'index.html'
+            else:
+                # Otherwise, create a directory with index.html
+                output_path = Path(self.paths['output']) / output_rel_path.parent / output_rel_path.stem / 'index.html'
+        elif url_style == 'html':
+            # For HTML style, use path/to/file.html
+            output_path = Path(self.paths['output']) / output_rel_path
+        else:  # 'clean' style - same as directory for file system
+            if output_rel_path.stem == 'index':
+                # If it's already index.html, keep it as is
+                output_path = Path(self.paths['output']) / output_rel_path.parent / 'index.html'
+            else:
+                # Otherwise, create a directory with index.html
+                output_path = Path(self.paths['output']) / output_rel_path.parent / output_rel_path.stem / 'index.html'
+                
+        logger.debug(f"Output path for {file_path}: {output_path} (URL style: {url_style})")
             
         # Ensure output directory exists
         ensure_dir(output_path.parent)
@@ -194,17 +230,25 @@ class SiteGenerator:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
             
+        # Process the page
+        is_markdown = file_path.suffix.lower() in ['.md', '.markdown']
+        
+        # Ensure all global variables are also in the site scope
+        for key, value in self.variable_manager.variables.get('global', {}).items():
+            if key not in self.variable_manager.variables.get('site', {}):
+                self.variable_manager.variables['site'][key] = value
+        
         # Get variables with proper structure
         variables = {
             'global': self.variable_manager.variables.get('global', {}),
             'site': self.variable_manager.variables.get('site', {}),
             'page': {}
         }
-            
+        
         # Process the page
         front_matter, processed_content = self.template_processor.process_page(
             content, 
-            file_path.suffix.lower() in ['.md', '.markdown'],
+            is_markdown,
             str(file_path),
             variables
         )

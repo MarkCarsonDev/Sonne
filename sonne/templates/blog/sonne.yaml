@@ -50,3 +50,7 @@ images:
     - 800
     - 400
   lazy_loading: true
+
+url_style: 
+  prod: directory
+  dev: directory

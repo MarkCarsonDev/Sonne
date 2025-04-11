@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="portfolio-page">
+    <header class="page-header">
+        <h1>{{ page.title }}</h1>
+        {% if page.subtitle %}
+        <p class="page-subtitle">{{ page.subtitle }}</p>
+        {% endif %}
+    </header>
+    
+    {% if projects %}
+    <div class="project-list">
+        {% for project in projects %}
+        <article class="project-card">
+            {% if project.image %}
+            <div class="project-image">
+                <picture>
+                    {% if site.images.dither | default(true) %}
+                    <source srcset="{{ project.image | replace('.jpg', '_400_dithered.webp') | replace('.png', '_400_dithered.webp') }}" type="image/webp">
+                    <img src="{{ project.image | replace('.jpg', '_400_dithered.png') | replace('.png', '_400_dithered.png') }}" alt="{{ project.title }}" class="dithered" loading="lazy">
+                    {% else %}
+                    <source srcset="{{ project.image | replace('.jpg', '_400.webp') | replace('.png', '_400.webp') }}" type="image/webp">
+                    <img src="{{ project.image | replace('.jpg', '_400.png') | replace('.png', '_400.png') }}" alt="{{ project.title }}" loading="lazy">
+                    {% endif %}
+                </picture>
+            </div>
+            {% endif %}
+            
+            <div class="project-content">
+                <h2 class="project-title">{{ project.title }}</h2>
+                <div class="project-category">{{ project.category }}</div>
+                <p class="project-description">{{ project.description }}</p>
+                
+                {% if project.technologies %}
+                <div class="project-technologies">
+                    {% for tech in project.technologies %}
+                    <span class="project-tech">{{ tech }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <a href="{{ project.url }}" class="btn">View Project</a>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p>No projects found.</p>
+    {% endif %}
+    
+    {% if page.content %}
+    <div class="page-content">
+        {{ content }}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

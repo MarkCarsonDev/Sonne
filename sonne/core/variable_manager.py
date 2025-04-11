@@ -126,17 +126,15 @@ class VariableManager:
                     logger.error(f"Error loading data from {file_path}: {e}")
                     
     def _run_data_scripts(self, scripts_dir: str) -> None:
-        """Run data scripts to populate variables.
-        
-        Args:
-            scripts_dir: Path to the directory containing data scripts.
-        """
+        """Run data scripts to populate variables."""
         for script_path in Path(scripts_dir).glob('*.py'):
             # Skip files starting with underscore
             if script_path.name.startswith('_'):
                 continue
                 
             try:
+                logger.info(f"Running script: {script_path}")
+                
                 # Create a module spec and load the module
                 spec = importlib.util.spec_from_file_location(
                     f"sonne_script_{script_path.stem}", 
@@ -144,19 +142,43 @@ class VariableManager:
                 )
                 module = importlib.util.module_from_spec(spec)
                 
-                # Add the sonne_var function to the module's namespace
-                module.sonne_var = lambda k, v: self.set(k, v, 'global')
+                # Create a proper closure for sonne_var that captures the manager instance
+                # This is critical for maintaining the reference to self
+                def create_sonne_var(manager):
+                    def sonne_var(k, v):
+                        logger.info(f"Script setting variable: {k}")
+                        # Set in both global and site scopes for maximum template compatibility
+                        manager.variables['global'][k] = v
+                        manager.variables['site'][k] = v
+                        logger.info(f"Variable {k} set in global and site scopes")
+                    return sonne_var
+                
+                # Assign the closure, not a lambda
+                module.sonne_var = create_sonne_var(self)
+                
+                # Add the module to sys.modules to ensure it's properly loaded
+                sys.modules[f"sonne_script_{script_path.stem}"] = module
                 
                 # Execute the module
                 spec.loader.exec_module(module)
-                logger.debug(f"Ran script: {script_path}")
+                
+                # Verify variables were set (debugging)
+                logger.info(f"After running {script_path.name}:")
+                logger.info(f"  Global variables: {list(self.variables['global'].keys())}")
+                logger.info(f"  Site variables: {list(self.variables['site'].keys())}")
                 
             except Exception as e:
                 logger.error(f"Error running script {script_path}: {e}")
                 if logger.level <= logging.DEBUG:
                     import traceback
-                    traceback.print_exc()
-                    
+                    traceback.print_exc()            
+    def paths_get(self, key, default=None):
+        """Helper to get path from config.paths."""
+        paths = self.config.get('paths', default={})
+        if isinstance(paths, dict):
+            return paths.get(key, default)
+        return default
+                
     def load_variables(self) -> None:
         """Load all variables from configured sources."""
         # Initialize with empty variables
@@ -214,14 +236,20 @@ class VariableManager:
             try:
                 self._load_from_directory(self.data_dir, 'site')
                 logger.debug(f"Loaded data from {self.data_dir}")
+                
+                # Specifically load project data
+                self.load_project_data()
             except Exception as e:
                 logger.error(f"Error loading data from {self.data_dir}: {e}")
                 
-        # Run data scripts
+        # Run data scripts - this should set battery variable
         if self.scripts_dir:
             try:
+                logger.info(f"Running scripts from: {self.scripts_dir}")
                 self._run_data_scripts(self.scripts_dir)
-                logger.debug(f"Ran data scripts from {self.scripts_dir}")
+                logger.info(f"Ran data scripts from {self.scripts_dir}")
+                logger.info(f"Global variables after scripts: {list(self.variables['global'].keys())}")
+                logger.info(f"Site variables after scripts: {list(self.variables['site'].keys())}")
             except Exception as e:
                 logger.error(f"Error running data scripts from {self.scripts_dir}: {e}")
                 
@@ -242,9 +270,16 @@ class VariableManager:
                         footer_path
                     )
                     module = importlib.util.module_from_spec(spec)
+                    sys.modules["sonne_script_footer"] = module
                     
                     # Add the sonne_var function to the module's namespace
-                    module.sonne_var = lambda k, v: self.set(k, v, 'global')
+                    def create_sonne_var(manager):
+                        def sonne_var(k, v):
+                            manager.set(k, v, 'global')
+                            manager.set(k, v, 'site')
+                        return sonne_var
+                    
+                    module.sonne_var = create_sonne_var(self)
                     
                     # Execute the module
                     spec.loader.exec_module(module)
@@ -265,12 +300,10 @@ class VariableManager:
         if not footer_found:
             logger.debug("No footer.py script found")
         
-    def paths_get(self, key, default=None):
-        """Helper to get path from config.paths."""
-        paths = self.config.get('paths', default={})
-        if isinstance(paths, dict):
-            return paths.get(key, default)
-        return default
+        # Make sure all global variables are also available in site scope
+        for key, value in self.variables.get('global', {}).items():
+            if key not in self.variables.get('site', {}):
+                self.variables['site'][key] = value
                 
     def get(self, key: str, default: Any = None, scope: Optional[str] = None) -> Any:
         """Get a variable value, optionally from a specific scope.
@@ -322,6 +355,7 @@ class VariableManager:
             # Likely HTML content, mark it as safe
             value = Markup(value)
         
+        logger.debug(f"Setting variable {key} in scope {scope}")
         self.variables[scope][key] = value
         
         # Special handling for footer_custom
@@ -333,6 +367,11 @@ class VariableManager:
                 self.variables['site']['footer'] = {}
             self.variables['site']['footer']['custom'] = value
         
+        # For 'battery', ensure it's in site scope for template accessibility
+        if key == 'battery' and scope in ['global', 'page']:
+            self.variables['site'][key] = value
+            logger.info(f"Battery variable set in {scope} and also in site scope")
+        
     def set_page_variables(self, variables: Dict[str, Any]) -> None:
         """Set page-level variables.
         
@@ -340,6 +379,13 @@ class VariableManager:
             variables: Dictionary of page variables.
         """
         self.variables['page'] = variables
+        
+        # For better accessibility, copy any battery or weather data to page scope
+        for key in ['battery', 'weather', 'forecast']:
+            if key in self.variables.get('global', {}):
+                self.variables['page'][key] = self.variables['global'][key]
+            elif key in self.variables.get('site', {}):
+                self.variables['page'][key] = self.variables['site'][key]
         
     def substitute_variables(self, content: str) -> str:
         """Substitute variables in content. Handles both Mond and Sonne variable formats.
@@ -421,3 +467,44 @@ class VariableManager:
             logger.debug(f"Saved variables to {self.variable_file}")
         except Exception as e:
             logger.error(f"Error saving variables: {e}")
+
+    def load_project_data(self) -> None:
+        """Load project data from JSON or YAML files in the data directory.
+        
+        This is a convenience method to ensure project data is loaded from common locations.
+        """
+        if not self.data_dir:
+            logger.warning("No data directory found, unable to load project data")
+            return
+            
+        project_files = [
+            os.path.join(self.data_dir, 'projects.json'),
+            os.path.join(self.data_dir, 'projects.yaml'),
+            os.path.join(self.data_dir, 'projects.yml'),
+            os.path.join(self.data_dir, 'portfolio.json'),
+            os.path.join(self.data_dir, 'portfolio.yaml'),
+            os.path.join(self.data_dir, 'portfolio.yml')
+        ]
+        
+        for file_path in project_files:
+            if os.path.exists(file_path):
+                try:
+                    logger.info(f"Loading project data from {file_path}")
+                    self._load_from_file(file_path, 'global')
+                    
+                    # Check if 'projects' key exists in loaded data
+                    if 'projects' in self.variables.get('global', {}):
+                        # Ensure 'projects' is also directly available to templates
+                        projects = self.variables['global']['projects']
+                        logger.info(f"Found {len(projects)} projects in {file_path}")
+                        
+                        # Make 'projects' directly available at the top level
+                        self.set('projects', projects, 'global')
+                        # Also set in site scope
+                        self.set('projects', projects, 'site')
+                        return
+                        
+                except Exception as e:
+                    logger.error(f"Error loading project data from {file_path}: {e}")
+                    
+        logger.warning("No project data found in data directory")

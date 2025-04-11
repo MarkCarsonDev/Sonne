@@ -120,7 +120,7 @@ class ImageProcessor:
         self._save_cache()
         
     def process_image(self, source_path: str, output_filename: Optional[str] = None, 
-                      options: Optional[Dict[str, Any]] = None, skip_cache: bool = False) -> Dict[str, Dict[str, str]]:
+                  options: Optional[Dict[str, Any]] = None, skip_cache: bool = False) -> Dict[str, Dict[str, str]]:
         """Process an image with requested options.
         
         Args:
@@ -163,57 +163,96 @@ class ImageProcessor:
         # Process the image
         results = {}
         
-        with Image.open(source_path) as img:
-            # Process each size
-            for size in sizes:
-                # Calculate dimensions maintaining aspect ratio
-                width = size
-                if img.width > width:
-                    wpercent = (width / float(img.size[0]))
-                    height = int((float(img.size[1]) * float(wpercent)))
-                    resized = img.resize((width, height), Image.LANCZOS)
-                else:
-                    resized = img.copy()
+        try:
+            with Image.open(source_path) as img:
+                # Convert image to RGB if it's in a different mode for better dithering
+                original_mode = img.mode
+                if original_mode not in ["RGB", "RGBA"]:
+                    img = img.convert("RGB")
+                
+                # Process each size
+                for size in sizes:
+                    # Calculate dimensions maintaining aspect ratio
+                    width = size
+                    if img.width > width:
+                        wpercent = (width / float(img.size[0]))
+                        height = int((float(img.size[1]) * float(wpercent)))
+                        resized = img.resize((width, height), Image.LANCZOS)
+                    else:
+                        resized = img.copy()
+                        
+                    # Create a version without dithering
+                    normal_resized = resized.copy()
                     
-                # Apply dithering if requested
-                if dither:
-                    resized = resized.convert('L')  # Convert to grayscale
-                    resized = resized.convert('1')  # Convert to black and white with dithering
-                    
-                # Save in each requested format
-                for fmt in formats:
-                    # Generate output filename
+                    # Apply dithering if requested
                     if dither:
-                        output_name = f"{output_filename}_{width}_dithered.{fmt}"
-                    else:
-                        output_name = f"{output_filename}_{width}.{fmt}"
+                        # Convert to grayscale first if desired
+                        if self.config.get('images', 'grayscale_before_dither', False):
+                            resized = resized.convert('L')
                         
-                    output_path = os.path.join(output_dir, output_name)
-                    
-                    # Save the image
-                    if fmt == 'webp':
-                        resized.save(output_path, format='WEBP', quality=85, optimize=optimize)
-                    elif fmt == 'png':
-                        resized.save(output_path, format='PNG', optimize=optimize)
-                    elif fmt in ['jpg', 'jpeg']:
-                        # Convert to RGB if needed for JPEG
-                        if resized.mode == '1' or resized.mode == 'L':
-                            resized = resized.convert('RGB')
-                        resized.save(output_path, format='JPEG', quality=85, optimize=optimize)
-                    else:
-                        resized.save(output_path, format=fmt.upper())
+                        # Use Floyd-Steinberg dithering for better results
+                        resized = resized.convert('1', dither=Image.FLOYDSTEINBERG)
+                        logger.debug(f"Applied dithering to image: {source_path}")
                         
-                    # Add to results
-                    if size not in results:
-                        results[size] = {}
-                    results[size][fmt] = os.path.join('assets', 'images', output_name).replace('\\', '/')
-                    
-        # Save to cache
-        if not skip_cache and self.cache_file:
-            self.cache[cache_key] = results
-            
+                    # Save in each requested format
+                    for fmt in formats:
+                        # Process both regular and dithered versions if dithering is enabled
+                        versions_to_process = [('', normal_resized)]
+                        if dither:
+                            versions_to_process.append(('_dithered', resized))
+                        
+                        for suffix, img_version in versions_to_process:
+                            # Generate output filename
+                            output_name = f"{output_filename}_{width}{suffix}.{fmt}"
+                            output_path = os.path.join(output_dir, output_name)
+                            
+                            # Save the image with appropriate format and options
+                            try:
+                                if fmt == 'webp':
+                                    # WebP format requires RGB or RGBA mode
+                                    save_img = img_version
+                                    if img_version.mode == '1':
+                                        save_img = img_version.convert('RGB')
+                                    save_img.save(output_path, format='WEBP', quality=85, optimize=optimize)
+                                elif fmt == 'png':
+                                    # PNG works with all modes
+                                    img_version.save(output_path, format='PNG', optimize=optimize)
+                                elif fmt in ['jpg', 'jpeg']:
+                                    # JPEG requires RGB mode
+                                    save_img = img_version
+                                    if img_version.mode in ['1', 'L', 'RGBA']:
+                                        save_img = img_version.convert('RGB')
+                                    save_img.save(output_path, format='JPEG', quality=85, optimize=optimize)
+                                else:
+                                    # Other formats, try native save
+                                    img_version.save(output_path, format=fmt.upper())
+                                    
+                                logger.debug(f"Saved image: {output_path}")
+                                    
+                                # Add to results
+                                key = size
+                                if suffix:
+                                    if f"{size}{suffix}" not in results:
+                                        results[f"{size}{suffix}"] = {}
+                                    results[f"{size}{suffix}"][fmt] = os.path.join('assets', 'images', output_name).replace('\\', '/')
+                                else:
+                                    if size not in results:
+                                        results[size] = {}
+                                    results[size][fmt] = os.path.join('assets', 'images', output_name).replace('\\', '/')
+                            except Exception as e:
+                                logger.error(f"Error saving image in {fmt} format: {e}")
+                        
+            # Save to cache
+            if not skip_cache and self.cache_file:
+                self.cache[cache_key] = results
+                
+        except Exception as e:
+            logger.error(f"Error processing image {source_path}: {e}")
+            if logger.level <= logging.DEBUG:
+                import traceback
+                traceback.print_exc()
+                
         return results
-        
     def dither_image(self, input_path: str, output_path: str) -> None:
         """Apply dithering to an image.
         
