@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="categories-page">
+    <header class="page-header">
+        <h1>All Categories</h1>
+    </header>
+    
+    {% if categories %}
+    <div class="category-cloud">
+        {% for category_name, category_data in categories.items() %}
+        <a href="/blog/categories/{{ category_data.slug }}/" class="category">
+            {{ category_name }} ({{ category_data.posts|length }})
+        </a>
+        {% endfor %}
+    </div>
+    
+    <div class="categories-list">
+        <h2>Categories by Name</h2>
+        <ul>
+            {% for category_name, category_data in categories.items()|sort %}
+            <li>
+                <a href="/blog/categories/{{ category_data.slug }}/">{{ category_name }}</a> 
+                ({{ category_data.posts|length }} post{% if category_data.posts|length > 1 %}s{% endif %})
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% else %}
+    <p>No categories found.</p>
+    {% endif %}
+    
+    <div class="category-nav">
+        <a href="/blog/" class="btn">Back to Blog</a>
+    </div>
+</div>
+{% endblock %}

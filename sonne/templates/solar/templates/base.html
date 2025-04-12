@@ -6,11 +6,6 @@
     <title>{% if page.title %}{{ page.title }} - {% endif %}{{ site.title }}</title>
     <meta name="description" content="{{ page.description | default(site.description) }}">
     
-    <!-- Preconnect to weather API (if needed) -->
-    {% if weather %}
-    <link rel="preconnect" href="https://api.openweathermap.org">
-    {% endif %}
-    
     <!-- Critical CSS inline for performance -->
     <style>
         /* Base styles */
@@ -188,10 +183,10 @@
     </style>
     
     <!-- Non-critical CSS -->
-    <link rel="stylesheet" href="/static/css/minimal.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/css/minimal.css" media="print" onload="this.media='all'">
     
     <!-- Preload link -->
-    <link rel="preload" href="/static/js/minimal.js" as="script">
+    <link rel="preload" href="/js/minimal.js" as="script">
 </head>
 <body data-theme="dark" data-contrast="low">
     <header class="site-header">
@@ -251,6 +246,6 @@
     </footer>
     
     <!-- Deferred JavaScript -->
-    <script src="/static/js/minimal.js" defer></script>
+    <script src="/js/minimal.js" defer></script>
 </body>
 </html>

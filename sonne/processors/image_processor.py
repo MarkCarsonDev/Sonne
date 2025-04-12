@@ -97,30 +97,139 @@ class ImageProcessor:
         if not PIL_AVAILABLE:
             return
             
-        # Skip if content directory doesn't exist
-        if not os.path.exists(content_dir):
-            logger.warning(f"Content directory does not exist: {content_dir}")
-            return
+        # Process content directory images
+        if content_dir and os.path.exists(content_dir):
+            logger.info(f"Processing images in content directory: {content_dir}")
+            self._process_directory_images(content_dir, skip_cache)
             
+        # Process static/images directory
+        static_dir = self.paths.get('static')
+        if static_dir and os.path.exists(static_dir):
+            static_images_dir = os.path.join(static_dir, 'images')
+            if os.path.exists(static_images_dir):
+                logger.info(f"Processing images in static/images directory: {static_images_dir}")
+                self._process_directory_images(static_images_dir, skip_cache, is_static=True)
+            
+        # Save cache
+        self._save_cache()
+    
+    def _process_directory_images(self, directory: str, skip_cache: bool = False, is_static: bool = False) -> None:
+        """Process all images in a directory.
+        
+        Args:
+            directory: Directory to scan for images.
+            skip_cache: Whether to skip cache and reprocess.
+            is_static: Whether this is the static/images directory.
+        """
         # Find all images
         image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
         for ext in image_extensions:
-            for file_path in Path(content_dir).glob(f'**/*{ext}'):
+            for file_path in Path(directory).glob(f'**/*{ext}'):
                 try:
                     # Skip hidden files and directories
                     if any(part.startswith('.') for part in file_path.parts):
                         continue
-                        
+                    
                     # Process the image
-                    self.process_image(str(file_path), skip_cache=skip_cache)
+                    if is_static:
+                        self._process_static_image(str(file_path), skip_cache)
+                    else:    
+                        self.process_image(str(file_path), skip_cache=skip_cache)
                 except Exception as e:
                     logger.error(f"Error processing image {file_path}: {e}")
-                    
-        # Save cache
-        self._save_cache()
+    
+    def _process_static_image(self, source_path: str, skip_cache: bool = False) -> None:
+        """Process an image from the static/images directory.
+        
+        Args:
+            source_path: Path to the source image.
+            skip_cache: Whether to skip cache and reprocess.
+        """
+        # Skip if PIL is not available
+        if not PIL_AVAILABLE:
+            # Just copy the file
+            self._copy_static_image(source_path)
+            return
+            
+        # Get dithering flag from config
+        dither = self.config.get('images', 'dither', True)
+        if not dither:
+            # If dithering is disabled, just copy the file
+            self._copy_static_image(source_path)
+            return
+        
+        # Calculate relative path from static/images
+        static_dir = self.paths.get('static')
+        rel_path = os.path.relpath(source_path, static_dir)
+        
+        # Determine output paths
+        output_path = os.path.join(self.paths['output'], rel_path)
+        output_dir = os.path.dirname(output_path)
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate original path with _original suffix
+        filename, ext = os.path.splitext(output_path)
+        original_path = f"{filename}_original{ext}"
+        
+        # Check cache if not skipping
+        file_hash = self._file_hash(source_path) if not skip_cache else None
+        cache_key = f"static:{source_path}:{file_hash}:{dither}"
+        
+        if not skip_cache and cache_key in self.cache:
+            logger.debug(f"Using cached version of static image: {source_path}")
+            return
+        
+        try:
+            # Copy original image with _original suffix
+            shutil.copy2(source_path, original_path)
+            logger.debug(f"Copied original image: {source_path} -> {original_path}")
+            
+            # Process and save dithered version to the main path
+            with Image.open(source_path) as img:
+                # Convert to grayscale if specified
+                if self.config.get('images', 'grayscale_before_dither', False):
+                    img = img.convert('L')
+                
+                # Apply dithering
+                dithered = img.convert('1', dither=Image.FLOYDSTEINBERG)
+                
+                # Save dithered image to the output path
+                dithered.save(output_path, optimize=True)
+                logger.debug(f"Saved dithered image: {source_path} -> {output_path}")
+                
+            # Update cache
+            if not skip_cache:
+                self.cache[cache_key] = True
+                
+        except Exception as e:
+            logger.error(f"Error processing static image {source_path}: {e}")
+            # Fall back to just copying the file
+            self._copy_static_image(source_path)
+    
+    def _copy_static_image(self, source_path: str) -> None:
+        """Copy a static image to the output directory.
+        
+        Args:
+            source_path: Path to the source image.
+        """
+        # Calculate relative path from static directory
+        static_dir = self.paths.get('static')
+        rel_path = os.path.relpath(source_path, static_dir)
+        
+        # Determine output path
+        output_path = os.path.join(self.paths['output'], rel_path)
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # Copy the file
+        shutil.copy2(source_path, output_path)
+        logger.debug(f"Copied static image: {source_path} -> {output_path}")
         
     def process_image(self, source_path: str, output_filename: Optional[str] = None, 
-                  options: Optional[Dict[str, Any]] = None, skip_cache: bool = False) -> Dict[str, Dict[str, str]]:
+              options: Optional[Dict[str, Any]] = None, skip_cache: bool = False) -> Dict[str, Dict[str, str]]:
         """Process an image with requested options.
         
         Args:
@@ -139,7 +248,7 @@ class ImageProcessor:
             
         # Use provided options or defaults
         opts = options or {}
-        dither = opts.get('dither', self.config.get('images', 'dither', False))
+        dither = opts.get('dither', self.config.get('images', 'dither', True))  # Default to True
         optimize = opts.get('optimize', self.config.get('images', 'optimize', True))
         formats = opts.get('formats', self.config.get('images', 'formats', ['webp', 'png']))
         sizes = opts.get('sizes', self.config.get('images', 'sizes', [1200, 800, 400]))
@@ -181,67 +290,74 @@ class ImageProcessor:
                     else:
                         resized = img.copy()
                         
-                    # Create a version without dithering
-                    normal_resized = resized.copy()
-                    
-                    # Apply dithering if requested
-                    if dither:
-                        # Convert to grayscale first if desired
-                        if self.config.get('images', 'grayscale_before_dither', False):
-                            resized = resized.convert('L')
-                        
-                        # Use Floyd-Steinberg dithering for better results
-                        resized = resized.convert('1', dither=Image.FLOYDSTEINBERG)
-                        logger.debug(f"Applied dithering to image: {source_path}")
-                        
-                    # Save in each requested format
+                    # Always save original version (with _original suffix)
                     for fmt in formats:
-                        # Process both regular and dithered versions if dithering is enabled
-                        versions_to_process = [('', normal_resized)]
-                        if dither:
-                            versions_to_process.append(('_dithered', resized))
+                        # Generate output filename for original
+                        output_name = f"{output_filename}_{width}_original.{fmt}"
+                        output_path = os.path.join(output_dir, output_name)
                         
-                        for suffix, img_version in versions_to_process:
-                            # Generate output filename
-                            output_name = f"{output_filename}_{width}{suffix}.{fmt}"
-                            output_path = os.path.join(output_dir, output_name)
-                            
-                            # Save the image with appropriate format and options
-                            try:
-                                if fmt == 'webp':
-                                    # WebP format requires RGB or RGBA mode
-                                    save_img = img_version
-                                    if img_version.mode == '1':
-                                        save_img = img_version.convert('RGB')
-                                    save_img.save(output_path, format='WEBP', quality=85, optimize=optimize)
-                                elif fmt == 'png':
-                                    # PNG works with all modes
-                                    img_version.save(output_path, format='PNG', optimize=optimize)
-                                elif fmt in ['jpg', 'jpeg']:
-                                    # JPEG requires RGB mode
-                                    save_img = img_version
-                                    if img_version.mode in ['1', 'L', 'RGBA']:
-                                        save_img = img_version.convert('RGB')
-                                    save_img.save(output_path, format='JPEG', quality=85, optimize=optimize)
-                                else:
-                                    # Other formats, try native save
-                                    img_version.save(output_path, format=fmt.upper())
-                                    
-                                logger.debug(f"Saved image: {output_path}")
-                                    
-                                # Add to results
-                                key = size
-                                if suffix:
-                                    if f"{size}{suffix}" not in results:
-                                        results[f"{size}{suffix}"] = {}
-                                    results[f"{size}{suffix}"][fmt] = os.path.join('assets', 'images', output_name).replace('\\', '/')
-                                else:
-                                    if size not in results:
-                                        results[size] = {}
-                                    results[size][fmt] = os.path.join('assets', 'images', output_name).replace('\\', '/')
-                            except Exception as e:
-                                logger.error(f"Error saving image in {fmt} format: {e}")
+                        try:
+                            if fmt == 'webp':
+                                resized.save(output_path, format='WEBP', quality=85, optimize=optimize)
+                            elif fmt == 'png':
+                                resized.save(output_path, format='PNG', optimize=optimize)
+                            elif fmt in ['jpg', 'jpeg']:
+                                save_img = resized
+                                if original_mode in ['1', 'L', 'RGBA'] and fmt in ['jpg', 'jpeg']:
+                                    save_img = resized.convert('RGB')
+                                save_img.save(output_path, format='JPEG', quality=85, optimize=optimize)
+                            else:
+                                resized.save(output_path, format=fmt.upper())
+                                
+                            # Add to results
+                            if f"{size}_original" not in results:
+                                results[f"{size}_original"] = {}
+                            results[f"{size}_original"][fmt] = os.path.join('assets', 'images', output_name).replace('\\', '/')
+                        except Exception as e:
+                            logger.error(f"Error saving original image in {fmt} format: {e}")
+                    
+                    # Create dithered version (always for content images)
+                    # Make a copy for dithering
+                    dithered = resized.copy()
+                    
+                    # Convert to grayscale first if desired
+                    if self.config.get('images', 'grayscale_before_dither', False):
+                        dithered = dithered.convert('L')
+                    
+                    # Use Floyd-Steinberg dithering for better results
+                    dithered = dithered.convert('1', dither=Image.FLOYDSTEINBERG)
+                    logger.debug(f"Applied dithering to image: {source_path}")
+                    
+                    # Save dithered version in each format
+                    for fmt in formats:
+                        # For content images, generated files use standard naming pattern
+                        # but the main output is the dithered version by default
+                        output_name = f"{output_filename}_{width}.{fmt}"
+                        output_path = os.path.join(output_dir, output_name)
                         
+                        try:
+                            if fmt == 'webp':
+                                # WebP format requires RGB or RGBA mode
+                                save_img = dithered.convert('RGB')
+                                save_img.save(output_path, format='WEBP', quality=85, optimize=optimize)
+                            elif fmt == 'png':
+                                # PNG works with all modes
+                                dithered.save(output_path, format='PNG', optimize=optimize)
+                            elif fmt in ['jpg', 'jpeg']:
+                                # JPEG requires RGB mode
+                                save_img = dithered.convert('RGB')
+                                save_img.save(output_path, format='JPEG', quality=85, optimize=optimize)
+                            else:
+                                # Other formats, try native save
+                                dithered.save(output_path, format=fmt.upper())
+                                
+                            # Add to results
+                            if size not in results:
+                                results[size] = {}
+                            results[size][fmt] = os.path.join('assets', 'images', output_name).replace('\\', '/')
+                        except Exception as e:
+                            logger.error(f"Error saving dithered image in {fmt} format: {e}")
+                
             # Save to cache
             if not skip_cache and self.cache_file:
                 self.cache[cache_key] = results
@@ -251,8 +367,9 @@ class ImageProcessor:
             if logger.level <= logging.DEBUG:
                 import traceback
                 traceback.print_exc()
-                
+            
         return results
+        
     def dither_image(self, input_path: str, output_path: str) -> None:
         """Apply dithering to an image.
         

@@ -45,7 +45,6 @@ class BlogProcessor:
         if blog_dir is None:
             blog_dir = 'blog'
 
-        
         self.blog_content_dir = os.path.join(content_path, blog_dir)
         self.blog_output_dir = os.path.join(output_path, blog_dir)
         
@@ -58,6 +57,10 @@ class BlogProcessor:
             'tags': {},
             'categories': {},
         }
+        
+        # Cache URL style
+        self.url_style = self.config.get_url_style() if hasattr(self.config, 'get_url_style') else 'clean'
+        logger.debug(f"Using URL style: {self.url_style}")
         
     def process_all_posts(self) -> None:
         """Process all blog posts."""
@@ -77,17 +80,7 @@ class BlogProcessor:
             return
             
         # Sort posts by date (newest first)
-        def get_sort_date(post):
-            date_val = post.get('date', '')
-            if isinstance(date_val, datetime):
-                return date_val
-            elif hasattr(date_val, 'year') and hasattr(date_val, 'month') and hasattr(date_val, 'day'):
-                # Convert date to datetime
-                return datetime(date_val.year, date_val.month, date_val.day)
-            else:
-                return datetime(1970, 1, 1)  # Default for invalid dates
-
-        self.posts.sort(key=get_sort_date, reverse=True)
+        self._sort_posts()
         
         # Set navigation links (next/prev)
         self._set_navigation_links()
@@ -101,16 +94,44 @@ class BlogProcessor:
         # Render individual posts
         self._render_posts()
         
-        # Generate index pages
-        self._generate_index_pages()
+        try:
+            # Generate index pages
+            self._generate_index_pages()
+        except Exception as e:
+            logger.error(f"Error generating blog index pages: {e}")
+            if logger.level <= logging.DEBUG:
+                import traceback
+                traceback.print_exc()
         
-        # Generate taxonomy pages
-        self._generate_taxonomy_pages()
+        try:
+            # Generate taxonomy pages
+            self._generate_taxonomy_pages()
+        except Exception as e:
+            logger.error(f"Error generating taxonomy pages: {e}")
+            if logger.level <= logging.DEBUG:
+                import traceback
+                traceback.print_exc()
         
         # Generate RSS feed
         self._generate_rss_feed()
         
         logger.info(f"Processed {len(self.posts)} blog posts")
+    
+    def _sort_posts(self) -> None:
+        """Sort posts by date (newest first)."""
+        def get_sort_date(post):
+            date_val = post.get('date', '')
+            if isinstance(date_val, datetime):
+                return date_val
+            elif hasattr(date_val, 'year') and hasattr(date_val, 'month') and hasattr(date_val, 'day'):
+                # Convert date to datetime
+                return datetime(date_val.year, date_val.month, date_val.day)
+            else:
+                logger.warning(f"Invalid date format for post {post.get('title', 'Unknown')}, using epoch")
+                return datetime(1970, 1, 1)  # Default for invalid dates
+
+        self.posts.sort(key=get_sort_date, reverse=True)
+        logger.debug(f"Sorted {len(self.posts)} posts by date")
         
     def _collect_posts(self) -> None:
         """Collect all blog posts."""
@@ -123,8 +144,12 @@ class BlogProcessor:
                 post = self._parse_post(file_path)
                 if post:
                     self.posts.append(post)
+                    logger.debug(f"Collected post: {post['title']} from {file_path}")
             except Exception as e:
                 logger.error(f"Error parsing blog post {file_path}: {e}")
+                if logger.level <= logging.DEBUG:
+                    import traceback
+                    traceback.print_exc()
                 
     def _parse_post(self, file_path: Path) -> Optional[Dict[str, Any]]:
         """Parse a blog post file.
@@ -144,6 +169,7 @@ class BlogProcessor:
         
         # Skip draft posts unless include_drafts is enabled
         if front_matter.get('draft', False) and not self.config.get('blog', 'include_drafts', default=False):
+            logger.debug(f"Skipping draft post: {file_path}")
             return None
             
         # Process date
@@ -205,9 +231,9 @@ class BlogProcessor:
             excerpt_length = self.config.get('blog', 'excerpt_length', default=200)
             excerpt = self._generate_excerpt(html_content, excerpt_length)
             
-        # Process taxonomies
-        tags = self._parse_taxonomy_list(front_matter.get('tags', []))
-        categories = self._parse_taxonomy_list(front_matter.get('categories', []))
+        # Process taxonomies - convert all tags and categories to strings
+        tags = [str(tag) for tag in self._parse_taxonomy_list(front_matter.get('tags', []))]
+        categories = [str(cat) for cat in self._parse_taxonomy_list(front_matter.get('categories', []))]
         
         # Construct post data
         post_data = {
@@ -232,6 +258,7 @@ class BlogProcessor:
         }
         
         return post_data
+        
     def _set_navigation_links(self) -> None:
         """Set next/prev navigation links for posts."""
         for i, post in enumerate(self.posts):
@@ -265,31 +292,82 @@ class BlogProcessor:
         for post in self.posts:
             # Process tags
             for tag in post.get('tags', []):
-                if tag not in self.taxonomies['tags']:
-                    self.taxonomies['tags'][tag] = {
-                        'name': tag,
-                        'slug': self._slugify(tag),
+                tag_name = str(tag)  # Ensure the tag is a string
+                if tag_name not in self.taxonomies['tags']:
+                    self.taxonomies['tags'][tag_name] = {
+                        'name': tag_name,
+                        'slug': self._slugify(tag_name),
                         'posts': [],
                     }
-                self.taxonomies['tags'][tag]['posts'].append(post)
+                self.taxonomies['tags'][tag_name]['posts'].append(post)
                 
             # Process categories
             for category in post.get('categories', []):
-                if category not in self.taxonomies['categories']:
-                    self.taxonomies['categories'][category] = {
-                        'name': category,
-                        'slug': self._slugify(category),
+                category_name = str(category)  # Ensure the category is a string
+                if category_name not in self.taxonomies['categories']:
+                    self.taxonomies['categories'][category_name] = {
+                        'name': category_name,
+                        'slug': self._slugify(category_name),
                         'posts': [],
                     }
-                self.taxonomies['categories'][category]['posts'].append(post)
+                self.taxonomies['categories'][category_name]['posts'].append(post)
                 
+        # Convert taxonomies to regular dictionaries to ensure they're serializable
+        serializable_tags = {}
+        for tag_name, tag_data in self.taxonomies['tags'].items():
+            serializable_tags[str(tag_name)] = {
+                'name': tag_data['name'],
+                'slug': tag_data['slug'],
+                'posts': tag_data['posts']
+            }
+        
+        serializable_categories = {}
+        for cat_name, cat_data in self.taxonomies['categories'].items():
+            serializable_categories[str(cat_name)] = {
+                'name': cat_data['name'],
+                'slug': cat_data['slug'],
+                'posts': cat_data['posts']
+            }
+        
+        # Replace with serializable versions
+        self.taxonomies['tags'] = serializable_tags
+        self.taxonomies['categories'] = serializable_categories
+        
         # Save taxonomy data to global variables
         self.variable_manager.set('tags', self.taxonomies['tags'], 'global')
         self.variable_manager.set('categories', self.taxonomies['categories'], 'global')
         
-    """
-    Function to fix URL style handling in the blog processor.
-    """
+        logger.debug(f"Built taxonomy collections: {len(self.taxonomies['tags'])} tags, {len(self.taxonomies['categories'])} categories")
+    def _get_output_path(self, rel_path: str, is_index: bool = False) -> str:
+        """Get the output file path based on URL style.
+        
+        Args:
+            rel_path: Relative path from the output directory
+            is_index: Whether this is an index page
+            
+        Returns:
+            Full output file path
+        """
+        if self.url_style == 'directory':
+            # For directory style, use path/to/file/index.html
+            if is_index:
+                output_path = os.path.join(self.paths['output'], rel_path, 'index.html')
+            else:
+                output_path = os.path.join(self.paths['output'], rel_path, 'index.html')
+        elif self.url_style == 'html':
+            # For HTML style, use path/to/file.html
+            if is_index:
+                output_path = os.path.join(self.paths['output'], f"{rel_path}.html")
+            else:
+                output_path = os.path.join(self.paths['output'], f"{rel_path}.html")
+        else:  # 'clean' style - same as directory for file system
+            # For clean URLs, use path/to/file/index.html
+            if is_index:
+                output_path = os.path.join(self.paths['output'], rel_path, 'index.html')
+            else:
+                output_path = os.path.join(self.paths['output'], rel_path, 'index.html')
+                
+        return output_path
 
     def _render_posts(self) -> None:
         """Render individual blog posts."""
@@ -305,13 +383,17 @@ class BlogProcessor:
                     'page': post
                 }
                 
-                # Add all global variables to both root and site level for compatibility
+                # Add all global variables to site level for compatibility
                 for key, value in variables['global'].items():
                     if key not in variables['site']:
                         variables['site'][key] = value
                 
+                # Make sure 'images' configuration is available
+                if hasattr(self.config, 'config') and 'images' in self.config.config:
+                    variables['site']['images'] = self.config.config['images']
+                
                 # Get template
-                template_name = post.get('template')
+                template_name = post.get('template', self.config.get('blog', 'template', default='blog_post.html'))
                 
                 # Render post
                 _, rendered_content = self.template_processor.process_page(
@@ -321,23 +403,13 @@ class BlogProcessor:
                     variables
                 )
                 
-                # Get URL style
-                url_style = self.config.get_url_style() if hasattr(self.config, 'get_url_style') else 'clean'
-                logger.debug(f"URL style for post '{post['title']}': {url_style}")
-                
                 # Clean the post URL for consistency
                 post_url = post['url'].rstrip('/')
-                
+                blog_dir = self.config.get('blog', 'directory', default='blog')
+                rel_path = os.path.join(blog_dir, post_url)
+                                
                 # Determine output path based on URL style
-                if url_style == 'directory':
-                    # For directory style, place in a directory with index.html
-                    output_path = os.path.join(self.blog_output_dir, post_url, 'index.html')
-                elif url_style == 'html':
-                    # For HTML style, append .html to the filename
-                    output_path = os.path.join(self.blog_output_dir, f"{post_url}.html")
-                else:  # 'clean' style
-                    # For clean URLs, use directory style (same as directory style for output file)
-                    output_path = os.path.join(self.blog_output_dir, post_url, 'index.html')
+                output_path = self._get_output_path(rel_path)
                 
                 logger.debug(f"Output path for blog post: {output_path}")
                 
@@ -358,172 +430,140 @@ class BlogProcessor:
 
     def _generate_index_pages(self) -> None:
         """Generate blog index pages with pagination."""
-        try:
-            # Determine pagination
-            posts_per_page = self.config.get('blog', 'posts_per_page', default=10)
-            total_pages = math.ceil(len(self.posts) / posts_per_page)
+        # Determine pagination
+        posts_per_page = self.config.get('blog', 'posts_per_page', default=10)
+        total_pages = math.ceil(len(self.posts) / posts_per_page)
+        
+        # Get base blog URL and directory
+        blog_dir = self.config.get('blog', 'directory', default='blog')
+        blog_url = f"/{blog_dir}"
+        blog_url = blog_url.rstrip('/')  # Ensure no trailing slash for consistency
+        
+        # Generate each page
+        for page_num in range(1, total_pages + 1):
+            # Calculate slice for this page
+            start = (page_num - 1) * posts_per_page
+            end = start + posts_per_page
+            page_posts = self.posts[start:end]
             
-            # Get URL style
-            url_style = self.config.get_url_style() if hasattr(self.config, 'get_url_style') else 'clean'
-            logger.debug(f"URL style for blog index pages: {url_style}")
-            
-            # Generate each page
-            for page_num in range(1, total_pages + 1):
-                # Calculate slice for this page
-                start = (page_num - 1) * posts_per_page
-                end = start + posts_per_page
-                page_posts = self.posts[start:end]
-                
-                # Get base blog URL
-                blog_url = f"/{self.config.get('blog', 'directory', default='blog')}"
-                blog_url = blog_url.rstrip('/')  # Ensure no trailing slash for consistency
-                
-                # Format pagination URLs according to URL style
-                if page_num > 1:
-                    pagination_url = f"{blog_url}/page/{page_num}"
-                    if hasattr(self.config, 'format_url'):
-                        prev_url = self.config.format_url(f"{blog_url}/page/{page_num - 1}")
-                    else:
-                        prev_url = f"{blog_url}/page/{page_num - 1}"
-                else:
-                    if hasattr(self.config, 'format_url'):
-                        prev_url = None
-                    else:
-                        prev_url = None
-                
-                if page_num < total_pages:
-                    if hasattr(self.config, 'format_url'):
-                        next_url = self.config.format_url(f"{blog_url}/page/{page_num + 1}")
-                    else:
-                        next_url = f"{blog_url}/page/{page_num + 1}"
-                else:
-                    next_url = None
-                
-                # Format the blog URL
+            # Format pagination URLs
+            if page_num > 1:
+                # Pagination URL for current page
+                pagination_url = f"{blog_url}/page/{page_num}"
                 if hasattr(self.config, 'format_url'):
-                    formatted_blog_url = self.config.format_url(blog_url)
-                else:
-                    formatted_blog_url = blog_url
-                
-                # Prepare pagination data
-                pagination = {
-                    'current': page_num,
-                    'total': total_pages,
-                    'has_prev': page_num > 1,
-                    'has_next': page_num < total_pages,
-                    'prev_url': prev_url,
-                    'next_url': next_url,
-                }
-                
-                # Determine page URL
-                page_url = formatted_blog_url if page_num == 1 else f"{blog_url}/page/{page_num}"
-                if hasattr(self.config, 'format_url') and page_num > 1:
-                    page_url = self.config.format_url(page_url)
-                
-                # Prepare template variables
-                page_data = {
-                    'title': f"Blog - Page {page_num}" if page_num > 1 else "Blog",
-                    'description': f"Blog posts - Page {page_num} of {total_pages}",
-                    'posts': page_posts,
-                    'pagination': pagination,
-                    'url': page_url,
-                }
-                
-                # Set page variables
-                self.variable_manager.set_page_variables(page_data)
-                
-                # Add battery and other global variables to the page scope
-                for key, value in self.variable_manager.variables.get('global', {}).items():
-                    if key not in page_data:
-                        page_data[key] = value
-                
-                # Get all variables with proper structure
-                variables = {
-                    'global': self.variable_manager.variables.get('global', {}),
-                    'site': self.variable_manager.variables.get('site', {}),
-                    'page': page_data
-                }
-                
-                # Also add global variables to site scope
-                for key, value in variables['global'].items():
-                    if key not in variables['site']:
-                        variables['site'][key] = value
-                
-                # Get template
-                template_name = self.config.get('blog', 'list_template', default='blog_list.html')
-                logger.debug(f"Using template {template_name} for blog index page {page_num}")
-                
-                # Create dummy content for template processor
-                # We're using HTML content here since we want the template processor
-                # to treat this as non-Markdown content that's already been processed
-                dummy_content = f"<h1>{page_data['title']}</h1><p>{page_data['description']}</p>"
-                
-                # Render page
-                _, rendered_content = self.template_processor.process_page(
-                    dummy_content,
-                    False,
-                    "blog_index",
-                    variables
-                )
-                
-                # Determine output path based on URL style
-                if page_num == 1:
-                    # First page
-                    if url_style == 'directory':
-                        # For directory style, use index.html in the blog directory
-                        output_path = os.path.join(self.blog_output_dir, 'index.html')
-                    elif url_style == 'html':
-                        # For HTML style, use blog.html in the parent directory
-                        blog_dir = self.config.get('blog', 'directory', default='blog')
-                        output_path = os.path.join(os.path.dirname(self.blog_output_dir), f"{blog_dir}.html")
-                    else:  # 'clean' style
-                        # For clean URLs, use index.html in the blog directory
-                        output_path = os.path.join(self.blog_output_dir, 'index.html')
-                else:
-                    # Pagination pages
-                    if url_style == 'directory':
-                        # For directory style, use page/N/index.html
-                        output_path = os.path.join(self.blog_output_dir, 'page', str(page_num), 'index.html')
-                    elif url_style == 'html':
-                        # For HTML style, use page-N.html in the blog directory
-                        output_path = os.path.join(self.blog_output_dir, f"page-{page_num}.html")
-                    else:  # 'clean' style
-                        # For clean URLs, use page/N/index.html
-                        output_path = os.path.join(self.blog_output_dir, 'page', str(page_num), 'index.html')
-                        
-                logger.debug(f"Output path for blog index page {page_num}: {output_path}")
-                        
-                # Ensure output directory exists
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                        
-                # Write output file
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    f.write(rendered_content)
+                    pagination_url = self.config.format_url(pagination_url)
                     
-                logger.debug(f"Generated blog index page {page_num}/{total_pages} -> {output_path}")
+                # Previous page URL
+                if page_num > 2:
+                    prev_url = self.config.format_url(f"{blog_url}/page/{page_num - 1}") if hasattr(self.config, 'format_url') else f"{blog_url}/page/{page_num - 1}"
+                else:
+                    # First page is at the blog root
+                    prev_url = self.config.format_url(blog_url) if hasattr(self.config, 'format_url') else blog_url
+            else:
+                pagination_url = blog_url
+                if hasattr(self.config, 'format_url'):
+                    pagination_url = self.config.format_url(pagination_url)
+                prev_url = None
+            
+            # Next page URL
+            if page_num < total_pages:
+                next_url = self.config.format_url(f"{blog_url}/page/{page_num + 1}") if hasattr(self.config, 'format_url') else f"{blog_url}/page/{page_num + 1}"
+            else:
+                next_url = None
+            
+            # Prepare pagination data
+            pagination = {
+                'current': page_num,
+                'total': total_pages,
+                'has_prev': page_num > 1,
+                'has_next': page_num < total_pages,
+                'prev_url': prev_url,
+                'next_url': next_url,
+            }
+            
+            # Prepare template variables
+            page_data = {
+                'title': f"Blog - Page {page_num}" if page_num > 1 else "Blog",
+                'description': f"Blog posts - Page {page_num} of {total_pages}",
+                'posts': page_posts,
+                'pagination': pagination,
+                'url': pagination_url,
+            }
+            
+            # Set page variables
+            self.variable_manager.set_page_variables(page_data)
+            
+            # Add battery and other global variables to the page scope
+            for key, value in self.variable_manager.variables.get('global', {}).items():
+                if key not in page_data:
+                    page_data[key] = value
+            
+            # Get all variables with proper structure
+            variables = {
+                'global': self.variable_manager.variables.get('global', {}),
+                'site': self.variable_manager.variables.get('site', {}),
+                'page': page_data
+            }
+            
+            # Also add global variables to site scope
+            for key, value in variables['global'].items():
+                if key not in variables['site']:
+                    variables['site'][key] = value
+            
+            # Make sure 'images' configuration is available
+            if hasattr(self.config, 'config') and 'images' in self.config.config:
+                variables['site']['images'] = self.config.config['images']
+            
+            # Get template
+            template_name = self.config.get('blog', 'list_template', default='blog_list.html')
+            logger.debug(f"Using template {template_name} for blog index page {page_num}")
+            
+            # Create dummy content for template processor
+            # We're using HTML content here since we want the template processor
+            # to treat this as non-Markdown content that's already been processed
+            dummy_content = f"<h1>{page_data['title']}</h1><p>{page_data['description']}</p>"
+            
+            # Render page
+            _, rendered_content = self.template_processor.process_page(
+                dummy_content,
+                False,
+                "blog_index",
+                variables
+            )
+            
+            # Determine output path based on page number and URL style
+            if page_num == 1:
+                # First page
+                rel_path = blog_dir
+            else:
+                # Pagination pages
+                rel_path = os.path.join(blog_dir, 'page', str(page_num))
+            
+            output_path = self._get_output_path(rel_path, is_index=(page_num == 1))
+                    
+            logger.debug(f"Output path for blog index page {page_num}: {output_path}")
+                    
+            # Ensure output directory exists
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                    
+            # Write output file
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(rendered_content)
                 
-        except Exception as e:
-            logger.error(f"Error generating blog index pages: {e}")
-            if logger.level <= logging.DEBUG:
-                import traceback
-                traceback.print_exc()    
+            logger.debug(f"Generated blog index page {page_num}/{total_pages} -> {output_path}")
     
     def _generate_taxonomy_pages(self) -> None:
-            """Generate taxonomy (tags, categories) pages."""
-            # Process tags
-            if self.config.get('blog', 'taxonomies', default={}).get('tags', {}).get('enabled', True):
-                self._generate_taxonomy_type_pages('tags')
+        """Generate taxonomy (tags, categories) pages."""
+        # Process tags
+        if self.config.get('blog', 'taxonomies', default={}).get('tags', {}).get('enabled', True):
+            self._generate_taxonomy_type_pages('tags')
                 
-            # Process categories
-            if self.config.get('blog', 'taxonomies', default={}).get('categories', {}).get('enabled', True):
-                self._generate_taxonomy_type_pages('categories')
+        # Process categories
+        if self.config.get('blog', 'taxonomies', default={}).get('categories', {}).get('enabled', True):
+            self._generate_taxonomy_type_pages('categories')
             
     def _generate_taxonomy_type_pages(self, taxonomy_type: str) -> None:
-        """Generate pages for a specific taxonomy type (tags or categories).
-        
-        Args:
-            taxonomy_type: Taxonomy type ('tags' or 'categories').
-        """
+        """Generate pages for a specific taxonomy type (tags or categories)."""
         try:
             # Get taxonomy configuration
             taxonomy_config = self.config.get('blog', 'taxonomies', default={}).get(taxonomy_type, {})
@@ -531,21 +571,100 @@ class BlogProcessor:
             
             # Skip if no taxonomies of this type
             if not self.taxonomies[taxonomy_type]:
+                logger.info(f"No {taxonomy_type} found, skipping")
                 return
                 
-            # Get URL style
-            url_style = self.config.get_url_style() if hasattr(self.config, 'get_url_style') else 'clean'
-            logger.debug(f"URL style for {taxonomy_type} pages: {url_style}")
+            # Ensure taxonomies are in the correct format (string keys, dict values)
+            safe_taxonomies = {}
+            for key, value in self.taxonomies[taxonomy_type].items():
+                str_key = str(key)  # Force keys to be strings
+                if isinstance(value, dict):
+                    safe_taxonomies[str_key] = value
             
-            # Generate individual taxonomy pages
-            for term_name, term_data in self.taxonomies[taxonomy_type].items():
-                # Prepare template variables
+            # Use the safe version
+            for term_name, term_data in safe_taxonomies.items():
+                try:
+                    # Ensure term_name is a string and not a dict
+                    if isinstance(term_name, dict):
+                        logger.warning(f"Found dict as term_name, converting to string: {term_name}")
+                        term_name = str(term_name)
+                    
+                    # Prepare template variables
+                    page_data = {
+                        'title': f"{term_name} ({singular.capitalize()})",
+                        'description': f"Posts with {singular} {term_name}",
+                        singular: term_name,  # Use the string, not f-string formatting
+                        'posts': term_data['posts'],
+                        'url': f"/{self.config.get('blog', 'directory', default='blog')}/{taxonomy_type}/{term_data['slug']}",
+                    }
+                    
+                    # Format URL according to style
+                    if hasattr(self.config, 'format_url'):
+                        page_data['url'] = self.config.format_url(page_data['url'])
+                    
+                    # Set page variables
+                    self.variable_manager.set_page_variables(page_data)
+                    
+                    # Get all variables with proper structure
+                    variables = {
+                        'global': self.variable_manager.variables.get('global', {}),
+                        'site': self.variable_manager.variables.get('site', {}),
+                        'page': page_data
+                    }
+                    
+                    # Add global variables to site level for compatibility
+                    for key, value in variables['global'].items():
+                        if key not in variables['site']:
+                            variables['site'][key] = value
+                    
+                    # Make sure 'images' is available if defined in config
+                    if hasattr(self.config, 'config') and 'images' in self.config.config:
+                        variables['site']['images'] = self.config.config['images']
+                    
+                    # Get template
+                    template_name = taxonomy_config.get('template', f"{singular}.html")
+                    
+                    # Dummy content for template processor
+                    dummy_content = f"<!-- {singular.capitalize()} Page: {term_name} -->"
+                    
+                    # Render page - use correct source path identifier
+                    source_path = f"{singular}_{self._slugify(term_name)}"
+                    _, rendered_content = self.template_processor.process_page(
+                        dummy_content,
+                        False,
+                        source_path,
+                        variables
+                    )
+                    
+                    # Determine relative path
+                    blog_dir = self.config.get('blog', 'directory', default='blog')
+                    slug = term_data['slug']
+                    rel_path = os.path.join(blog_dir, taxonomy_type, slug)
+                    
+                    # Get output path based on URL style
+                    output_path = self._get_output_path(rel_path)
+                        
+                    # Ensure output directory exists
+                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                    
+                    # Write output file
+                    with open(output_path, 'w', encoding='utf-8') as f:
+                        f.write(rendered_content)
+                        
+                    logger.debug(f"Generated {singular} page: {term_name} -> {output_path}")
+                except Exception as e:
+                    logger.error(f"Error generating page for {taxonomy_type} '{term_name}': {e}")
+                    if logger.level <= logging.DEBUG:
+                        import traceback
+                        traceback.print_exc()
+            
+            # Generate taxonomy index page
+            try:
                 page_data = {
-                    'title': f"{term_name} ({singular.capitalize()})",
-                    'description': f"Posts tagged with {term_name}",
-                    f"{singular}": term_name,
-                    'posts': term_data['posts'],
-                    'url': f"/{self.config.get('blog', 'directory', default='blog')}/{taxonomy_type}/{term_data['slug']}",
+                    'title': taxonomy_type.capitalize(),
+                    'description': f"All {taxonomy_type}",
+                    taxonomy_type: safe_taxonomies,  # Use the safe dictionary
+                    'url': f"/{self.config.get('blog', 'directory', default='blog')}/{taxonomy_type}",
                 }
                 
                 # Format URL according to style
@@ -562,32 +681,36 @@ class BlogProcessor:
                     'page': page_data
                 }
                 
+                # Add global variables to site level for compatibility
+                for key, value in variables['global'].items():
+                    if key not in variables['site']:
+                        variables['site'][key] = value
+                
+                # Make sure 'images' is available if defined in config
+                if hasattr(self.config, 'config') and 'images' in self.config.config:
+                    variables['site']['images'] = self.config.config['images']
+                
                 # Get template
-                template_name = taxonomy_config.get('template', f"{singular}.html")
+                template_name = taxonomy_config.get('list_template', f"{taxonomy_type}.html")
                 
-                # Dummy content for template processor
-                dummy_content = f"<!-- {singular.capitalize()} Page: {term_name} -->"
+                # Fake content for template processor
+                dummy_content = f"<!-- {taxonomy_type.capitalize()} Index Page -->"
                 
-                # Render page
+                # Render page - use correct source path identifier
+                source_path = f"{taxonomy_type}_index"
                 _, rendered_content = self.template_processor.process_page(
                     dummy_content,
                     False,
-                    f"{taxonomy_type}_{self._slugify(term_name)}",
+                    source_path,
                     variables
                 )
                 
-                # Determine output path based on URL style
-                slug = term_data['slug']
+                # Determine relative path
+                blog_dir = self.config.get('blog', 'directory', default='blog')
+                rel_path = os.path.join(blog_dir, taxonomy_type)
                 
-                if url_style == 'directory':
-                    # For directory style, use taxonomy/slug/index.html
-                    output_path = os.path.join(self.blog_output_dir, taxonomy_type, slug, 'index.html')
-                elif url_style == 'html':
-                    # For HTML style, use taxonomy-slug.html
-                    output_path = os.path.join(self.blog_output_dir, f"{taxonomy_type}-{slug}.html")
-                else:  # 'clean' style
-                    # For clean URLs, use taxonomy/slug/index.html
-                    output_path = os.path.join(self.blog_output_dir, taxonomy_type, slug, 'index.html')
+                # Get output path based on URL style
+                output_path = self._get_output_path(rel_path)
                     
                 # Ensure output directory exists
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -596,69 +719,19 @@ class BlogProcessor:
                 with open(output_path, 'w', encoding='utf-8') as f:
                     f.write(rendered_content)
                     
-                logger.debug(f"Generated {singular} page: {term_name} -> {output_path}")
+                logger.debug(f"Generated {taxonomy_type} index page -> {output_path}")
+            except Exception as e:
+                logger.error(f"Error generating {taxonomy_type} index page: {e}")
+                if logger.level <= logging.DEBUG:
+                    import traceback
+                    traceback.print_exc()
                 
-            # Generate taxonomy index page
-            page_data = {
-                'title': taxonomy_type.capitalize(),
-                'description': f"All {taxonomy_type}",
-                taxonomy_type: self.taxonomies[taxonomy_type],
-                'url': f"/{self.config.get('blog', 'directory', default='blog')}/{taxonomy_type}",
-            }
-            
-            # Format URL according to style
-            if hasattr(self.config, 'format_url'):
-                page_data['url'] = self.config.format_url(page_data['url'])
-            
-            # Set page variables
-            self.variable_manager.set_page_variables(page_data)
-            
-            # Get all variables with proper structure
-            variables = {
-                'global': self.variable_manager.variables.get('global', {}),
-                'site': self.variable_manager.variables.get('site', {}),
-                'page': page_data
-            }
-            
-            # Get template
-            template_name = taxonomy_config.get('list_template', f"{taxonomy_type}.html")
-            
-            # Fake content for template processor
-            dummy_content = f"<!-- {taxonomy_type.capitalize()} Index Page -->"
-            
-            # Render page
-            _, rendered_content = self.template_processor.process_page(
-                dummy_content,
-                False,
-                f"{taxonomy_type}_index",
-                variables
-            )
-            
-            # Determine output path based on URL style
-            if url_style == 'directory':
-                # For directory style, use taxonomy/index.html
-                output_path = os.path.join(self.blog_output_dir, taxonomy_type, 'index.html')
-            elif url_style == 'html':
-                # For HTML style, use taxonomy.html
-                output_path = os.path.join(self.blog_output_dir, f"{taxonomy_type}.html")
-            else:  # 'clean' style
-                # For clean URLs, use taxonomy/index.html
-                output_path = os.path.join(self.blog_output_dir, taxonomy_type, 'index.html')
-                
-            # Ensure output directory exists
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            
-            # Write output file
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(rendered_content)
-                
-            logger.debug(f"Generated {taxonomy_type} index page -> {output_path}")
-            
         except Exception as e:
             logger.error(f"Error generating {taxonomy_type} pages: {e}")
             if logger.level <= logging.DEBUG:
                 import traceback
-                traceback.print_exc()    
+                traceback.print_exc()
+
     def _generate_rss_feed(self) -> None:
         """Generate RSS feed for blog posts."""
         try:
@@ -678,12 +751,18 @@ class BlogProcessor:
             for post in self.posts[:20]:
                 post_url = site_url + post['full_url']
                 
+                # Format post date with timezone if available
+                try:
+                    pub_date = post['date'].strftime('%a, %d %b %Y %H:%M:%S +0000')
+                except:
+                    pub_date = datetime.now().strftime('%a, %d %b %Y %H:%M:%S +0000')
+                
                 rss_items.append(f"""
                 <item>
                     <title>{post['title']}</title>
                     <link>{post_url}</link>
                     <guid>{post_url}</guid>
-                    <pubDate>{post['date'].strftime('%a, %d %b %Y %H:%M:%S %z')}</pubDate>
+                    <pubDate>{pub_date}</pubDate>
                     <description><![CDATA[{post['excerpt']}]]></description>
                 </item>
                 """)
@@ -695,7 +774,7 @@ class BlogProcessor:
                 <title>{site_title}</title>
                 <link>{site_url}</link>
                 <description>{site_description}</description>
-                <lastBuildDate>{datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')}</lastBuildDate>
+                <lastBuildDate>{datetime.now().strftime('%a, %d %b %Y %H:%M:%S +0000')}</lastBuildDate>
                 <atom:link href="{site_url}/feed.xml" rel="self" type="application/rss+xml" />
                 {"".join(rss_items)}
             </channel>
@@ -711,6 +790,9 @@ class BlogProcessor:
             
         except Exception as e:
             logger.error(f"Error generating RSS feed: {e}")
+            if logger.level <= logging.DEBUG:
+                import traceback
+                traceback.print_exc()
             
     def _slugify(self, text: str) -> str:
         """Convert text to slug format.
@@ -721,6 +803,8 @@ class BlogProcessor:
         Returns:
             Slug formatted string.
         """
+        # First ensure text is a string
+        text = str(text)
         # Remove special characters
         text = re.sub(r'[^\w\s-]', '', text.lower())
         # Replace spaces with hyphens

@@ -1,0 +1,20 @@
+<!-- base.html -->
+<!DOCTYPE html>
+<html lang="{{ site.language }}">
+<head>
+    <!-- ... other head elements ... -->
+    
+    {% if dithering_enabled %}
+    <!-- Dithering CSS (automatically included) -->
+    <link rel="stylesheet" href="/css/dithering.css">
+    {% endif %}
+</head>
+<body>
+    <!-- ... content ... -->
+    
+    {% if dithering_enabled %}
+    <!-- Dithering JS (automatically included) -->
+    <script src="/js/dithering.js" defer></script>
+    {% endif %}
+</body>
+</html>

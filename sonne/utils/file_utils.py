@@ -8,6 +8,7 @@ import shutil
 import logging
 from pathlib import Path
 from typing import List, Optional, Set
+import glob
 
 logger = logging.getLogger('sonne')
 
@@ -18,6 +19,33 @@ def ensure_dir(directory: str) -> None:
         directory: Path to the directory.
     """
     os.makedirs(directory, exist_ok=True)
+
+def copy_core_static_files(output_dir: str) -> None:
+    """Copy core static files from the package to the output directory.
+    
+    Args:
+        output_dir: Output directory path.
+    """
+    # Get the package directory
+    package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    core_static_dir = os.path.join(package_dir, 'static')
+    
+    if os.path.exists(core_static_dir):
+        # Create output directories if they don't exist
+        css_dir = os.path.join(output_dir, 'css')
+        js_dir = os.path.join(output_dir, 'js')
+        os.makedirs(css_dir, exist_ok=True)
+        os.makedirs(js_dir, exist_ok=True)
+        
+        # Copy CSS files
+        for css_file in glob.glob(os.path.join(core_static_dir, 'css', '*.css')):
+            shutil.copy2(css_file, css_dir)
+            
+        # Copy JS files
+        for js_file in glob.glob(os.path.join(core_static_dir, 'js', '*.js')):
+            shutil.copy2(js_file, js_dir)
+            
+        logger.debug(f"Copied core static files to {output_dir}")
     
 def copy_static_files(static_dir: str, output_dir: str) -> None:
     """Copy static files to the output directory.

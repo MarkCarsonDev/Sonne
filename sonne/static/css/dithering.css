@@ -1,0 +1,100 @@
+/* Image dithering functionality */
+.dithered-image-container {
+    position: relative;
+    display: inline-block;
+    overflow: hidden;
+    max-width: 100%;
+}
+
+.dithered-image-container img {
+    max-width: 100%;
+    height: auto;
+    transition: opacity 0.3s ease;
+}
+
+.dither-toggle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    background-color: rgba(0, 0, 0, 0.5);
+    border-radius: 3px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 2px;
+    padding: 2px;
+    cursor: pointer;
+    opacity: 0.3;
+    transition: opacity 0.3s ease;
+    z-index: 10;
+}
+
+.dithered-image-container:hover .dither-toggle {
+    opacity: 1;
+}
+
+.dither-toggle-dot {
+    width: 100%;
+    height: 100%;
+    background-color: #fff;
+    border-radius: 1px;
+}
+
+.dither-toggle-dot.empty {
+    background-color: transparent;
+}
+
+.dithered-image-container img.original {
+    position: absolute;
+    top: 0;
+    left: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.dithered-image-container.show-original img.dithered {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.dithered-image-container.show-original img.original {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.dithered-image-container.show-original .dither-toggle {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.dithered-image-container.show-original .dither-toggle-dot {
+    background-color: #000;
+}
+
+.dithered-image-container.show-original .dither-toggle-dot.empty {
+    background-color: transparent;
+}
+
+/* Make sure images in markdown content are responsive */
+.markdown-content img,
+article img,
+.content img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* For dithered images in gallery layouts */
+.gallery .dithered-image-container,
+.gallery-item .dithered-image-container {
+    display: block;
+    width: 100%;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .dither-toggle {
+        width: 20px;
+        height: 20px;
+    }
+}

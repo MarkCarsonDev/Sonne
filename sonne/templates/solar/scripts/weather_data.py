@@ -21,8 +21,8 @@ logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(m
 # Default location (Long Beach, CA)
 DEFAULT_LOCATION = {
     "name": "Long Beach, CA",
-    "latitude": 33.77,
-    "longitude": -118.19,
+    "latitude": 33.7743,
+    "longitude": -117.938,
     "units": "imperial"  # metric or imperial
 }
 

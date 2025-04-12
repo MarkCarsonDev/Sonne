@@ -1,7 +1,6 @@
 """
 Setup script for Sonne static site generator.
 """
-
 from setuptools import setup, find_packages
 import os
 
@@ -29,6 +28,15 @@ setup(
     url='https://github.com/MarkCarsonDev/Sonne',
     packages=find_packages(),
     include_package_data=True,
+    package_data={
+        'sonne': [
+            'static/css/*.css',
+            'static/js/*.js',
+            'templates/*/*.html',
+            'templates/*/content/**/*',
+            'templates/*/static/**/*',
+        ],
+    },
     entry_points={
         'console_scripts': [
             'sonne=sonne.cli.commands:main',
@@ -41,6 +49,7 @@ setup(
         'click>=8.0.0',
         'PyYAML>=6.0',
         'Jinja2>=3.0.0',
+        'beautifulsoup4>=4.9.0',
     ],
     extras_require={
         'dev': [
@@ -68,7 +77,7 @@ setup(
         'Topic :: Text Processing :: Markup :: HTML',
         'Topic :: Utilities',
     ],
-    keywords='static site generator, blog, markdown, html, web, minimalist',
+    keywords='static site generator, blog, markdown, html, web, minimalist, energy-efficient, dithering',
     project_urls={
         'Bug Reports': 'https://github.com/MarkCarsonDev/Sonne/issues',
         'Source': 'https://github.com/MarkCarsonDev/Sonne',
