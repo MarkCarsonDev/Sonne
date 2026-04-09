@@ -52,6 +52,7 @@ setup(
         'beautifulsoup4>=4.9.0',
         'rich>=13.0.0',  # For progress bars and better console output
         'watchdog>=2.0.0',  # For file watching in serve command
+        'numpy>=1.20.0',  # For Bayer dithering in image processing
     ],
     extras_require={
         'dev': [
