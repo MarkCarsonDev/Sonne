@@ -14,17 +14,81 @@ import webbrowser
 import threading
 from pathlib import Path
 from shutil import copytree, ignore_patterns
+from typing import Optional
+
+try:
+    from rich.console import Console
+    from rich.progress import (
+        Progress,
+        SpinnerColumn,
+        BarColumn,
+        TextColumn,
+        TimeRemainingColumn,
+    )
+    from rich.panel import Panel
+    from rich.table import Table
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+    Console = None
 
 from sonne.core.config import Config
 from sonne.core.site_generator import SiteGenerator
+from sonne.utils.path_utils import is_sonne_directory
 
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format='%(asctime)s  %(levelname)-8s %(message)s',
+    datefmt='%H:%M:%S'
 )
 logger = logging.getLogger('sonne')
+
+# Initialize rich console if available
+console = Console() if RICH_AVAILABLE else None
+
+
+def check_sonne_directory(path: str, command_name: str = "command") -> bool:
+    """Check if directory looks like a Sonne project and provide helpful guidance.
+
+    Args:
+        path: Directory path to check.
+        command_name: Name of the command being run (for error messages).
+
+    Returns:
+        True if appears to be Sonne directory, False otherwise.
+    """
+    if not is_sonne_directory(path):
+        error_msg = f"\n❌ This doesn't appear to be a Sonne project directory.\n"
+
+        if console and RICH_AVAILABLE:
+            console.print(Panel(
+                "[bold red]Not a Sonne Project[/bold red]\n\n"
+                f"The directory [cyan]{path}[/cyan] doesn't contain a Sonne configuration file.\n\n"
+                "[bold]To create a new Sonne site:[/bold]\n"
+                "  sonne new -p my-site -t blog\n\n"
+                "[bold]Expected files:[/bold]\n"
+                "  • sonne.yaml or sonne.yml\n"
+                "  • content/ directory\n"
+                "  • templates/ directory\n",
+                title="Error",
+                border_style="red"
+            ))
+        else:
+            logger.error(error_msg)
+            logger.error(f"The directory {path} doesn't contain a Sonne configuration file.")
+            logger.error("")
+            logger.error("To create a new Sonne site:")
+            logger.error("  sonne new -p my-site -t blog")
+            logger.error("")
+            logger.error("Expected files:")
+            logger.error("  • sonne.yaml or sonne.yml")
+            logger.error("  • content/ directory")
+            logger.error("  • templates/ directory")
+
+        return False
+
+    return True
 
 # Main CLI group
 @click.group()
@@ -57,45 +121,108 @@ def cli(ctx, verbose, quiet):
 @click.option('--skip-images', is_flag=True, help='Skip image processing during build.')
 @click.option('--skip-cache', is_flag=True, help='Ignore cache and rebuild everything.')
 @click.option('--dev', is_flag=True, help='Build site for development environment.')
+@click.option('--no-progress', is_flag=True, help='Disable progress bars.')
+@click.option('--perf', is_flag=True, help='Show detailed performance breakdown after build.')
 @click.pass_context
-def build(ctx, path, config, clean, skip_images, skip_cache, dev):
-    """Build the static site."""
+def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, perf):
+    """Build the static site.
+
+    This command processes your content, templates, and assets to generate
+    a complete static website in the output directory.
+
+    Examples:
+        sonne build                    # Build in current directory
+        sonne build -p ./my-site      # Build specific directory
+        sonne build --clean           # Clean build from scratch
+        sonne build --dev             # Build for development
+    """
     try:
-        logger.info(f"Building site in {path}")
-        
+        # Check if this looks like a Sonne project
+        if not check_sonne_directory(path, "build"):
+            sys.exit(1)
+
+        if console and RICH_AVAILABLE and not no_progress:
+            console.print(f"\n[bold cyan]Building Sonne Site[/bold cyan]")
+            console.print(f"[dim]Location: {path}[/dim]\n")
+        else:
+            logger.info(f"Build started  [{path}]")
+
         # Load configuration
         config_path = config or None
-        config_obj = Config(config_path)
-        
+        config_obj = Config(config_path, base_dir=path)
+
+        # Validate configuration
+        validation_warnings = config_obj.validate()
+        if validation_warnings:
+            if console and RICH_AVAILABLE:
+                console.print(f"[yellow]Configuration warnings ({len(validation_warnings)}):[/yellow]")
+                for warning in validation_warnings:
+                    console.print(f"  [yellow]-[/yellow] {warning}")
+                console.print()
+            else:
+                logger.warning(f"Configuration warnings ({len(validation_warnings)}):")
+                for warning in validation_warnings:
+                    logger.warning(f"  {warning}")
+
         # Set environment if --dev flag is used
         if dev:
             config_obj.set('environment', value='dev')
-            logger.info("Building in development environment")
-        
+            logger.info("Environment: development")
+
         # Initialize site generator
         generator = SiteGenerator(config_obj, base_dir=path)
-        
+
+        # Validate templates before building
+        template_errors = generator.template_processor.validate_templates()
+        if template_errors:
+            if console and RICH_AVAILABLE:
+                console.print(f"\n[bold red]Template validation errors ({len(template_errors)}):[/bold red]")
+                for error in template_errors:
+                    console.print(f"  [red]-[/red] {error}")
+                console.print()
+            else:
+                logger.error(f"Template validation errors ({len(template_errors)}):")
+                for error in template_errors:
+                    logger.error(f"  {error}")
+
+            if not click.confirm("Templates have errors. Continue anyway?", default=False):
+                logger.info("Build cancelled")
+                sys.exit(1)
+
         # Clean if requested
         if clean:
             output_dir = config_obj.get('paths', 'output')
-            logger.info(f"Cleaning output directory: {output_dir}")
+            if console and RICH_AVAILABLE:
+                console.print(f"[yellow]Cleaning output directory...[/yellow]")
+            else:
+                logger.info(f"Cleaning output directory  [{output_dir}]")
             generator.clean_output()
-            
+
         # Generate site
-        generator.generate(skip_images=skip_images, skip_cache=skip_cache)
-        
+        stats = generator.generate(skip_images=skip_images, skip_cache=skip_cache)
+
         # Calculate elapsed time
         elapsed = time.time() - ctx.obj['start_time']
         output_dir = os.path.abspath(config_obj.get('paths', 'output'))
-        
-        logger.info(f"Site built successfully in {elapsed:.2f} seconds")
-        logger.info(f"Output directory: {output_dir}")
-        
+
+        if console and RICH_AVAILABLE:
+            console.print(f"\n[bold green]Build complete[/bold green]  ({elapsed:.2f}s)")
+            console.print(f"[dim]Output: {output_dir}[/dim]\n")
+        else:
+            logger.info(f"Build complete  {elapsed:.2f}s  [{output_dir}]")
+
+        # Show performance report if requested
+        if perf and stats:
+            click.echo(stats.format_report(verbose=True, perf=True))
+
     except Exception as e:
-        logger.error(f"Error building site: {e}")
-        if logger.level <= logging.DEBUG:
-            import traceback
-            traceback.print_exc()
+        if console and RICH_AVAILABLE:
+            console.print(f"\n[bold red]Build failed:[/bold red] {e}\n")
+        else:
+            logger.error(f"Build failed: {e}")
+
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 @cli.command()
@@ -165,90 +292,148 @@ class QuietHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 @click.option('--browser/--no-browser', default=True, help='Open in browser.')
 @click.option('--watch/--no-watch', default=True, help='Watch for changes and rebuild.')
 def serve(path, port, host, browser, watch):
-    """Serve the site locally for development."""
+    """Serve the site locally for development.
+
+    Always builds the site first, then starts a local web server. With --watch
+    enabled (default), the site automatically rebuilds when you make changes to
+    content, templates, static files, scripts, or the config.
+
+    Examples:
+        sonne serve                        # Serve on http://localhost:8000
+        sonne serve --port 3000           # Use different port
+        sonne serve --no-browser          # Don't open browser
+        sonne serve --no-watch            # Disable auto-rebuild
+    """
+    observer = None
     try:
-        # Get configuration
-        config = Config(os.path.join(path, 'sonne.yaml'))
+        if not check_sonne_directory(path, "serve"):
+            sys.exit(1)
+
+        config = Config(base_dir=path)
         output_dir = os.path.join(path, config.get('paths', 'output'))
-        
-        # Check if output directory exists
-        if not os.path.exists(output_dir):
-            logger.warning(f"Output directory does not exist: {output_dir}")
-            logger.warning("Building site first...")
-            
-            # Build site
+
+        # Always build before serving
+        click.echo("Building site...")
+        try:
             generator = SiteGenerator(config, base_dir=path)
             generator.generate()
-        
-        # Change to output directory
+            click.echo("✓ Build complete")
+        except Exception as e:
+            logger.error(f"Initial build failed: {e}")
+            if logger.level <= logging.DEBUG:
+                import traceback
+                traceback.print_exc()
+            sys.exit(1)
+
+        # Serve from output dir
         os.chdir(output_dir)
-        
-        # Set up server
         handler = QuietHTTPRequestHandler
         httpd = socketserver.TCPServer((host, port), handler)
-        
-        # Set up file watching if requested
+
+        # File watching with debounce
         if watch:
             try:
                 from watchdog.observers import Observer
                 from watchdog.events import FileSystemEventHandler
-                
+
                 class RebuildHandler(FileSystemEventHandler):
-                    def __init__(self, base_dir):
+                    DEBOUNCE_SECONDS = 0.4
+
+                    def __init__(self, base_dir, config):
                         self.base_dir = base_dir
-                        self.is_building = False
-                        
-                    def on_any_event(self, event):
-                        # Skip if currently building or if the event is in output directory
-                        if self.is_building or output_dir in event.src_path:
-                            return
-                            
+                        self.config = config
+                        self._lock = threading.Lock()
+                        self._pending = None          # pending debounce timer
+                        self._building = False
+
+                        self.watch_dirs = [
+                            d for d in [
+                                config.get('paths', 'content'),
+                                config.get('paths', 'data'),
+                                config.get('paths', 'scripts'),
+                                config.get('paths', 'static'),
+                                config.get('paths', 'templates'),
+                            ] if d
+                        ]
+                        self.watch_files = [
+                            'sonne.yaml', 'sonne.yml', 'sonne.json', 'sonne.config'
+                        ]
+
+                    def _relevant(self, event_path):
                         try:
-                            logger.info(f"Change detected: {event.src_path}")
-                            logger.info("Rebuilding site...")
-                            
-                            self.is_building = True
-                            generator = SiteGenerator(config, base_dir=self.base_dir)
-                            generator.generate(skip_cache=False)  # Use cache for faster rebuilds
-                            
-                            logger.info("Site rebuilt successfully")
+                            rel = os.path.relpath(event_path, self.base_dir)
+                        except ValueError:
+                            return False
+                        if any(rel == f or rel.startswith(f + os.sep) for f in self.watch_files):
+                            return True
+                        return any(rel.startswith(d + os.sep) or rel == d for d in self.watch_dirs)
+
+                    def on_any_event(self, event):
+                        if event.is_directory:
+                            return
+                        if not self._relevant(event.src_path):
+                            return
+                        # Reset debounce timer on every relevant event
+                        with self._lock:
+                            if self._pending:
+                                self._pending.cancel()
+                            self._pending = threading.Timer(
+                                self.DEBOUNCE_SECONDS, self._rebuild
+                            )
+                            self._pending.daemon = True
+                            self._pending.start()
+
+                    def _rebuild(self):
+                        with self._lock:
+                            if self._building:
+                                return
+                            self._building = True
+                        try:
+                            click.echo("\nChange detected — rebuilding...")
+                            generator = SiteGenerator(self.config, base_dir=self.base_dir)
+                            generator.generate(skip_cache=False)
+                            click.echo("✓ Rebuilt")
                         except Exception as e:
-                            logger.error(f"Error rebuilding site: {e}")
+                            click.echo(f"✗ Rebuild failed: {e}")
+                            if logger.level <= logging.DEBUG:
+                                import traceback
+                                traceback.print_exc()
                         finally:
-                            self.is_building = False
-                
-                # Start file watcher
-                event_handler = RebuildHandler(path)
+                            with self._lock:
+                                self._building = False
+
+                event_handler = RebuildHandler(path, config)
                 observer = Observer()
                 observer.schedule(event_handler, path, recursive=True)
                 observer.start()
-                logger.info("Watching for changes")
-                
+
+                watched = ', '.join(event_handler.watch_dirs + ['config'])
+                click.echo(f"Watching: {watched}")
+
             except ImportError:
-                logger.warning("watchdog package not installed; file watching disabled")
-                logger.warning("Install with: pip install watchdog")
+                click.echo("watchdog not installed — file watching disabled")
+                click.echo("Install with: pip install watchdog")
                 watch = False
-        
-        # Open browser if requested
+
+        url = f"http://{host}:{port}"
         if browser:
-            url = f"http://{host}:{port}"
             threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-        
-        # Start server
-        logger.info(f"Serving site at http://{host}:{port}")
-        logger.info("Press Ctrl+C to stop")
+
+        click.echo(f"Serving at {url}  (Ctrl+C to stop)")
         httpd.serve_forever()
-        
+
     except KeyboardInterrupt:
-        logger.info("Server stopped")
-        if watch:
+        click.echo("\nServer stopped")
+        if observer is not None:
             observer.stop()
             observer.join()
     except Exception as e:
-        logger.error(f"Error serving site: {e}")
+        logger.error(f"Error: {e}")
         if logger.level <= logging.DEBUG:
             import traceback
             traceback.print_exc()
+        if observer is not None:
+            observer.stop()
         sys.exit(1)
 
 def main():

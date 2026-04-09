@@ -34,9 +34,9 @@ build_time = datetime.now().strftime("%B %d, %Y at %H:%M")
 # Get the Sonne version
 try:
     import sonne
-    version = getattr(sonne, '__version__', '0.2.0')
+    version = getattr(sonne, '__version__', '0.3.2')
 except ImportError:
-    version = '0.2.0'
+    version = '0.3.2'
 
 # Generate the custom footer HTML
 footer_html = f"""

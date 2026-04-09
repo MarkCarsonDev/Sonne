@@ -1,0 +1,327 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sonne.dev/schemas/sonne.schema.json",
+  "title": "Sonne Configuration",
+  "description": "Configuration schema for Sonne static site generator",
+  "type": "object",
+  "properties": {
+    "site": {
+      "type": "object",
+      "description": "Site-wide configuration",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Site title",
+          "minLength": 1
+        },
+        "base_url": {
+          "type": "string",
+          "description": "Base URL for the site (e.g., https://example.com)",
+          "format": "uri"
+        },
+        "description": {
+          "type": "string",
+          "description": "Site description for meta tags"
+        },
+        "author": {
+          "type": "string",
+          "description": "Site author name"
+        },
+        "keywords": {
+          "type": "array",
+          "description": "SEO keywords",
+          "items": {
+            "type": "string"
+          }
+        },
+        "language": {
+          "type": "string",
+          "description": "Site language code (e.g., en, de, fr)",
+          "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+          "default": "en"
+        }
+      },
+      "required": ["title", "base_url"]
+    },
+    "paths": {
+      "type": "object",
+      "description": "Directory paths",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "Content directory",
+          "default": "content"
+        },
+        "output": {
+          "type": "string",
+          "description": "Build output directory",
+          "default": "output"
+        },
+        "static": {
+          "type": "string",
+          "description": "Static assets directory",
+          "default": "static"
+        },
+        "templates": {
+          "type": "string",
+          "description": "Templates directory",
+          "default": "templates"
+        },
+        "data": {
+          "type": "string",
+          "description": "Data files directory",
+          "default": "data"
+        },
+        "cache": {
+          "type": "string",
+          "description": "Cache directory",
+          "default": ".cache"
+        },
+        "scripts": {
+          "type": "string",
+          "description": "Data scripts directory",
+          "default": "scripts"
+        }
+      },
+      "required": ["content", "output", "templates"]
+    },
+    "blog": {
+      "type": "object",
+      "description": "Blog configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable blog functionality",
+          "default": true
+        },
+        "directory": {
+          "type": "string",
+          "description": "Blog posts directory (relative to content)",
+          "default": "blog"
+        },
+        "template": {
+          "type": "string",
+          "description": "Template for individual blog posts",
+          "default": "blog_post.html"
+        },
+        "list_template": {
+          "type": "string",
+          "description": "Template for blog post listing",
+          "default": "blog_list.html"
+        },
+        "posts_per_page": {
+          "type": "integer",
+          "description": "Number of posts per page in listings",
+          "minimum": 1,
+          "default": 10
+        },
+        "excerpt_length": {
+          "type": "integer",
+          "description": "Length of auto-generated excerpts (words)",
+          "minimum": 0,
+          "default": 200
+        },
+        "url_pattern": {
+          "type": "string",
+          "description": "URL pattern for blog posts (use {year}, {month}, {day}, {slug})",
+          "default": "{year}/{month}/{day}/{slug}"
+        },
+        "include_drafts": {
+          "type": "boolean",
+          "description": "Include draft posts in build",
+          "default": false
+        },
+        "taxonomies": {
+          "type": "object",
+          "description": "Taxonomy configuration (tags, categories)",
+          "properties": {
+            "tags": {
+              "$ref": "#/definitions/taxonomy"
+            },
+            "categories": {
+              "$ref": "#/definitions/taxonomy"
+            }
+          }
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "description": "Image processing configuration",
+      "properties": {
+        "dither": {
+          "type": "boolean",
+          "description": "Enable dithering effect on images",
+          "default": true
+        },
+        "optimize": {
+          "type": "boolean",
+          "description": "Optimize images for web",
+          "default": true
+        },
+        "formats": {
+          "type": "array",
+          "description": "Output image formats",
+          "items": {
+            "type": "string",
+            "enum": ["webp", "png", "jpg", "jpeg"]
+          },
+          "default": ["webp", "png"]
+        },
+        "sizes": {
+          "type": "array",
+          "description": "Image widths to generate",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "default": [1200, 800, 400]
+        },
+        "lazy_loading": {
+          "type": "boolean",
+          "description": "Enable lazy loading for images",
+          "default": true
+        },
+        "grayscale_before_dither": {
+          "type": "boolean",
+          "description": "Convert to grayscale before dithering",
+          "default": false
+        },
+        "parallel_processing": {
+          "type": "boolean",
+          "description": "Process images in parallel",
+          "default": true
+        },
+        "max_workers": {
+          "type": "integer",
+          "description": "Maximum worker threads for parallel processing (0 = auto)",
+          "minimum": 0,
+          "default": 0
+        }
+      }
+    },
+    "variables": {
+      "type": "object",
+      "description": "Variable management configuration",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Variable storage file",
+          "default": "sonne_variables.json"
+        },
+        "preserve_prior": {
+          "type": "boolean",
+          "description": "Preserve prior build variables",
+          "default": false
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "description": "Security settings",
+      "properties": {
+        "allow_embedded_python": {
+          "type": "boolean",
+          "description": "⚠️ WARNING: Allows arbitrary code execution in content files. Only enable if you trust ALL content authors.",
+          "default": false
+        },
+        "csp": {
+          "type": "object",
+          "description": "Content Security Policy configuration",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable CSP header generation",
+              "default": false
+            },
+            "directives": {
+              "type": "object",
+              "description": "CSP directives",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "url_style": {
+      "description": "URL style for generated pages",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["clean", "html", "directory"],
+          "description": "Single URL style for all environments"
+        },
+        {
+          "type": "object",
+          "description": "Different URL styles per environment",
+          "properties": {
+            "prod": {
+              "type": "string",
+              "enum": ["clean", "html", "directory"],
+              "default": "clean"
+            },
+            "dev": {
+              "type": "string",
+              "enum": ["clean", "html", "directory"],
+              "default": "directory"
+            }
+          }
+        }
+      ]
+    },
+    "environment": {
+      "type": "string",
+      "description": "Current environment",
+      "enum": ["prod", "dev"],
+      "default": "prod"
+    },
+    "build": {
+      "type": "object",
+      "description": "Build configuration",
+      "properties": {
+        "incremental": {
+          "type": "boolean",
+          "description": "Enable incremental builds (only process changed files)",
+          "default": true
+        },
+        "show_progress": {
+          "type": "boolean",
+          "description": "Show progress bars during build",
+          "default": true
+        },
+        "statistics": {
+          "type": "boolean",
+          "description": "Show build statistics on completion",
+          "default": true
+        }
+      }
+    }
+  },
+  "required": ["site"],
+  "definitions": {
+    "taxonomy": {
+      "type": "object",
+      "description": "Configuration for a taxonomy type",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable this taxonomy",
+          "default": true
+        },
+        "template": {
+          "type": "string",
+          "description": "Template for individual taxonomy page"
+        },
+        "list_template": {
+          "type": "string",
+          "description": "Template for taxonomy listing"
+        }
+      }
+    }
+  }
+}

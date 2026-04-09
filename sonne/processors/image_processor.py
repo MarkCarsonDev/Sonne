@@ -8,6 +8,8 @@ import re
 import json
 import shutil
 import hashlib
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import logging
 from typing import Dict, Any, Optional, List, Tuple, Union
@@ -34,6 +36,7 @@ class ImageProcessor:
         self.paths = paths
         self.cache = {}
         self.cache_file = None
+        self.stats = None  # Injected by SiteGenerator
         
         # Check if PIL is available
         if not PIL_AVAILABLE:
@@ -73,18 +76,23 @@ class ImageProcessor:
             
     def _file_hash(self, file_path: str) -> str:
         """Generate a hash of a file to detect changes.
-        
+
         Args:
             file_path: Path to the file.
-            
+
         Returns:
-            MD5 hash of the file.
+            SHA-256 hash of the file (more secure than MD5).
         """
-        h = hashlib.md5()
-        with open(file_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(4096), b''):
-                h.update(chunk)
-        return h.hexdigest()
+        h = hashlib.sha256()
+        try:
+            with open(file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(8192), b''):
+                    h.update(chunk)
+            return h.hexdigest()
+        except (IOError, OSError) as e:
+            logger.error(f"Error reading file for hashing {file_path}: {e}")
+            # Return a deterministic fallback based on path and mtime
+            return hashlib.sha256(f"{file_path}:{os.path.getmtime(file_path)}".encode()).hexdigest()
         
     def process_all(self, content_dir: str, skip_cache: bool = False) -> None:
         """Process all images in a directory.
@@ -114,29 +122,46 @@ class ImageProcessor:
         self._save_cache()
     
     def _process_directory_images(self, directory: str, skip_cache: bool = False, is_static: bool = False) -> None:
-        """Process all images in a directory.
-        
+        """Process all images in a directory, optionally in parallel.
+
         Args:
             directory: Directory to scan for images.
             skip_cache: Whether to skip cache and reprocess.
             is_static: Whether this is the static/images directory.
         """
-        # Find all images
         image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+        all_paths = []
         for ext in image_extensions:
             for file_path in Path(directory).glob(f'**/*{ext}'):
+                if any(part.startswith('.') for part in file_path.parts):
+                    continue
+                all_paths.append(str(file_path))
+
+        if not all_paths:
+            return
+
+        process_fn = self._process_static_image if is_static else (
+            lambda p: self.process_image(p, skip_cache=skip_cache)
+        )
+
+        parallel = self.config.get('images', 'parallel', default=True)
+        workers = self.config.get('images', 'parallel_workers', default=None)
+        max_workers = int(workers) if workers else min(4, (os.cpu_count() or 1))
+
+        if parallel and len(all_paths) > 1:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(process_fn, p): p for p in all_paths}
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error(f"Error processing image {futures[future]}: {e}")
+        else:
+            for p in all_paths:
                 try:
-                    # Skip hidden files and directories
-                    if any(part.startswith('.') for part in file_path.parts):
-                        continue
-                    
-                    # Process the image
-                    if is_static:
-                        self._process_static_image(str(file_path), skip_cache)
-                    else:    
-                        self.process_image(str(file_path), skip_cache=skip_cache)
+                    process_fn(p)
                 except Exception as e:
-                    logger.error(f"Error processing image {file_path}: {e}")
+                    logger.error(f"Error processing image {p}: {e}")
     
     def _process_static_image(self, source_path: str, skip_cache: bool = False) -> None:
         """Process an image from the static/images directory.
@@ -174,8 +199,10 @@ class ImageProcessor:
         original_path = f"{filename}_original{ext}"
         
         # Check cache if not skipping
+        dither_method = self.config.get('images', 'dither_method', default='bayer')
+        dither_colors = self.config.get('images', 'dither_colors', default=4)
         file_hash = self._file_hash(source_path) if not skip_cache else None
-        cache_key = f"static:{source_path}:{file_hash}:{dither}"
+        cache_key = f"static:{source_path}:{file_hash}:{dither}:{dither_method}:{dither_colors}"
         
         if not skip_cache and cache_key in self.cache:
             logger.debug(f"Using cached version of static image: {source_path}")
@@ -185,26 +212,37 @@ class ImageProcessor:
             # Copy original image with _original suffix
             shutil.copy2(source_path, original_path)
             logger.debug(f"Copied original image: {source_path} -> {original_path}")
-            
+
             # Process and save dithered version to the main path
-            with Image.open(source_path) as img:
-                # Convert to grayscale if specified
-                if self.config.get('images', 'grayscale_before_dither', False):
-                    img = img.convert('L')
-                
-                # Apply dithering
-                dithered = img.convert('1', dither=Image.FLOYDSTEINBERG)
-                
+            img = None
+            try:
+                img = Image.open(source_path)
+                img = ImageOps.exif_transpose(img)
+
+                # Apply configured dithering pipeline
+                dithered = self._apply_dither(img, dither_method, dither_colors)
+
                 # Save dithered image to the output path
                 dithered.save(output_path, optimize=True)
                 logger.debug(f"Saved dithered image: {source_path} -> {output_path}")
-                
+            finally:
+                # Ensure image is properly closed even on error
+                if img is not None:
+                    img.close()
+
             # Update cache
             if not skip_cache:
                 self.cache[cache_key] = True
-                
+
+        except (IOError, OSError) as e:
+            logger.error(f"I/O error processing static image {source_path}: {e}")
+            # Fall back to just copying the file
+            self._copy_static_image(source_path)
         except Exception as e:
-            logger.error(f"Error processing static image {source_path}: {e}")
+            logger.error(f"Unexpected error processing static image {source_path}: {e}")
+            if logger.level <= logging.DEBUG:
+                import traceback
+                traceback.print_exc()
             # Fall back to just copying the file
             self._copy_static_image(source_path)
     
@@ -225,8 +263,11 @@ class ImageProcessor:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
         # Copy the file
-        shutil.copy2(source_path, output_path)
-        logger.debug(f"Copied static image: {source_path} -> {output_path}")
+        try:
+            shutil.copy2(source_path, output_path)
+            logger.debug(f"Copied static image: {source_path} -> {output_path}")
+        except (IOError, OSError) as e:
+            logger.error(f"Error copying static image {source_path} to {output_path}: {e}")
         
     def process_image(self, source_path: str, output_filename: Optional[str] = None, 
               options: Optional[Dict[str, Any]] = None, skip_cache: bool = False) -> Dict[str, Dict[str, str]]:
@@ -248,131 +289,343 @@ class ImageProcessor:
             
         # Use provided options or defaults
         opts = options or {}
-        dither = opts.get('dither', self.config.get('images', 'dither', True))  # Default to True
-        optimize = opts.get('optimize', self.config.get('images', 'optimize', True))
-        formats = opts.get('formats', self.config.get('images', 'formats', ['webp', 'png']))
-        sizes = opts.get('sizes', self.config.get('images', 'sizes', [1200, 800, 400]))
-        
+        dither = opts.get('dither', self.config.get('images', 'dither', default=True))  # Default to True
+        optimize = opts.get('optimize', self.config.get('images', 'optimize', default=True))
+
+        # Get formats and ensure it's a list
+        formats = opts.get('formats', self.config.get('images', 'formats', default=['webp', 'png']))
+        if not isinstance(formats, list):
+            formats = ['webp', 'png']  # Fallback to default
+
+        # Get sizes and ensure it's a list
+        sizes = opts.get('sizes', self.config.get('images', 'sizes', default=[1200, 800, 400]))
+        if not isinstance(sizes, list):
+            sizes = [1200, 800, 400]  # Fallback to default
+
         # Generate output filename if not provided
         if not output_filename:
             output_filename = Path(source_path).stem
-            
+
         # Check cache
         file_hash = self._file_hash(source_path) if not skip_cache else None
-        cache_key = f"{source_path}:{file_hash}:{dither}:{optimize}:{'-'.join(formats)}:{'-'.join(map(str, sizes))}"
+        cache_key = f"{source_path}:{file_hash}:{dither}:{optimize}:{'-'.join(map(str, formats))}:{'-'.join(map(str, sizes))}"
         
+        _t0 = time.perf_counter()
+
         if not skip_cache and cache_key in self.cache:
-            # Return cached results if available
+            if self.stats:
+                self.stats.record_image(source_path, time.perf_counter() - _t0, cached=True)
             return self.cache[cache_key]
-            
+
         # Prepare output directory
         output_dir = os.path.join(self.paths['output'], 'assets', 'images')
         os.makedirs(output_dir, exist_ok=True)
-        
+
         # Process the image
         results = {}
-        
+        _dither_method = self.config.get('images', 'dither_method', default='bayer')
+        _img_width = _img_height = 0
+
+        # --- Speed config ---
+        webp_method          = int(self.config.get('images', 'webp_method',          default=0))
+        webp_method_original = int(self.config.get('images', 'webp_method_original', default=4))
+
+        # Formats for dithered saves (default: webp only — smaller, no quality loss vs png)
+        dither_formats = self.config.get('images', 'dither_formats', default=['webp'])
+        if not isinstance(dither_formats, list):
+            dither_formats = ['webp']
+
+        # Sizes to dither at (default: smallest only — dithered is a visual effect, not a srcset)
+        dither_sizes_cfg = self.config.get('images', 'dither_sizes', default=None)
+        if dither_sizes_cfg and isinstance(dither_sizes_cfg, list):
+            dither_sizes = set(dither_sizes_cfg)
+        else:
+            dither_sizes = {min(sizes)}  # only the smallest by default
+
         try:
             with Image.open(source_path) as img:
-                # Convert image to RGB if it's in a different mode for better dithering
+                img = ImageOps.exif_transpose(img)
+                _img_width, _img_height = img.size
                 original_mode = img.mode
                 if original_mode not in ["RGB", "RGBA"]:
                     img = img.convert("RGB")
-                
-                # Process each size
+
                 for size in sizes:
-                    # Calculate dimensions maintaining aspect ratio
                     width = size
+                    # BICUBIC is visually identical to LANCZOS at small sizes and ~2x faster
+                    resample = Image.BICUBIC if width <= 400 else Image.LANCZOS
                     if img.width > width:
-                        wpercent = (width / float(img.size[0]))
-                        height = int((float(img.size[1]) * float(wpercent)))
-                        resized = img.resize((width, height), Image.LANCZOS)
+                        wpercent = width / float(img.size[0])
+                        height = int(img.size[1] * wpercent)
+                        resized = img.resize((width, height), resample)
                     else:
                         resized = img.copy()
-                        
-                    # Always save original version (with _original suffix)
+
+                    # Save original at every size
                     for fmt in formats:
-                        # Generate output filename for original
                         output_name = f"{output_filename}_{width}_original.{fmt}"
                         output_path = os.path.join(output_dir, output_name)
-                        
                         try:
                             if fmt == 'webp':
-                                resized.save(output_path, format='WEBP', quality=85, optimize=optimize)
+                                resized.save(output_path, format='WEBP', quality=85,
+                                             method=webp_method_original)
                             elif fmt == 'png':
                                 resized.save(output_path, format='PNG', optimize=optimize)
                             elif fmt in ['jpg', 'jpeg']:
                                 save_img = resized
-                                if original_mode in ['1', 'L', 'RGBA'] and fmt in ['jpg', 'jpeg']:
+                                if original_mode in ['1', 'L', 'RGBA']:
                                     save_img = resized.convert('RGB')
                                 save_img.save(output_path, format='JPEG', quality=85, optimize=optimize)
                             else:
                                 resized.save(output_path, format=fmt.upper())
-                                
-                            # Add to results
                             if f"{size}_original" not in results:
                                 results[f"{size}_original"] = {}
-                            results[f"{size}_original"][fmt] = os.path.join('assets', 'images', output_name).replace('\\', '/')
+                            results[f"{size}_original"][fmt] = os.path.join(
+                                'assets', 'images', output_name).replace('\\', '/')
                         except Exception as e:
                             logger.error(f"Error saving original image in {fmt} format: {e}")
-                    
-                    # Create dithered version (always for content images)
-                    # Make a copy for dithering
-                    dithered = resized.copy()
-                    
-                    # Convert to grayscale first if desired
-                    if self.config.get('images', 'grayscale_before_dither', False):
-                        dithered = dithered.convert('L')
-                    
-                    # Use Floyd-Steinberg dithering for better results
-                    dithered = dithered.convert('1', dither=Image.FLOYDSTEINBERG)
+
+                    # Only dither at configured sizes (default: smallest only)
+                    if width not in dither_sizes:
+                        continue
+
+                    dithered = self._apply_dither(resized)
                     logger.debug(f"Applied dithering to image: {source_path}")
-                    
-                    # Save dithered version in each format
-                    for fmt in formats:
-                        # For content images, generated files use standard naming pattern
-                        # but the main output is the dithered version by default
+
+                    for fmt in dither_formats:
                         output_name = f"{output_filename}_{width}.{fmt}"
                         output_path = os.path.join(output_dir, output_name)
-                        
                         try:
                             if fmt == 'webp':
-                                # WebP format requires RGB or RGBA mode
                                 save_img = dithered.convert('RGB')
-                                save_img.save(output_path, format='WEBP', quality=85, optimize=optimize)
+                                save_img.save(output_path, format='WEBP', quality=85,
+                                              method=webp_method)
                             elif fmt == 'png':
-                                # PNG works with all modes
                                 dithered.save(output_path, format='PNG', optimize=optimize)
                             elif fmt in ['jpg', 'jpeg']:
-                                # JPEG requires RGB mode
                                 save_img = dithered.convert('RGB')
                                 save_img.save(output_path, format='JPEG', quality=85, optimize=optimize)
                             else:
-                                # Other formats, try native save
                                 dithered.save(output_path, format=fmt.upper())
-                                
-                            # Add to results
                             if size not in results:
                                 results[size] = {}
-                            results[size][fmt] = os.path.join('assets', 'images', output_name).replace('\\', '/')
+                            results[size][fmt] = os.path.join(
+                                'assets', 'images', output_name).replace('\\', '/')
                         except Exception as e:
                             logger.error(f"Error saving dithered image in {fmt} format: {e}")
                 
             # Save to cache
             if not skip_cache and self.cache_file:
                 self.cache[cache_key] = results
-                
+
         except Exception as e:
             logger.error(f"Error processing image {source_path}: {e}")
             if logger.level <= logging.DEBUG:
                 import traceback
                 traceback.print_exc()
-            
+
+        if self.stats:
+            self.stats.record_image(
+                source_path,
+                time.perf_counter() - _t0,
+                method=_dither_method,
+                cached=False,
+                width=_img_width,
+                height=_img_height,
+            )
+
         return results
         
+    def _apply_dither(self, img: 'Image.Image', method: str = None, colors: int = None) -> 'Image.Image':
+        """Apply dithering to an image using the configured (or specified) method.
+
+        Dispatches to the appropriate dithering implementation. Unknown method names
+        fall back to bayer (the default).
+
+        Args:
+            img: Source PIL Image (any mode).
+            method: Dithering method name. If None, reads from config.
+            colors: Number of palette levels/colors. If None, reads from config.
+
+        Returns:
+            PIL Image ready to save as PNG.
+
+        Supported methods (set via images.dither_method in sonne.yaml):
+            bayer          — Ordered Bayer 4×4 dither, grayscale.  Best compression. (default)
+            grayscale      — Grayscale + Floyd-Steinberg palette dither.
+            1bit           — Pure 1-bit black/white Floyd-Steinberg halftone.
+            threshold      — Hard 50% threshold, no dithering.
+            color_median   — Keep color, reduce palette via RGB Median Cut + FS dither.
+            color_octree   — Keep color, reduce palette via RGB Octree + FS dither.
+            color_lab      — Keep color, reduce palette via k-means in CIELAB space + FS dither.
+        """
+        if method is None:
+            method = self.config.get('images', 'dither_method', default='bayer')
+        if colors is None:
+            colors = self.config.get('images', 'dither_colors', default=4)
+
+        try:
+            colors = max(2, min(256, int(colors or 4)))
+        except (TypeError, ValueError):
+            colors = 4
+
+        method = (method or 'bayer').lower().strip()
+
+        if method == 'bayer':
+            return self._bayer_dither(img, colors)
+        elif method in ('grayscale', 'palette'):
+            return self._grayscale_palette_dither(img, colors)
+        elif method in ('1bit', 'halftone', 'floyd_steinberg'):
+            return img.convert('L').convert('1', dither=Image.FLOYDSTEINBERG)
+        elif method == 'threshold':
+            return img.convert('L').convert('1', dither=Image.NONE)
+        elif method == 'color_median':
+            return img.convert('RGB').quantize(colors=colors, method=0, dither=1)
+        elif method == 'color_octree':
+            return img.convert('RGB').quantize(colors=colors, method=2, dither=1)
+        elif method == 'color_lab':
+            return self._lab_kmeans_dither(img, colors)
+        else:
+            logger.warning(f"Unknown dither_method '{method}', defaulting to bayer")
+            return self._bayer_dither(img, 4)
+
+    def _bayer_dither(self, img: 'Image.Image', levels: int = 4) -> 'Image.Image':
+        """Ordered Bayer 4×4 dithering on grayscale.
+
+        Produces a regular dot-grid pattern. Compresses very well as PNG and
+        avoids the streaky artifacts of error-diffusion on smooth gradients.
+
+        Args:
+            img: Source PIL Image (any mode).
+            levels: Number of gray levels (2–256).
+
+        Returns:
+            PIL Image in P (palette) mode.
+        """
+        try:
+            import numpy as np
+        except ImportError:
+            logger.warning("numpy not available for Bayer dithering, falling back to grayscale palette")
+            return self._grayscale_palette_dither(img, levels)
+
+        levels = max(2, min(256, int(levels)))
+        gray = img.convert('L')
+        arr = np.array(gray, dtype=float) / 255.0
+        bayer = np.array([[ 0,  8,  2, 10],
+                          [12,  4, 14,  6],
+                          [ 3, 11,  1,  9],
+                          [15,  7, 13,  5]], dtype=float) / 16.0
+        h, w = arr.shape
+        tiled = np.tile(bayer, (h // 4 + 1, w // 4 + 1))[:h, :w]
+        step = 1.0 / (levels - 1)
+        quantized = np.clip(np.floor(arr / step + tiled) * step, 0.0, 1.0)
+        out = Image.fromarray((quantized * 255).astype('uint8'), 'L')
+        # Convert to palette mode for better PNG compression (no dither — already applied)
+        return out.convert('P', palette=1, colors=levels, dither=0)
+
+    def _grayscale_palette_dither(self, img: 'Image.Image', palette_colors: int = 4) -> 'Image.Image':
+        """Grayscale + Floyd-Steinberg palette dither.
+
+        Args:
+            img: Source PIL Image (any mode).
+            palette_colors: Number of palette entries (2–256).
+
+        Returns:
+            PIL Image in P (palette) mode with a grayscale palette.
+        """
+        palette_colors = max(2, min(256, int(palette_colors)))
+        gray = img.convert('L')
+        # palette=1 is Image.Palette.ADAPTIVE, dither=1 is Floyd-Steinberg
+        return gray.convert('P', palette=1, colors=palette_colors, dither=1)
+
+    def _lab_kmeans_dither(self, img: 'Image.Image', k: int = 4) -> 'Image.Image':
+        """Color quantization using k-means clustering in CIELAB color space.
+
+        Minimises perceptual color error rather than RGB distance. Applies
+        Floyd-Steinberg error diffusion using the LAB-derived palette.
+
+        Args:
+            img: Source PIL Image (any mode).
+            k: Number of palette colors.
+
+        Returns:
+            PIL Image in P (palette) mode.
+        """
+        try:
+            import numpy as np
+        except ImportError:
+            logger.warning("numpy not available for LAB k-means, falling back to color_median")
+            return img.convert('RGB').quantize(colors=k, method=0, dither=1)
+
+        def srgb_to_linear(c):
+            return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+        def linear_to_srgb(c):
+            return np.where(c <= 0.0031308, 12.92 * c, 1.055 * c ** (1 / 2.4) - 0.055)
+
+        def to_lab(rgb_u8):
+            rgb = srgb_to_linear(np.clip(rgb_u8.astype(float) / 255.0, 0, 1))
+            M = np.array([[0.4124564, 0.3575761, 0.1804375],
+                          [0.2126729, 0.7151522, 0.0721750],
+                          [0.0193339, 0.1191920, 0.9503041]])
+            xyz = rgb @ M.T / np.array([0.95047, 1.0, 1.08883])
+            def f(t): return np.where(t > 0.008856, t ** (1/3), 7.787 * t + 16/116)
+            fx, fy, fz = f(xyz[..., 0]), f(xyz[..., 1]), f(xyz[..., 2])
+            return np.stack([116*fy - 16, 500*(fx-fy), 200*(fy-fz)], axis=-1)
+
+        def from_lab(lab):
+            L, a, b = lab[..., 0], lab[..., 1], lab[..., 2]
+            fy = (L + 16) / 116
+            def fi(t): return np.where(t > 0.206897, t**3, (t - 16/116) / 7.787)
+            xyz = np.stack([fi(a/500+fy), fi(fy), fi(fy-b/200)], axis=-1)
+            xyz *= np.array([0.95047, 1.0, 1.08883])
+            M_inv = np.array([[ 3.2404542, -1.5371385, -0.4985314],
+                              [-0.9692660,  1.8760108,  0.0415560],
+                              [ 0.0556434, -0.2040259,  1.0572252]])
+            rgb_lin = np.clip(xyz @ M_inv.T, 0, 1)
+            return np.clip(linear_to_srgb(rgb_lin), 0, 1)
+
+        arr = np.array(img.convert('RGB'), dtype=np.uint8)
+        H, W, _ = arr.shape
+        lab_arr = to_lab(arr)
+        pixels = lab_arr.reshape(-1, 3)
+
+        rng = np.random.default_rng(42)
+        centres = pixels[rng.choice(len(pixels), k, replace=False)].copy()
+        for _ in range(20):
+            dists = np.sum((pixels[:, None] - centres[None]) ** 2, axis=-1)
+            labels = np.argmin(dists, axis=-1)
+            new_c = np.array([pixels[labels == i].mean(0) if (labels == i).any()
+                              else centres[i] for i in range(k)])
+            if np.allclose(centres, new_c, atol=1e-4):
+                break
+            centres = new_c
+
+        palette_rgb = (np.clip(from_lab(centres.reshape(1, -1, 3)).reshape(-1, 3), 0, 1) * 255).astype('uint8')
+
+        # Floyd-Steinberg in RGB with LAB-derived palette
+        out_arr = arr.astype(float)
+        result = np.zeros((H, W), dtype=np.uint8)
+        for r in range(H):
+            for c in range(W):
+                old = out_arr[r, c]
+                old_lab = to_lab(old.reshape(1, 1, 3)).reshape(3)
+                best = int(np.argmin(np.sum((centres - old_lab) ** 2, axis=-1)))
+                result[r, c] = best
+                err = old - palette_rgb[best].astype(float)
+                if c + 1 < W:             out_arr[r,   c+1] += err * 7/16
+                if r+1 < H and c-1 >= 0: out_arr[r+1, c-1] += err * 3/16
+                if r + 1 < H:             out_arr[r+1, c  ] += err * 5/16
+                if r+1 < H and c+1 < W:  out_arr[r+1, c+1] += err * 1/16
+
+        p_img = Image.fromarray(result, 'P')
+        flat = palette_rgb.flatten().tolist() + [0] * (768 - len(palette_rgb.flatten()))
+        p_img.putpalette(flat)
+        return p_img
+
     def dither_image(self, input_path: str, output_path: str) -> None:
         """Apply dithering to an image.
-        
+
         Args:
             input_path: Path to the input image.
             output_path: Path to save the dithered image.
@@ -380,20 +633,15 @@ class ImageProcessor:
         # Skip if PIL is not available
         if not PIL_AVAILABLE:
             return
-            
+
         try:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            
+
             with Image.open(input_path) as img:
-                # Convert the image to grayscale
-                img = img.convert('L')
-                
-                # Apply dithering
-                img = img.convert('1')  # Convert to black and white with dithering
-                
-                # Save the optimized image
-                img.save(output_path, optimize=True, format='PNG')
-                
+                img = ImageOps.exif_transpose(img)
+                dithered = self._apply_dither(img)
+                dithered.save(output_path, optimize=True, format='PNG')
+
             logger.debug(f"Dithered image: {input_path} -> {output_path}")
         except Exception as e:
             logger.error(f"Error dithering image {input_path}: {e}")

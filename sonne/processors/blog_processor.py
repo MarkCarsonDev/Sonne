@@ -7,30 +7,36 @@ import os
 import re
 import markdown
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
 import logging
 from typing import Dict, Any, Optional, List, Tuple, Union
 import math
 
+from sonne.utils.path_utils import sanitize_filename, validate_path_within_root, safe_join
+
 logger = logging.getLogger('sonne')
 
 class BlogProcessor:
     """Processes blog posts and generates blog-related pages."""
     
-    def __init__(self, config, paths: Dict[str, str], template_processor, variable_manager):
+    def __init__(self, config, paths: Dict[str, str], template_processor, variable_manager, image_processor=None):
         """Initialize blog processor.
-        
+
         Args:
             config: Site configuration.
             paths: Dictionary of normalized paths.
             template_processor: Template processor instance.
             variable_manager: Variable manager instance.
+            image_processor: ImageProcessor instance for shared dithering pipeline.
         """
         self.config = config
         self.paths = paths
         self.template_processor = template_processor
         self.variable_manager = variable_manager
+        self.image_processor = image_processor
+        self.stats = None  # Injected by SiteGenerator
         
         # Blog directory paths - Add safety checks
         content_path = self.paths.get('content', '')
@@ -61,36 +67,71 @@ class BlogProcessor:
         # Cache URL style
         self.url_style = self.config.get_url_style() if hasattr(self.config, 'get_url_style') else 'clean'
         logger.debug(f"Using URL style: {self.url_style}")
-        
+
+    def collect_post_metadata(self) -> None:
+        """Collect blog post metadata without rendering.
+
+        This method collects and processes blog post metadata early in the build
+        process so that data scripts can reference blog posts by slug or tag.
+        """
+        logger.info("Collecting blog post metadata...")
+
+        # Skip if blog directory doesn't exist
+        if not os.path.exists(self.blog_content_dir):
+            logger.debug(f"Blog directory does not exist: {self.blog_content_dir}")
+            return
+
+        # Collect all blog posts
+        self._collect_posts()
+
+        # Skip if no posts found
+        if not self.posts:
+            logger.debug("No blog posts found")
+            return
+
+        # Sort posts by date (newest first)
+        self._sort_posts()
+
+        # Build taxonomy collections
+        self._build_taxonomies()
+
+        # Save posts to global variables (without rendering)
+        self.variable_manager.set('all_blog_posts', self.posts, 'global')
+        self.variable_manager.set('all_blog_posts', self.posts, 'site')
+
+        logger.info(f"Collected metadata for {len(self.posts)} blog posts")
+
     def process_all_posts(self) -> None:
         """Process all blog posts."""
-        logger.info("Processing blog posts...")
-        
+
         # Skip if blog directory doesn't exist
         if not os.path.exists(self.blog_content_dir):
             logger.warning(f"Blog directory does not exist: {self.blog_content_dir}")
             return
-            
-        # Collect all blog posts
-        self._collect_posts()
-        
-        # Skip if no posts found
+
+        # If metadata hasn't been collected yet, collect it now
         if not self.posts:
-            logger.info("No blog posts found")
-            return
-            
-        # Sort posts by date (newest first)
-        self._sort_posts()
-        
+            # Collect all blog posts
+            self._collect_posts()
+
+            # Skip if no posts found
+            if not self.posts:
+                logger.info("No blog posts found")
+                return
+
+            # Sort posts by date (newest first)
+            self._sort_posts()
+
+            # Build taxonomy collections
+            self._build_taxonomies()
+
+            # Save posts to global variables
+            self.variable_manager.set('all_blog_posts', self.posts, 'global')
+            self.variable_manager.set('all_blog_posts', self.posts, 'site')
+
         # Set navigation links (next/prev)
         self._set_navigation_links()
-        
-        # Build taxonomy collections
-        self._build_taxonomies()
-        
-        # Save posts to global variables
-        self.variable_manager.set('all_blog_posts', self.posts, 'global')
-        
+
         # Render individual posts
         self._render_posts()
         
@@ -112,6 +153,15 @@ class BlogProcessor:
                 import traceback
                 traceback.print_exc()
         
+        try:
+            # Generate date archive pages (/blog/YYYY/ and /blog/YYYY/MM/)
+            self._generate_date_archives()
+        except Exception as e:
+            logger.error(f"Error generating date archives: {e}")
+            if logger.level <= logging.DEBUG:
+                import traceback
+                traceback.print_exc()
+
         # Generate RSS feed
         self._generate_rss_feed()
         
@@ -162,40 +212,45 @@ class BlogProcessor:
         """
         # Read file content
         with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
+            raw_content = f.read()
+
         # Process Markdown and extract front matter
-        front_matter, html_content = self.template_processor.process_markdown(content)
+        front_matter, html_content = self.template_processor.process_markdown(raw_content)
         
         # Skip draft posts unless include_drafts is enabled
         if front_matter.get('draft', False) and not self.config.get('blog', 'include_drafts', default=False):
             logger.debug(f"Skipping draft post: {file_path}")
             return None
             
-        # Process date
-        date_str = front_matter.get('date', front_matter.get('date_posted', None))
-        if not date_str:
-            # Try to extract date from filename (YYYY-MM-DD-title.md)
+        # Helper: file creation time (st_birthtime on macOS/BSD, st_mtime fallback on Linux)
+        _stat = file_path.stat()
+        _file_ctime = datetime.fromtimestamp(getattr(_stat, 'st_birthtime', _stat.st_mtime))
+        _file_mtime = datetime.fromtimestamp(_stat.st_mtime)
+
+        def _parse_date(value, fallback):
+            """Parse a date value; 'auto' returns fallback datetime directly."""
+            if isinstance(value, str) and value.strip().lower() == 'auto':
+                return fallback
+            if isinstance(value, str):
+                try:
+                    parts = value.strip().split('-')
+                    if len(parts) == 3:
+                        value = f"{parts[0]}-{parts[1].zfill(2)}-{parts[2].zfill(2)}"
+                    return datetime.strptime(value, '%Y-%m-%d')
+                except (ValueError, TypeError):
+                    return fallback
+            if isinstance(value, datetime):
+                return value
+            if hasattr(value, 'year'):
+                return datetime(value.year, value.month, value.day)
+            return fallback
+
+        # Process date_posted — 'auto' or missing → file creation time; try filename pattern first
+        raw_date = front_matter.get('date', front_matter.get('date_posted', None))
+        if raw_date is None:
             date_match = re.match(r'(\d{4}-\d{2}-\d{2})-', file_path.stem)
-            if date_match:
-                date_str = date_match.group(1)
-            else:
-                # Use file modification time as fallback
-                date_str = datetime.fromtimestamp(file_path.stat().st_mtime).strftime('%Y-%m-%d')
-                
-        try:
-            if isinstance(date_str, str):
-                date = datetime.strptime(date_str, '%Y-%m-%d')
-            elif isinstance(date_str, datetime):
-                date = date_str
-            elif hasattr(date_str, 'year') and hasattr(date_str, 'month') and hasattr(date_str, 'day'):
-                # If it's a date object, convert to datetime
-                date = datetime(date_str.year, date_str.month, date_str.day)
-            else:
-                date = datetime.now()
-        except (ValueError, TypeError):
-            logger.warning(f"Invalid date format in {file_path}, using current date")
-            date = datetime.now()
+            raw_date = date_match.group(1) if date_match else 'auto'
+        date = _parse_date(raw_date, _file_ctime)
             
         # Process slug
         slug = front_matter.get('slug', front_matter.get('page_url', None))
@@ -235,18 +290,25 @@ class BlogProcessor:
         tags = [str(tag) for tag in self._parse_taxonomy_list(front_matter.get('tags', []))]
         categories = [str(cat) for cat in self._parse_taxonomy_list(front_matter.get('categories', []))]
         
+        # Resolve modified/date_edited — missing or 'auto' → file mtime
+        raw_modified = front_matter.get('modified', front_matter.get('date_edited', 'auto'))
+        modified_date = _parse_date(raw_modified, _file_mtime)
+
         # Construct post data
         post_data = {
             'title': front_matter.get('title', 'Untitled'),
             'date': date,
             'date_str': date.strftime('%Y-%m-%d'),
             'date_formatted': date.strftime('%B %d, %Y'),
-            'modified': front_matter.get('modified', front_matter.get('date_edited', date)),
+            'date_posted': date.strftime('%B %d, %Y'),   # matches {{ page.date_posted }} in templates
+            'modified': modified_date,
+            'date_edited': modified_date.strftime('%B %d, %Y'),
             'author': front_matter.get('author', self.config.get('site', 'author', default='Anonymous')),
             'slug': slug,
             'url': url,
             'full_url': full_url,
             'content': html_content,
+            'raw_content': raw_content,  # Store raw markdown content for image extraction
             'excerpt': excerpt,
             'tags': tags,
             'categories': categories,
@@ -260,7 +322,7 @@ class BlogProcessor:
         return post_data
         
     def _set_navigation_links(self) -> None:
-        """Set next/prev navigation links for posts."""
+        """Set next/prev navigation links and related posts for posts."""
         for i, post in enumerate(self.posts):
             # Previous post (newer)
             if i > 0:
@@ -270,7 +332,7 @@ class BlogProcessor:
                 }
             else:
                 post['prev_post'] = None
-                
+
             # Next post (older)
             if i < len(self.posts) - 1:
                 post['next_post'] = {
@@ -279,6 +341,20 @@ class BlogProcessor:
                 }
             else:
                 post['next_post'] = None
+
+            # Related posts: prefer tag matches, fall back to adjacent posts
+            post_tags = set(post.get('tags') or [])
+            scored = []
+            for j, other in enumerate(self.posts):
+                if j == i:
+                    continue
+                other_tags = set(other.get('tags') or [])
+                shared = len(post_tags & other_tags)
+                # Give adjacency a small bonus so nearby posts appear when no tags match
+                proximity = 1.0 / (abs(i - j) + 1)
+                scored.append((shared + proximity * 0.1, j))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            post['related_posts'] = [self.posts[j] for _, j in scored[:3]]
                 
     def _build_taxonomies(self) -> None:
         """Build taxonomy collections from posts."""
@@ -340,13 +416,16 @@ class BlogProcessor:
         logger.debug(f"Built taxonomy collections: {len(self.taxonomies['tags'])} tags, {len(self.taxonomies['categories'])} categories")
     def _get_output_path(self, rel_path: str, is_index: bool = False) -> str:
         """Get the output file path based on URL style.
-        
+
         Args:
             rel_path: Relative path from the output directory
             is_index: Whether this is an index page
-            
+
         Returns:
             Full output file path
+
+        Raises:
+            ValueError: If path escapes output directory (path traversal attempt).
         """
         if self.url_style == 'directory':
             # For directory style, use path/to/file/index.html
@@ -366,35 +445,66 @@ class BlogProcessor:
                 output_path = os.path.join(self.paths['output'], rel_path, 'index.html')
             else:
                 output_path = os.path.join(self.paths['output'], rel_path, 'index.html')
-                
+
+        # Security check: ensure output path is within output directory
+        if not validate_path_within_root(output_path, self.paths['output']):
+            error_msg = f"Path traversal detected: {rel_path} attempts to escape output directory"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
         return output_path
 
     def _render_posts(self) -> None:
-        """Render individual blog posts."""
+        """Render individual blog posts.
+
+        Two-pass approach: process all post images first so that cover_img_dithered
+        is set on every post before any template is rendered. This ensures related
+        posts and other cross-references see the correct image paths regardless of
+        the order posts are processed.
+        """
+        # Pass 1: process images for all posts so cover_img_dithered is populated
+        # on every post dict before any template renders related-post strips.
         for post in self.posts:
+            try:
+                post_url = post['url'].rstrip('/')
+                blog_dir = self.config.get('blog', 'directory', default='blog')
+                rel_path = os.path.join(blog_dir, post_url)
+                output_path = self._get_output_path(rel_path)
+                output_dir = os.path.dirname(output_path)
+                os.makedirs(output_dir, exist_ok=True)
+                self._copy_post_images(post, output_dir)
+            except Exception as e:
+                logger.error(f"Error processing images for post {post.get('title', '?')}: {e}")
+
+        # Pass 2: render templates now that all posts have complete metadata
+        for post in self.posts:
+            _t0 = time.perf_counter()
             try:
                 # Set page variables
                 self.variable_manager.set_page_variables(post)
-                
+
                 # Get all variables
                 variables = {
                     'global': self.variable_manager.variables.get('global', {}),
                     'site': self.variable_manager.variables.get('site', {}),
                     'page': post
                 }
-                
+
                 # Add all global variables to site level for compatibility
                 for key, value in variables['global'].items():
                     if key not in variables['site']:
                         variables['site'][key] = value
-                
+
                 # Make sure 'images' configuration is available
                 if hasattr(self.config, 'config') and 'images' in self.config.config:
                     variables['site']['images'] = self.config.config['images']
-                
-                # Get template
-                template_name = post.get('template', self.config.get('blog', 'template', default='blog_post.html'))
-                
+
+                post_url = post['url'].rstrip('/')
+                blog_dir = self.config.get('blog', 'directory', default='blog')
+                rel_path = os.path.join(blog_dir, post_url)
+                output_path = self._get_output_path(rel_path)
+                output_dir = os.path.dirname(output_path)
+
                 # Render post
                 _, rendered_content = self.template_processor.process_page(
                     post['content'],
@@ -402,31 +512,229 @@ class BlogProcessor:
                     post['source_path'],
                     variables
                 )
-                
-                # Clean the post URL for consistency
-                post_url = post['url'].rstrip('/')
-                blog_dir = self.config.get('blog', 'directory', default='blog')
-                rel_path = os.path.join(blog_dir, post_url)
-                                
-                # Determine output path based on URL style
-                output_path = self._get_output_path(rel_path)
-                
-                logger.debug(f"Output path for blog post: {output_path}")
-                
-                # Ensure output directory exists
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                
+
                 # Write output file
                 with open(output_path, 'w', encoding='utf-8') as f:
                     f.write(rendered_content)
-                    
+
                 logger.debug(f"Rendered blog post: {post['title']} -> {output_path}")
-                
+
             except Exception as e:
                 logger.error(f"Error rendering blog post {post['title']}: {e}")
                 if logger.level <= logging.DEBUG:
                     import traceback
                     traceback.print_exc()
+
+            finally:
+                if self.stats:
+                    self.stats.record_post(post.get('slug', post.get('title', '?')), time.perf_counter() - _t0)
+
+    def _copy_post_images(self, post: Dict[str, Any], output_dir: str) -> None:
+        """Copy and process images referenced in a blog post.
+
+        Copies the original image to its expected path and saves a dithered PNG
+        into a 'dithered/' subdirectory alongside it. The template processor handles
+        the dithered/original switching in the rendered HTML using those paths.
+
+        Args:
+            post: The blog post data.
+            output_dir: The output directory for the blog post.
+        """
+        try:
+            try:
+                from PIL import Image
+                PIL_AVAILABLE = True
+            except ImportError:
+                PIL_AVAILABLE = False
+                logger.warning("PIL not available, images will be copied without processing")
+
+            content = post.get('raw_content', post.get('content', ''))
+            md_pattern = r'!\[([^\]]*)\]\(([^)]+)\)'
+            html_pattern = r'<img[^>]+src=["\'](([^"\']+))["\']'
+
+            image_refs = []
+            for match in re.finditer(md_pattern, content):
+                path_with_title = match.group(2).strip()
+                img_path = path_with_title.split()[0] if ' ' in path_with_title else path_with_title
+                image_refs.append(img_path)
+            for match in re.finditer(html_pattern, content):
+                image_refs.append(match.group(1))
+
+            dither_enabled = self.config.get('images', 'dither', default=True)
+            orig_max_w = self.config.get('images', 'blog_original_max_width', default=1600)
+            dith_max_w = self.config.get('images', 'blog_dithered_max_width', default=400)
+
+            for img_ref in image_refs:
+                if img_ref.startswith(('http://', 'https://', '/')):
+                    continue
+                if img_ref.endswith('.svg'):
+                    continue
+
+                post_source_dir = os.path.dirname(post.get('source_path', ''))
+                source_img_path = os.path.normpath(os.path.join(post_source_dir, img_ref))
+
+                if not os.path.exists(source_img_path):
+                    logger.warning(f"Image not found: {source_img_path} (referenced in {post['title']})")
+                    continue
+
+                rel_img_path = img_ref.lstrip('./')
+                original_path = os.path.join(output_dir, rel_img_path)
+                os.makedirs(os.path.dirname(original_path), exist_ok=True)
+
+                # Resize and save the "original" (high-res but capped)
+                original_kb = self._save_resized(source_img_path, original_path, orig_max_w)
+
+                dithered_kb = None
+                if dither_enabled and PIL_AVAILABLE:
+                    img_dir = os.path.dirname(rel_img_path)
+                    stem = os.path.splitext(os.path.basename(rel_img_path))[0]
+                    dithered_dir = os.path.join(output_dir, img_dir, 'dithered')
+                    os.makedirs(dithered_dir, exist_ok=True)
+                    dithered_path = os.path.join(dithered_dir, stem + '.png')
+                    dithered_kb = self._process_blog_image(source_img_path, dithered_path, dith_max_w)
+
+                # Inject size info into the already-processed HTML.
+                # process_markdown already converted <img src="foo.jpg"> into a
+                # <figure> with src rewritten to the dithered path, so we can't
+                # match on the original src string.  Instead parse with BS4 and
+                # find the img tag by data-original-src, then also update the
+                # figcaption caption-text span in place.
+                if original_kb and dithered_kb:
+                    pct = int(round((1 - dithered_kb / original_kb) * 100))
+                    try:
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(post['content'], 'html.parser')
+                        # img_ref may have a leading ./ — normalise for comparison
+                        norm_ref = img_ref.lstrip('./')
+                        matched = False
+                        for img_tag in soup.find_all('img'):
+                            orig_src = img_tag.get('data-original-src', '')
+                            if orig_src.lstrip('./') == norm_ref or orig_src.endswith('/' + norm_ref):
+                                img_tag['data-dithered-size'] = f'{dithered_kb:.0f}K'
+                                img_tag['data-original-size'] = f'{original_kb:.0f}K'
+                                img_tag['data-size-reduction'] = str(pct)
+                                # Update the caption span that was pre-rendered
+                                # without size info
+                                figure = img_tag.find_parent('figure')
+                                if figure:
+                                    span = figure.find('span', class_='caption-text')
+                                    if span:
+                                        label = span.get_text()
+                                        span.string = f'{label} · {dithered_kb:.0f}K (−{pct}%)'
+                                    # Also stamp the button so JS can show original size
+                                    btn = figure.find('button', class_='request-original-btn')
+                                    if btn:
+                                        btn['data-original-size'] = f'{original_kb:.0f}K'
+                                matched = True
+                                break
+                        if matched:
+                            post['content'] = str(soup)
+                        else:
+                            logger.debug(f"Could not find img with data-original-src matching {norm_ref} in post HTML")
+                    except Exception as bs_err:
+                        logger.warning(f"BS4 size-attr injection failed for {img_ref}: {bs_err}")
+
+            # --- Cover image processing ---
+            cover_img = post.get('cover_img')
+            if cover_img and not cover_img.startswith(('http://', 'https://', '/')) and not cover_img.endswith('.svg'):
+                dither_cover = self.config.get('images', 'dither_cover_images', default=True)
+                post_source_dir = os.path.dirname(post.get('source_path', ''))
+                source_path = os.path.normpath(os.path.join(post_source_dir, cover_img))
+                if os.path.exists(source_path):
+                    rel_path = cover_img.lstrip('./')
+                    original_path = os.path.join(output_dir, rel_path)
+                    os.makedirs(os.path.dirname(original_path), exist_ok=True)
+
+                    original_kb = self._save_resized(source_path, original_path, orig_max_w)
+                    dithered_kb = None
+                    dithered_rel = rel_path  # fallback: use original if no dithering
+                    if dither_cover and dither_enabled and PIL_AVAILABLE:
+                        img_dir = os.path.dirname(rel_path)
+                        stem = os.path.splitext(os.path.basename(rel_path))[0]
+                        dithered_dir = os.path.join(output_dir, img_dir, 'dithered')
+                        os.makedirs(dithered_dir, exist_ok=True)
+                        dithered_rel = os.path.join(img_dir, 'dithered', stem + '.png')
+                        dithered_path = os.path.join(output_dir, dithered_rel)
+                        dithered_kb = self._process_blog_image(source_path, dithered_path, dith_max_w)
+
+                    post['cover_img_original'] = rel_path
+                    post['cover_img_dithered'] = dithered_rel if dithered_kb else rel_path
+                    post['cover_img_original_kb'] = f'{original_kb:.0f}K' if original_kb else ''
+                    post['cover_img_dithered_kb'] = f'{dithered_kb:.0f}K' if dithered_kb else ''
+                    if original_kb and dithered_kb:
+                        pct = int(round((1 - dithered_kb / original_kb) * 100))
+                        post['cover_img_reduction'] = str(pct)
+                    else:
+                        post['cover_img_reduction'] = ''
+                else:
+                    logger.warning(f"Cover image not found: {source_path} (referenced in {post.get('title', 'unknown')})")
+
+        except Exception as e:
+            logger.error(f"Error processing images for post {post.get('title', 'unknown')}: {e}")
+            if logger.level <= logging.DEBUG:
+                import traceback
+                traceback.print_exc()
+
+    def _resize_img(self, img: 'Image.Image', max_width: int) -> 'Image.Image':
+        """Return a copy of img resized to max_width, preserving aspect ratio."""
+        from PIL import Image
+        if img.width > max_width:
+            h = int(img.height * max_width / img.width)
+            return img.resize((max_width, h), Image.LANCZOS)
+        return img.copy()
+
+    def _save_resized(self, source_path: str, output_path: str, max_width: int) -> float:
+        """Resize source image to max_width and save, preserving original format.
+
+        Returns:
+            File size in KB.
+        """
+        from PIL import Image, ImageOps
+        try:
+            with Image.open(source_path) as img:
+                img = ImageOps.exif_transpose(img)
+                resized = self._resize_img(img.convert('RGB') if img.mode not in ('RGB', 'RGBA', 'L') else img,
+                                           max_width)
+                fmt = img.format or 'JPEG'
+                save_kw = {'optimize': True}
+                if fmt in ('JPEG', 'JPG'):
+                    save_kw['quality'] = 85
+                resized.save(output_path, format=fmt, **save_kw)
+            return os.path.getsize(output_path) / 1024
+        except Exception as e:
+            logger.error(f"Error saving resized image {source_path}: {e}")
+            shutil.copy2(source_path, output_path)
+            return os.path.getsize(output_path) / 1024
+
+    def _process_blog_image(self, source_path: str, dithered_path: str, max_width: int = 400) -> float:
+        """Resize and dither a blog post image using the shared ImageProcessor pipeline.
+
+        Args:
+            source_path: Source image path.
+            dithered_path: Output path for the dithered PNG (always .png).
+            max_width: Resize to this width before dithering.
+
+        Returns:
+            File size in KB.
+        """
+        from PIL import Image, ImageOps
+
+        try:
+            with Image.open(source_path) as img:
+                img = ImageOps.exif_transpose(img)
+                resized = self._resize_img(img, max_width)
+                if self.image_processor is not None:
+                    dithered = self.image_processor._apply_dither(resized)
+                else:
+                    gray = resized.convert('L')
+                    dithered = gray.convert('P', palette=1, colors=4, dither=1)
+                dithered.save(dithered_path, format='PNG', optimize=True)
+                logger.debug(f"Created dithered PNG: {source_path} -> {dithered_path}")
+                return os.path.getsize(dithered_path) / 1024
+
+        except Exception as e:
+            logger.error(f"Error processing blog image {source_path}: {e}")
+            shutil.copy2(source_path, dithered_path)
 
     def _generate_index_pages(self) -> None:
         """Generate blog index pages with pagination."""
@@ -594,6 +902,7 @@ class BlogProcessor:
                         'title': f"{term_name} ({singular.capitalize()})",
                         'description': f"Posts with {singular} {term_name}",
                         singular: term_name,  # Use the string, not f-string formatting
+                        f'{singular}_slug': term_data['slug'],
                         'posts': term_data['posts'],
                         'url': f"/{self.config.get('blog', 'directory', default='blog')}/{taxonomy_type}/{term_data['slug']}",
                     }
@@ -732,57 +1041,188 @@ class BlogProcessor:
                 import traceback
                 traceback.print_exc()
 
+    def _generate_date_archives(self) -> None:
+        """Generate year (/blog/YYYY/) and year-month (/blog/YYYY/MM/) archive pages."""
+        if not self.config.get('blog', 'date_archives', default=True):
+            return
+        if not self.posts:
+            return
+
+        blog_dir = self.config.get('blog', 'directory', default='blog')
+        archive_template = self.config.get('blog', 'archive_template', default='archive.html')
+
+        _month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+                        'July', 'August', 'September', 'October', 'November', 'December']
+
+        # Group posts by year, year/month, and year/month/day
+        by_year: dict = {}
+        by_month: dict = {}
+        by_day: dict = {}
+        for post in self.posts:
+            date = post.get('date')
+            if not date or not hasattr(date, 'year'):
+                continue
+            year_str = str(date.year)
+            month_str = f"{date.month:02d}"
+            day_str = f"{date.day:02d}"
+            by_year.setdefault(year_str, []).append(post)
+            by_month.setdefault((year_str, month_str), []).append(post)
+            by_day.setdefault((year_str, month_str, day_str), []).append(post)
+
+        def _sorted(posts):
+            return sorted(posts, key=lambda p: p.get('date', datetime.min), reverse=True)
+
+        archives = []
+        for year_str, posts in by_year.items():
+            archives.append({
+                'title': year_str,
+                'posts': _sorted(posts),
+                'rel_path': os.path.join(blog_dir, year_str),
+                'url': f'/{blog_dir}/{year_str}/',
+                'source_id': f'archive_{year_str}',
+                'archive_type': 'year',
+                'year': year_str, 'month': None, 'day': None,
+            })
+        for (year_str, month_str), posts in by_month.items():
+            label = f'{_month_names[int(month_str)]} {year_str}'
+            archives.append({
+                'title': label,
+                'posts': _sorted(posts),
+                'rel_path': os.path.join(blog_dir, year_str, month_str),
+                'url': f'/{blog_dir}/{year_str}/{month_str}/',
+                'source_id': f'archive_{year_str}_{month_str}',
+                'archive_type': 'month',
+                'year': year_str, 'month': month_str, 'day': None,
+            })
+        for (year_str, month_str, day_str), posts in by_day.items():
+            day_label = f'{_month_names[int(month_str)]} {int(day_str)}, {year_str}'
+            archives.append({
+                'title': day_label,
+                'posts': _sorted(posts),
+                'rel_path': os.path.join(blog_dir, year_str, month_str, day_str),
+                'url': f'/{blog_dir}/{year_str}/{month_str}/{day_str}/',
+                'source_id': f'archive_{year_str}_{month_str}_{day_str}',
+                'archive_type': 'day',
+                'year': year_str, 'month': month_str, 'day': day_str,
+            })
+
+        for archive in archives:
+            try:
+                page_data = {
+                    'title': archive['title'],
+                    'posts': archive['posts'],
+                    'url': archive['url'],
+                    'template': archive_template,
+                    'archive_type': archive['archive_type'],
+                    'archive_year': archive['year'],
+                    'archive_month': archive['month'],
+                    'archive_month_name': _month_names[int(archive['month'])] if archive['month'] else None,
+                    'archive_day': archive['day'],
+                }
+                if hasattr(self.config, 'format_url'):
+                    page_data['url'] = self.config.format_url(page_data['url'])
+
+                self.variable_manager.set_page_variables(page_data)
+                variables = {
+                    'global': self.variable_manager.variables.get('global', {}),
+                    'site': self.variable_manager.variables.get('site', {}),
+                    'page': page_data,
+                }
+                for key, value in variables['global'].items():
+                    if key not in variables['site']:
+                        variables['site'][key] = value
+                if hasattr(self.config, 'config') and 'images' in self.config.config:
+                    variables['site']['images'] = self.config.config['images']
+
+                dummy_content = f"<!-- Archive: {archive['title']} -->"
+                _, rendered_content = self.template_processor.process_page(
+                    dummy_content,
+                    False,
+                    archive['source_id'],
+                    variables,
+                )
+
+                output_path = self._get_output_path(archive['rel_path'])
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(rendered_content)
+                logger.debug(f"Generated archive: {archive['title']} -> {output_path}")
+            except Exception as e:
+                logger.error(f"Error generating archive '{archive['title']}': {e}")
+                if logger.level <= logging.DEBUG:
+                    import traceback
+                    traceback.print_exc()
+
     def _generate_rss_feed(self) -> None:
         """Generate RSS feed for blog posts."""
         try:
+            # Check toggle — defaults to enabled
+            if not self.config.get('blog', 'rss', 'enabled', default=True):
+                return
+
             # Skip if no posts
             if not self.posts:
                 return
-                
+
             # Get site information
             site_title = self.config.get('site', 'title', default='My Sonne Site')
             site_description = self.config.get('site', 'description', default='')
             site_url = self.config.get('site', 'base_url', default='')
-            
+            rss_path = self.config.get('blog', 'rss', 'path', default='feed.xml')
+            max_items = self.config.get('blog', 'rss', 'max_items', default=20)
+
             # Build RSS feed
             rss_items = []
-            
-            # Include only the most recent posts (max 20)
-            for post in self.posts[:20]:
+
+            for post in self.posts[:max_items]:
                 post_url = site_url + post['full_url']
-                
+                author = post.get('author', self.config.get('site', 'author', default=''))
+
                 # Format post date with timezone if available
                 try:
                     pub_date = post['date'].strftime('%a, %d %b %Y %H:%M:%S +0000')
                 except:
                     pub_date = datetime.now().strftime('%a, %d %b %Y %H:%M:%S +0000')
-                
-                rss_items.append(f"""
-                <item>
-                    <title>{post['title']}</title>
-                    <link>{post_url}</link>
-                    <guid>{post_url}</guid>
-                    <pubDate>{pub_date}</pubDate>
-                    <description><![CDATA[{post['excerpt']}]]></description>
-                </item>
-                """)
-                
+
+                # Cover image — prefer dithered (lighter), fall back to original
+                cover_rel = post.get('cover_img_dithered') or post.get('cover_img_original')
+                media_tag = ''
+                if cover_rel:
+                    img_url = f"{post_url.rstrip('/')}/{cover_rel.lstrip('/')}"
+                    media_tag = f'\n        <media:thumbnail url="{img_url}" />'
+
+                rss_items.append(
+                    f'    <item>\n'
+                    f'        <title>{post["title"]}</title>\n'
+                    f'        <link>{post_url}</link>\n'
+                    f'        <guid isPermaLink="true">{post_url}</guid>\n'
+                    f'        <pubDate>{pub_date}</pubDate>\n'
+                    f'        <author>{author}</author>\n'
+                    f'        <description><![CDATA[{post["excerpt"]}]]></description>'
+                    f'{media_tag}\n'
+                    f'    </item>\n'
+                )
+
             # Build complete RSS feed
-            rss_feed = f"""<?xml version="1.0" encoding="UTF-8" ?>
-            <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-            <channel>
-                <title>{site_title}</title>
-                <link>{site_url}</link>
-                <description>{site_description}</description>
-                <lastBuildDate>{datetime.now().strftime('%a, %d %b %Y %H:%M:%S +0000')}</lastBuildDate>
-                <atom:link href="{site_url}/feed.xml" rel="self" type="application/rss+xml" />
-                {"".join(rss_items)}
-            </channel>
-            </rss>
-            """
-            
+            rss_feed = (
+                '<?xml version="1.0" encoding="UTF-8" ?>\n'
+                '<rss version="2.0"\n'
+                '    xmlns:atom="http://www.w3.org/2005/Atom"\n'
+                '    xmlns:media="http://search.yahoo.com/mrss/">\n'
+                '<channel>\n'
+                f'    <title>{site_title}</title>\n'
+                f'    <link>{site_url}</link>\n'
+                f'    <description>{site_description}</description>\n'
+                f'    <language>{self.config.get("site", "language", default="en")}</language>\n'
+                f'    <lastBuildDate>{datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0000")}</lastBuildDate>\n'
+                f'    <atom:link href="{site_url}/{rss_path}" rel="self" type="application/rss+xml" />\n'
+                + ''.join(rss_items) +
+                '</channel>\n'
+                '</rss>\n'
+            )
+
             # Write RSS feed to file
-            output_path = os.path.join(self.paths['output'], 'feed.xml')
+            output_path = os.path.join(self.paths['output'], rss_path)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(rss_feed)
                 
@@ -795,17 +1235,19 @@ class BlogProcessor:
                 traceback.print_exc()
             
     def _slugify(self, text: str) -> str:
-        """Convert text to slug format.
-        
+        """Convert text to slug format with security sanitization.
+
         Args:
             text: Text to convert.
-            
+
         Returns:
-            Slug formatted string.
+            Slug formatted string, safe for use in URLs and filenames.
         """
         # First ensure text is a string
         text = str(text)
-        # Remove special characters
+
+        # First pass: basic slug conversion
+        # Remove special characters (keep word chars, spaces, hyphens)
         text = re.sub(r'[^\w\s-]', '', text.lower())
         # Replace spaces with hyphens
         text = re.sub(r'[\s]+', '-', text)
@@ -813,6 +1255,19 @@ class BlogProcessor:
         text = re.sub(r'[-]+', '-', text)
         # Strip leading/trailing hyphens
         text = text.strip('-')
+
+        # Second pass: security sanitization
+        # Use our secure sanitize_filename to catch edge cases
+        text = sanitize_filename(text, replace_char='-')
+
+        # Ensure slug isn't empty
+        if not text:
+            text = 'untitled'
+
+        # Ensure slug isn't too long (max 100 chars for URLs)
+        if len(text) > 100:
+            text = text[:100].rstrip('-')
+
         return text
         
     def _generate_excerpt(self, html_content: str, length: int = 200) -> str:

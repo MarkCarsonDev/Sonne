@@ -16,6 +16,7 @@ import re
 
 try:
     import jinja2
+    from jinja2 import TemplateSyntaxError, UndefinedError
     # Try to import Markup from the correct location
     try:
         from markupsafe import Markup
@@ -29,6 +30,8 @@ try:
     JINJA_AVAILABLE = True
 except ImportError:
     JINJA_AVAILABLE = False
+    TemplateSyntaxError = None
+    UndefinedError = None
 
 logger = logging.getLogger('sonne')
 
@@ -50,6 +53,11 @@ class TemplateProcessor:
             'markdown.extensions.fenced_code',
             'markdown.extensions.toc',
             'markdown.extensions.smarty',
+            'markdown.extensions.footnotes',
+            'markdown.extensions.attr_list',
+            'markdown.extensions.def_list',
+            'markdown.extensions.abbr',
+            'markdown.extensions.sane_lists',
         ]
         
         # Initialize Jinja2 environment if available
@@ -88,14 +96,65 @@ class TemplateProcessor:
                 logger.warning("No template directories found, template processing is disabled")
 
         # Check if dithering is enabled
-        self.dithering_enabled = self.config.get('images', 'dither', True)
-        
+        self.dithering_enabled = self.config.get('images', 'dither', default=True)
+        logger.info(f"Dithering enabled: {self.dithering_enabled}")
+
         if JINJA_AVAILABLE and self.jinja_env:
             # Add a global variable for dithering status
             self.jinja_env.globals['dithering_enabled'] = self.dithering_enabled
-            
+
             # Add custom filters for image processing
             self._register_jinja_filters()
+
+    def validate_templates(self) -> List[str]:
+        """Validate all templates for syntax errors.
+
+        Returns:
+            List of error messages. Empty list means all templates are valid.
+        """
+        if not JINJA_AVAILABLE or not self.jinja_env:
+            return ["Jinja2 not available, cannot validate templates"]
+
+        errors = []
+        templates_dir = self.paths.get('templates')
+
+        if not templates_dir or not os.path.exists(templates_dir):
+            return ["Templates directory not found"]
+
+        # Find all template files
+        template_extensions = ['.html', '.htm', '.xml', '.txt', '.j2', '.jinja2']
+        template_files = []
+
+        for root, dirs, files in os.walk(templates_dir):
+            for file in files:
+                if any(file.endswith(ext) for ext in template_extensions):
+                    rel_path = os.path.relpath(os.path.join(root, file), templates_dir)
+                    template_files.append(rel_path)
+
+        # Validate each template
+        for template_path in template_files:
+            try:
+                # Try to load the template (this checks syntax)
+                template = self.jinja_env.get_template(template_path)
+
+                # Try a basic render with dummy data to catch more issues
+                try:
+                    # Provide minimal dummy context
+                    template.render(site={}, page={}, content='')
+                except UndefinedError:
+                    # UndefinedError is expected - templates use variables we haven't provided
+                    # We're just checking for syntax errors
+                    pass
+                except Exception as e:
+                    # Other errors during rendering (not syntax errors)
+                    errors.append(f"{template_path}: Render error - {str(e)}")
+
+            except TemplateSyntaxError as e:
+                errors.append(f"{template_path}:{e.lineno}: Syntax error - {e.message}")
+            except Exception as e:
+                errors.append(f"{template_path}: {str(e)}")
+
+        return errors
             
     def _register_jinja_filters(self) -> None:
         """Register custom Jinja2 filters."""
@@ -112,6 +171,15 @@ class TemplateProcessor:
         
         # Word count
         self.jinja_env.filters['word_count'] = lambda text: len(text.split())
+
+        # Slugify — mirrors _slugify in blog_processor
+        def _slugify_filter(text: str) -> str:
+            import re as _re
+            text = str(text).lower()
+            text = _re.sub(r'[^\w\s-]', '', text)
+            text = _re.sub(r'[\s_]+', '-', text.strip())
+            return _re.sub(r'-+', '-', text)
+        self.jinja_env.filters['slugify'] = _slugify_filter
         
         # Truncate words
         self.jinja_env.filters['truncate_words'] = lambda text, length=30: ' '.join(
@@ -222,8 +290,12 @@ class TemplateProcessor:
         
         # Process image tags for dithering support
         if self.dithering_enabled:
+            logger.debug(f"Dithering is enabled, processing image tags...")
             html_content = self._process_image_tags(html_content)
-        
+            logger.debug(f"After processing images, HTML length: {len(html_content)}")
+        else:
+            logger.debug(f"Dithering is disabled, skipping image processing")
+
         return front_matter, html_content
     
     def _replace_image_paths(self, content: str) -> str:
@@ -259,67 +331,114 @@ class TemplateProcessor:
         return content
     
     def _process_image_tags(self, html_content: str) -> str:
-        """Process image tags to add dithering support.
-        
+        """Process image tags to add dithering support with captions and original image button.
+
         Args:
             html_content: HTML content with image tags.
-            
+
         Returns:
             HTML content with processed image tags.
         """
+        # Use html.parser explicitly for consistency and to avoid warnings
         soup = BeautifulSoup(html_content, 'html.parser')
-        
+
         # Find all img tags
-        for img in soup.find_all('img'):
+        img_tags = soup.find_all('img')
+        logger.debug(f"Found {len(img_tags)} image tags to process for dithering")
+
+        for idx, img in enumerate(img_tags):
             # Skip SVG images
             src = img.get('src', '')
             if src.endswith('.svg'):
                 continue
-                
+
             # Get attributes
-            alt = img.get('alt', 'Image')
+            alt = img.get('alt', '')
+            title = img.get('title', '')
             loading = img.get('loading', 'lazy')
-            
-            # Create original path
-            filename, ext = os.path.splitext(src)
-            original_src = f"{filename}_original{ext}"
-            
-            # Create new container
-            container = soup.new_tag('div')
-            container['class'] = 'dithered-image-container'
-            
-            # Create original image
-            original_img = soup.new_tag('img')
-            original_img['src'] = original_src
-            original_img['alt'] = alt
-            original_img['loading'] = loading
-            original_img['class'] = 'original'
-            
-            # Add dithered class to original img
-            img['class'] = 'dithered'
-            
-            # Create toggle button
-            toggle = soup.new_tag('div')
-            toggle['class'] = 'dither-toggle'
-            
-            # Create dots for toggle button
-            dot_classes = ['', 'empty', '', 'empty', '', 'empty', '', 'empty', '']
-            for dot_class in dot_classes:
-                dot = soup.new_tag('div')
-                if dot_class:
-                    dot['class'] = f'dither-toggle-dot {dot_class}'
+            dithered_kb = img.get('data-dithered-size', '')
+            original_kb = img.get('data-original-size', '')
+            size_reduction = img.get('data-size-reduction', '')
+
+            # Build dithered and original paths
+            path_parts = src.split('/')
+            filename = path_parts[-1]
+            dir_parts = path_parts[:-1]
+            stem = filename.rsplit('.', 1)[0] if '.' in filename else filename
+            dithered_src = '/'.join(dir_parts + ['dithered', stem + '.png'])
+            original_src = src
+
+            # Figure container
+            figure = soup.new_tag('figure')
+            figure['class'] = 'dithered-image-figure'
+            figure['data-image-id'] = f'img-{idx}'
+
+            img_wrapper = soup.new_tag('div')
+            img_wrapper['class'] = 'image-wrapper'
+
+            img['class'] = 'dithered-image active'
+            img['data-dithered-src'] = dithered_src
+            img['data-original-src'] = original_src
+            img['data-image-id'] = f'img-{idx}'
+            img['loading'] = loading
+            img['src'] = dithered_src
+
+            # Figcaption: "title · Xk (−Y%)" + toggle button
+            figcaption = soup.new_tag('figcaption')
+
+            caption_label = title or alt
+            if caption_label:
+                caption_text = soup.new_tag('span')
+                caption_text['class'] = 'caption-text'
+                if dithered_kb and size_reduction:
+                    caption_text.string = f'{caption_label} · {dithered_kb} (−{size_reduction}%)'
                 else:
-                    dot['class'] = 'dither-toggle-dot'
-                toggle.append(dot)
-            
-            # Replace original img with container
-            img.replace_with(container)
-            
-            # Add elements to container
-            container.append(img)
-            container.append(original_img)
-            container.append(toggle)
-        
+                    caption_text.string = caption_label
+                figcaption.append(caption_text)
+
+            button = soup.new_tag('button')
+            button['class'] = 'request-original-btn'
+            button['data-image-id'] = f'img-{idx}'
+            button['aria-label'] = 'Toggle between dithered and original image'
+            if original_kb:
+                button['data-original-size'] = original_kb
+            # Dithering pattern icon (4×4 bayer halftone) + text
+            button_text = soup.new_tag('span')
+            button_text['class'] = 'btn-text'
+            button_text.string = 'view original'
+            # LTM-style quincunx dither icon (4 corners + center)
+            dither_icon_svg = soup.new_tag('svg', attrs={
+                'class': 'dither-icon-svg',
+                'xmlns': 'http://www.w3.org/2000/svg',
+                'viewBox': '0 0 100 100',
+                'aria-hidden': 'true',
+            })
+            for rx, ry in [('13.51','13.58'),('37.93','37.86'),('62.21','13.58'),('13.51','62.14'),('62.21','62.14')]:
+                rect = soup.new_tag('rect', attrs={'x': rx, 'y': ry, 'width': '24.28', 'height': '24.28', 'fill': 'currentColor'})
+                dither_icon_svg.append(rect)
+            button.append(dither_icon_svg)
+            button.append(button_text)
+            figcaption.append(button)
+
+            # Build structure
+            # First, we need to remember img's parent before we move it
+            parent = img.parent
+            parent_index = list(parent.children).index(img)
+
+            # Extract img from current location and add to wrapper
+            img_wrapper.append(img.extract())
+            figure.append(img_wrapper)
+
+            # Only add figcaption if there's alt text or button
+            if alt or True:  # Always add for button
+                figure.append(figcaption)
+
+            # Insert figure at the position where img was
+            if parent_index < len(list(parent.children)):
+                parent.insert(parent_index, figure)
+            else:
+                parent.append(figure)
+
         return str(soup)
         
     def process_page(self, content: str, is_markdown: bool, source_path: str, variables: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
@@ -374,10 +493,14 @@ class TemplateProcessor:
         
         # Process template
         template_name = None
-        
-        # First check if there's a template specified in the front matter
+
+        # First check if there's a template specified in the front matter,
+        # or in the page variables dict (used for programmatically generated pages
+        # like date archives where front_matter is empty)
         if 'template' in front_matter:
             template_name = front_matter['template']
+        elif variables.get('page', {}).get('template'):
+            template_name = variables['page']['template']
         elif isinstance(source_path, str):
             if source_path.endswith('.md'):
                 # For blog posts or markdown pages, use appropriate template
@@ -389,13 +512,21 @@ class TemplateProcessor:
             elif source_path == 'blog_index':
                 template_name = self.config.get('blog', 'list_template', default='blog_list.html')
             elif source_path.startswith('tags_'):
-                template_name = self.config.get('blog', 'taxonomies', {}).get('tags', {}).get('list_template', 'tags.html')
+                taxonomies = self.config.get('blog', 'taxonomies', default={})
+                tags_config = taxonomies.get('tags', {}) if isinstance(taxonomies, dict) else {}
+                template_name = tags_config.get('list_template', 'tags.html')
             elif source_path.startswith('tag_'):
-                template_name = self.config.get('blog', 'taxonomies', {}).get('tags', {}).get('template', 'tag.html')
+                taxonomies = self.config.get('blog', 'taxonomies', default={})
+                tags_config = taxonomies.get('tags', {}) if isinstance(taxonomies, dict) else {}
+                template_name = tags_config.get('template', 'tag.html')
             elif source_path.startswith('categories_'):
-                template_name = self.config.get('blog', 'taxonomies', {}).get('categories', {}).get('list_template', 'categories.html')
+                taxonomies = self.config.get('blog', 'taxonomies', default={})
+                categories_config = taxonomies.get('categories', {}) if isinstance(taxonomies, dict) else {}
+                template_name = categories_config.get('list_template', 'categories.html')
             elif source_path.startswith('category_'):
-                template_name = self.config.get('blog', 'taxonomies', {}).get('categories', {}).get('template', 'category.html')
+                taxonomies = self.config.get('blog', 'taxonomies', default={})
+                categories_config = taxonomies.get('categories', {}) if isinstance(taxonomies, dict) else {}
+                template_name = categories_config.get('template', 'category.html')
         
         logger.debug(f"Template for {source_path}: {template_name}")
         
@@ -455,41 +586,45 @@ class TemplateProcessor:
                 processed_content = template.render(**variables_for_template)
                 logger.debug(f"Rendered template {template_name} for {source_path}")
 
+                # Inject dithering assets if enabled
                 processed_content = self.inject_dithering_assets(processed_content)
-                
+
                 return front_matter, processed_content
-                
+
             except jinja2.exceptions.TemplateNotFound:
                 logger.warning(f"Template not found: {template_name}")
                 # Fall back to direct HTML content
                 processed_content = f"<html><body><h1>{front_matter.get('title', 'Untitled')}</h1>{html_content}</body></html>"
-                
+                processed_content = self.inject_dithering_assets(processed_content)
+
             except Exception as e:
                 logger.error(f"Error rendering template {template_name}: {e}")
                 # Fall back to simple content
                 processed_content = f"<html><body><h1>Error rendering template</h1><p>{e}</p><div>{html_content}</div></body></html>"
+                processed_content = self.inject_dithering_assets(processed_content)
         else:
             # No template or Jinja not available - use simple HTML
             processed_content = f"<html><body><h1>{front_matter.get('title', 'Untitled')}</h1>{html_content}</body></html>"
-            
+            processed_content = self.inject_dithering_assets(processed_content)
+
         return front_matter, processed_content
     
     def inject_dithering_assets(self, html_content: str) -> str:
-        """Inject dithering CSS and JS references into HTML content if dithering is enabled.
-        
+        """Inject dithering CSS and JS inline into HTML content if dithering is enabled.
+
         Args:
             html_content: HTML content to inject into.
-            
+
         Returns:
             HTML content with dithering assets injected.
         """
         # Skip if dithering is disabled
-        if not self.config.get('images', 'dither', True):
+        if not self.dithering_enabled:
             return html_content
-            
-        # Use BeautifulSoup to parse the HTML
+
+        # Use html.parser explicitly for consistency and to avoid warnings
         soup = BeautifulSoup(html_content, 'html.parser')
-        
+
         # Check if head tag exists
         head = soup.head
         if not head:
@@ -502,7 +637,7 @@ class TemplateProcessor:
                 html = soup.new_tag('html')
                 soup.append(html)
                 html.append(head)
-        
+
         # Check if body tag exists
         body = soup.body
         if not body:
@@ -515,36 +650,153 @@ class TemplateProcessor:
                 html = soup.new_tag('html')
                 soup.append(html)
                 html.append(body)
-        
-        # Add CSS link to head
-        css_link = soup.new_tag('link')
-        css_link['rel'] = 'stylesheet'
-        css_link['href'] = '/css/dithering.css'
-        
+
+        # Inline CSS for dithered images
+        css_content = """
+/* Dithered image styling - injected by Sonne */
+.dithered-image-figure {
+    margin: 2rem 0;
+}
+
+.dithered-image-figure img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.dithered-image-figure figcaption {
+    margin-top: 0.5rem;
+    font-family: monospace;
+    font-size: 0.75rem;
+    opacity: 0.6;
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.caption-text {
+    font-style: italic;
+}
+
+.request-original-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    padding: 0.2em 0.6em;
+    font-size: 0.8rem;
+    background: transparent;
+    border: 1px solid var(--text-color, #fff);
+    border-radius: 0.4em;
+    cursor: pointer;
+    color: var(--text-color, #fff);
+    opacity: 0.5;
+    transition: opacity 0.1s, background-color 0.1s;
+    font-family: inherit;
+}
+
+.request-original-btn:hover {
+    opacity: 1;
+    background-color: var(--bg-hover, rgba(255,255,255,0.13));
+}
+
+.request-original-btn.showing-original {
+    opacity: 1;
+}
+
+/* Dithering toggle icon (LTM quincunx pattern) */
+.dither-icon-svg {
+    width: 0.85em;
+    height: 0.85em;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+
+/* Light mode: mix-blend-mode on the figure, not the img,
+   so toggling to original disables multiply cleanly */
+[data-theme="light"] .dithered-image-figure {
+    mix-blend-mode: multiply;
+}
+[data-theme="light"] .dithered-image-figure.showing-original {
+    mix-blend-mode: normal;
+}
+"""
+
         # Check if the CSS is already included
         css_exists = False
-        for link in head.find_all('link'):
-            if link.get('href') == '/css/dithering.css':
+        for style in head.find_all('style'):
+            if style.string and 'Dithered image styling - injected by Sonne' in style.string:
                 css_exists = True
                 break
-                
+
         if not css_exists:
-            head.append(css_link)
-        
-        # Add JS script to end of body
-        js_script = soup.new_tag('script')
-        js_script['src'] = '/js/dithering.js'
-        js_script['defer'] = True
-        
+            style_tag = soup.new_tag('style')
+            style_tag.string = css_content
+            head.append(style_tag)
+
+        # Inline JavaScript for image swapping
+        js_content = """
+// Dithered image functionality - injected by Sonne
+(function() {
+    'use strict';
+
+    function initializeDitheredImages() {
+        const buttons = document.querySelectorAll('.request-original-btn');
+
+        buttons.forEach(function(button) {
+            // Track state on button itself
+            let showingDithered = true;
+
+            button.addEventListener('click', function() {
+                const figure = this.closest('.dithered-image-figure');
+                if (!figure) return;
+
+                const img = figure.querySelector('img');
+                if (!img) return;
+
+                const ditheredSrc = img.getAttribute('data-dithered-src');
+                const originalSrc = img.getAttribute('data-original-src');
+
+                const btnText = this.querySelector('.btn-text');
+                // Toggle based on current state
+                if (showingDithered) {
+                    img.src = originalSrc;
+                    const origSize = this.getAttribute('data-original-size');
+                    if (btnText) btnText.textContent = origSize ? 'dithered (' + origSize + ')' : 'dithered';
+                    this.classList.add('showing-original');
+                    figure.classList.add('showing-original');
+                    showingDithered = false;
+                } else {
+                    img.src = ditheredSrc;
+                    if (btnText) btnText.textContent = 'view original';
+                    this.classList.remove('showing-original');
+                    figure.classList.remove('showing-original');
+                    showingDithered = true;
+                }
+            });
+        });
+    }
+
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeDitheredImages);
+    } else {
+        initializeDitheredImages();
+    }
+})();
+"""
+
         # Check if the JS is already included
         js_exists = False
         for script in body.find_all('script'):
-            if script.get('src') == '/js/dithering.js':
+            if script.string and 'Dithered image functionality - injected by Sonne' in script.string:
                 js_exists = True
                 break
-                
+
         if not js_exists:
-            body.append(js_script)
-        
+            script_tag = soup.new_tag('script')
+            script_tag.string = js_content
+            body.append(script_tag)
+
         # Return the modified HTML
         return str(soup)

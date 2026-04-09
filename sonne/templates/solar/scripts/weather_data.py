@@ -114,7 +114,7 @@ def fetch_weather_data(location=None):
 
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 Sonne Static Site Generator/0.2.0"
+            "User-Agent": "Mozilla/5.0 Sonne Static Site Generator/0.3.2"
         }
         request = Request(url, headers=headers)
         logging.info("Fetching weather data from Open-Meteo API...")

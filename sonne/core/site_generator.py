@@ -7,6 +7,7 @@ import os
 import sys
 import shutil
 import logging
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -16,6 +17,7 @@ from sonne.processors.blog_processor import BlogProcessor
 from sonne.processors.template_processor import TemplateProcessor
 from sonne.processors.image_processor import ImageProcessor
 from sonne.utils.file_utils import copy_static_files, ensure_dir, copy_template_static_files, copy_core_static_files
+from sonne.utils.build_stats import BuildStatistics
 
 logger = logging.getLogger('sonne')
 
@@ -66,100 +68,168 @@ class SiteGenerator:
                     
                 self.paths[key] = full_path
             
-        logger.info(f"Using URL style: {self.config.get_url_style()}")
-        logger.info(f"Paths: {self.paths}")
+        logger.debug(f"URL style: {self.config.get_url_style()}")
+        logger.debug(f"Paths: {self.paths}")
         
         # Initialize processors
         self.variable_manager = VariableManager(config, self.base_dir)
         self.template_processor = TemplateProcessor(config, self.paths)
-        self.blog_processor = BlogProcessor(config, self.paths, self.template_processor, self.variable_manager)
         self.image_processor = ImageProcessor(config, self.paths)
+        self.blog_processor = BlogProcessor(config, self.paths, self.template_processor, self.variable_manager, self.image_processor)
+
+        # Build statistics (shared across all processors)
+        self.stats = BuildStatistics()
 
         
     def clean_output(self) -> None:
         """Clean the output directory by removing all files."""
         output_dir = self.paths.get('output')
         if not output_dir or not os.path.exists(output_dir):
+            logger.warning(f"Output directory does not exist, nothing to clean: {output_dir}")
             return
-            
+
+        failed_items = []
         for item in os.listdir(output_dir):
             item_path = os.path.join(output_dir, item)
             try:
                 if os.path.isfile(item_path) or os.path.islink(item_path):
                     os.unlink(item_path)
+                    logger.debug(f"Deleted file: {item_path}")
                 elif os.path.isdir(item_path):
                     shutil.rmtree(item_path)
+                    logger.debug(f"Deleted directory: {item_path}")
+            except PermissionError as e:
+                logger.error(f"Permission denied when cleaning {item_path}: {e}")
+                failed_items.append(item)
+            except OSError as e:
+                logger.error(f"OS error when cleaning {item_path}: {e}")
+                failed_items.append(item)
             except Exception as e:
-                logger.error(f"Error cleaning output directory: {e}")
-                
-        logger.info(f"Cleaned output directory: {output_dir}")
+                logger.error(f"Unexpected error cleaning {item_path}: {e}")
+                failed_items.append(item)
+
+        if failed_items:
+            logger.warning(f"Failed to clean {len(failed_items)} items: {', '.join(failed_items)}")
+        else:
+            logger.info(f"Successfully cleaned output directory: {output_dir}")
         
-    def generate(self, skip_images: bool = False, skip_cache: bool = False) -> None:
+    def generate(self, skip_images: bool = False, skip_cache: bool = False) -> BuildStatistics:
         """Generate the complete static site.
-        
+
         Args:
             skip_images: Whether to skip image processing.
             skip_cache: Whether to ignore cache and rebuild everything.
+
+        Returns:
+            BuildStatistics with timing and metrics for this build.
         """
+        self.stats = BuildStatistics()
+
+        # Share the stats object with processors so they can record timings
+        self.image_processor.stats = self.stats
+        self.blog_processor.stats = self.stats
+        self.variable_manager.stats = self.stats
+
         try:
             # Ensure output directory exists
             ensure_dir(self.paths['output'])
-            
-            # Load variables - Scripts will be run here
-            logger.info("Loading variables...")
+
+            blog_enabled = self.config.get('blog', 'enabled', default=True)
+            step = 0
+            total_steps = 5 + (1 if blog_enabled else 0) + (0 if skip_images else 1)
+
+            def step_log(msg):
+                nonlocal step
+                step += 1
+                logger.info(f"[{step}/{total_steps}] {msg}")
+
+            # Step: Collect blog post metadata early so data scripts can reference posts
+            if blog_enabled:
+                step_log("Collecting post metadata")
+                self.blog_processor.collect_post_metadata()
+                post_count = len(self.blog_processor.posts)
+                logger.info(f"         {post_count} post{'s' if post_count != 1 else ''} found")
+
+            # Step: Run data scripts
+            scripts_dir = getattr(self.variable_manager, 'scripts_dir', None)
+            script_count = 0
+            if scripts_dir and os.path.exists(scripts_dir):
+                script_count = len([f for f in os.listdir(scripts_dir) if f.endswith('.py') and not f.startswith('_')])
+            step_log(f"Running data scripts  ({script_count} script{'s' if script_count != 1 else ''})")
+            _t = time.perf_counter()
             self.variable_manager.load_variables()
-            
-            # Debug: Print out all variables 
-            logger.info("Global variables loaded: " + str(list(self.variable_manager.variables.get('global', {}).keys())))
-            logger.info("Site variables loaded: " + str(list(self.variable_manager.variables.get('site', {}).keys())))
-            
-            # Copy static files - do this first so images are available for processing
-            logger.info("Copying static files...")
+            self.stats.record_phase('scripts', time.perf_counter() - _t)
+            logger.debug("Global variables: " + str(list(self.variable_manager.variables.get('global', {}).keys())))
+            logger.debug("Site variables: " + str(list(self.variable_manager.variables.get('site', {}).keys())))
+
+            # Step: Copy static files
             static_dir = self.paths.get('static')
             output_dir = self.paths['output']
-            
-            # First try user's static directory
+            step_log("Copying static files")
+            _t = time.perf_counter()
             copy_static_files(static_dir, output_dir)
-            
-            # Copy core static files
             from sonne.utils.file_utils import copy_core_static_files
             copy_core_static_files(output_dir)
-            
-            # If it was empty or didn't exist, try template static files
             if not static_dir or not os.path.exists(static_dir):
-                logger.info("Copying template static files...")
                 copy_template_static_files(self.base_dir, output_dir)
-            
-            # Process images - now includes both content and static/images
+            self.stats.record_phase('static_copy', time.perf_counter() - _t)
+
+            # Step: Process images
             if not skip_images:
-                logger.info("Processing images...")
-                self.image_processor.process_all(
-                    self.paths.get('content', ''),
-                    skip_cache=skip_cache
-                )
-            
-            # Process blog posts if enabled
-            if self.config.get('blog', 'enabled', default=True):
-                logger.info("Processing blog posts...")
+                content_dir = self.paths.get('content', '')
+                img_exts = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+                img_count = sum(
+                    1 for r, _, fs in os.walk(content_dir) for f in fs
+                    if os.path.splitext(f)[1].lower() in img_exts
+                ) if content_dir and os.path.exists(content_dir) else 0
+                workers = self.image_processor.config.get('images', 'parallel_workers', default=None)
+                max_w = int(workers) if workers else min(4, (os.cpu_count() or 1))
+                step_log(f"Processing images  ({img_count} image{'s' if img_count != 1 else ''}, {max_w} workers)")
+                _t = time.perf_counter()
+                self.image_processor.process_all(content_dir, skip_cache=skip_cache)
+                self.stats.record_phase('images', time.perf_counter() - _t)
+
+            # Step: Render blog posts
+            if blog_enabled:
+                step_log(f"Rendering blog posts  ({post_count} post{'s' if post_count != 1 else ''})")
+                _t = time.perf_counter()
                 self.blog_processor.process_all_posts()
-                
-            # Process templates and pages
-            logger.info("Processing pages...")
+                self.stats.record_phase('blog', time.perf_counter() - _t)
+
+            # Step: Render pages
+            content_dir = self.paths.get('content', '')
+            blog_dir_name = self.config.get('blog', 'directory', default='blog')
+            page_exts = {'.html', '.htm', '.md', '.markdown'}
+            page_count = 0
+            if content_dir and os.path.exists(content_dir):
+                blog_sub = os.path.join(content_dir, blog_dir_name) if blog_dir_name else None
+                for r, _, fs in os.walk(content_dir):
+                    if blog_sub and r.startswith(blog_sub):
+                        continue
+                    page_count += sum(1 for f in fs if os.path.splitext(f)[1].lower() in page_exts)
+            step_log(f"Rendering pages  ({page_count} page{'s' if page_count != 1 else ''})")
+            _t = time.perf_counter()
             self._process_pages()
-            
-            # Generate projects page if projects data exists
+            self.stats.record_phase('pages', time.perf_counter() - _t)
+
             if hasattr(self, '_generate_projects_page'):
                 self._generate_projects_page()
-            
-            # Save variables
-            self.variable_manager.save()
 
-            # Create dithering assets
+            # Step: Finalize
+            step_log("Finalizing output")
+            _t = time.perf_counter()
+            self.variable_manager.save()
             self._create_dithering_assets(output_dir)
-            
-            logger.info("Site generation completed successfully")
-            
+            if self.config.get('build', 'show_page_size', default=False):
+                self._inject_page_sizes(output_dir)
+            self.stats.record_phase('finalize', time.perf_counter() - _t)
+
+            self.stats.finish()
+            logger.info("Site generation complete")
+            return self.stats
+
         except Exception as e:
+            self.stats.finish()
             logger.error(f"Error generating site: {e}")
             if logger.level <= logging.DEBUG:
                 import traceback
@@ -294,7 +364,7 @@ article img,
                 
             if create_js:
                 with open(dithering_js_output, 'w', encoding='utf-8') as f:
-                    f.write("""// Toggle dithered/original images
+                    f.write(r"""// Toggle dithered/original images
 document.addEventListener('DOMContentLoaded', function() {
     // Process all img tags on the page
     processAllImages();
@@ -434,7 +504,50 @@ if ('MutationObserver' in window) {
 }""")
                 
             logger.info("Created dithering assets in output directory")
-        
+
+    def _inject_page_sizes(self, output_dir: str) -> None:
+        """Walk all generated HTML files and inject a fixed page-size label."""
+        # The label HTML template — we estimate its byte cost for the size calc.
+        # Tag overhead ≈ 46 bytes + len(size_str). We'll do one iteration to
+        # approximate: compute size without tag, add overhead, format, inject.
+        LABEL_OVERHEAD = 50  # bytes for the surrounding markup
+
+        CSS = (
+            '<style id="page-size-css">'
+            '#page-size-label{'
+            'position:fixed;bottom:0.4rem;right:0.6rem;'
+            'font-size:0.7rem;font-family:monospace;'
+            'opacity:0.35;pointer-events:none;z-index:9999;'
+            '}'
+            '</style>'
+        )
+        CSS_BYTES = len(CSS.encode('utf-8'))
+
+        for root, _dirs, files in os.walk(output_dir):
+            for fname in files:
+                if not fname.endswith('.html'):
+                    continue
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, 'r', encoding='utf-8') as f:
+                        html = f.read()
+
+                    # Skip if already labelled (e.g. incremental rebuild)
+                    if 'page-size-label' in html:
+                        continue
+
+                    base_bytes = len(html.encode('utf-8'))
+                    # Estimate size after injection
+                    label_text = f'~{(base_bytes + CSS_BYTES + LABEL_OVERHEAD) / 1024:.1f} KB'
+                    label_html = f'<span id="page-size-label">{label_text}</span>'
+                    inject = CSS + label_html
+
+                    new_html = html.replace('</body>', inject + '</body>', 1)
+                    with open(fpath, 'w', encoding='utf-8') as f:
+                        f.write(new_html)
+                except Exception as e:
+                    logger.warning(f"Could not inject page size into {fpath}: {e}")
+
     def _process_pages(self) -> None:
         """Process all pages in the content directory."""
         content_dir = self.paths.get('content')

@@ -8,9 +8,17 @@ import json
 import yaml
 from pathlib import Path
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Literal
+from enum import Enum
 
 logger = logging.getLogger('sonne')
+
+
+class MergeStrategy(Enum):
+    """Strategy for merging configuration values."""
+    REPLACE = 'replace'  # Replace with new value
+    EXTEND = 'extend'  # Extend lists, merge dicts
+    UNIQUE = 'unique'  # Extend lists with unique values only
 
 # Default configuration settings
 DEFAULT_CONFIG = {
@@ -63,11 +71,26 @@ DEFAULT_CONFIG = {
         'file': 'sonne_variables.json',
         'preserve_prior': False,
     },
+    'security': {
+        # WARNING: Enabling embedded Python allows arbitrary code execution in content files
+        # Only enable this if you trust all content authors. NEVER enable for user-submitted content.
+        # Use data scripts in the scripts/ directory as a safer alternative.
+        'allow_embedded_python': False,
+        'csp': {
+            'enabled': False,
+            'directives': {},
+        },
+    },
     'url_style': {
         'prod': 'clean',
         'dev': 'directory',
     },
     'environment': 'prod',
+    'build': {
+        'incremental': True,
+        'show_progress': True,
+        'statistics': True,
+    },
 }
 
 class Config:
@@ -103,7 +126,7 @@ class Config:
             for path in search_paths:
                 full_path = os.path.join(current_dir, path)
                 if os.path.exists(full_path):
-                    print(f"Found configuration file at {full_path}")
+                    logger.info(f"Found configuration file at {full_path}")
                     return full_path
             
             # Move up one directory
@@ -112,7 +135,7 @@ class Config:
                 break
             current_dir = parent_dir
                 
-        print("No configuration file found, using defaults")
+        logger.info("No configuration file found, using defaults")
         return None
         
     def _load_config(self) -> Dict[str, Any]:
@@ -147,17 +170,49 @@ class Config:
             
         return config
         
-    def _deep_merge(self, source: Dict[str, Any], destination: Dict[str, Any]) -> None:
-        """Recursively merge source dictionary into destination.
-        
+    def _deep_merge(
+        self,
+        source: Dict[str, Any],
+        destination: Dict[str, Any],
+        strategy: MergeStrategy = MergeStrategy.REPLACE,
+        list_merge_keys: Optional[List[str]] = None
+    ) -> None:
+        """Recursively merge source dictionary into destination with configurable strategies.
+
         Args:
             source: Source dictionary with new values.
             destination: Destination dictionary to update.
+            strategy: Default merge strategy for lists.
+            list_merge_keys: Keys that should use EXTEND strategy for lists.
         """
+        if list_merge_keys is None:
+            # Keys where we want to extend lists instead of replacing
+            list_merge_keys = ['keywords', 'formats']
+
         for key, value in source.items():
-            if key in destination and isinstance(destination[key], dict) and isinstance(value, dict):
-                self._deep_merge(value, destination[key])
+            if key in destination:
+                # Both are dicts - recurse
+                if isinstance(destination[key], dict) and isinstance(value, dict):
+                    self._deep_merge(value, destination[key], strategy, list_merge_keys)
+
+                # Both are lists - apply strategy
+                elif isinstance(destination[key], list) and isinstance(value, list):
+                    if key in list_merge_keys or strategy == MergeStrategy.EXTEND:
+                        # Extend the list
+                        destination[key].extend(value)
+                    elif strategy == MergeStrategy.UNIQUE:
+                        # Extend with unique values only
+                        for item in value:
+                            if item not in destination[key]:
+                                destination[key].append(item)
+                    else:  # REPLACE strategy
+                        destination[key] = value
+
+                # Types don't match or not special case - replace
+                else:
+                    destination[key] = value
             else:
+                # Key doesn't exist in destination - just set it
                 destination[key] = value
                 
     def get(self, *keys, default=None):
@@ -264,7 +319,62 @@ class Config:
             paths[key] = full_path
             
         return paths
-    
+
+    def validate(self) -> List[str]:
+        """Validate the configuration and return a list of warnings/errors.
+
+        Returns:
+            List of validation messages. Empty list means configuration is valid.
+        """
+        warnings = []
+
+        # Validate site configuration
+        site_config = self.get('site')
+        if not site_config:
+            warnings.append("Missing 'site' configuration section")
+        else:
+            if not site_config.get('title'):
+                warnings.append("Site title is not set")
+            if not site_config.get('base_url'):
+                warnings.append("Site base_url is not set")
+
+        # Validate paths
+        paths = self.get('paths')
+        if not paths:
+            warnings.append("Missing 'paths' configuration section")
+        else:
+            required_paths = ['content', 'output', 'templates']
+            for path_key in required_paths:
+                if not paths.get(path_key):
+                    warnings.append(f"Required path '{path_key}' is not set")
+
+        # Validate image configuration
+        images = self.get('images')
+        if images:
+            formats = images.get('formats', [])
+            if formats and not isinstance(formats, list):
+                warnings.append("images.formats should be a list")
+            sizes = images.get('sizes', [])
+            if sizes and not isinstance(sizes, list):
+                warnings.append("images.sizes should be a list")
+            elif sizes and not all(isinstance(s, int) and s > 0 for s in sizes):
+                warnings.append("images.sizes should contain only positive integers")
+
+        # Security warnings
+        security = self.get('security', default={})
+        if security and security.get('allow_embedded_python'):
+            warnings.append("WARNING: Embedded Python execution is enabled. This allows arbitrary code execution from content files. Only enable this if you trust all content authors.")
+
+        # Validate blog configuration if enabled
+        blog = self.get('blog')
+        if blog and blog.get('enabled'):
+            if not blog.get('directory'):
+                warnings.append("Blog is enabled but directory is not set")
+            if not blog.get('template'):
+                warnings.append("Blog is enabled but template is not set")
+
+        return warnings
+
     def get_url_style(self) -> str:
         """Get the URL style based on configuration and environment.
         
@@ -292,20 +402,20 @@ class Config:
         
     def format_url(self, url: str) -> str:
         """Format a URL based on the current URL style configuration.
-        
+
         Args:
             url: The URL to format (e.g. '/about')
-            
+
         Returns:
             Formatted URL according to the current URL style.
         """
         # Skip external URLs or URLs that already have an extension
         if url.startswith(('http://', 'https://')) or url.endswith(('.html', '.htm')):
             return url
-            
+
         url_style = self.get_url_style()
         logger.debug(f"Formatting URL '{url}' with style '{url_style}'")
-        
+
         # Handle different URL styles
         if url_style == 'html':
             # Add .html extension
@@ -324,3 +434,44 @@ class Config:
             if url.endswith('/') and url != '/':
                 return url[:-1]
             return url
+
+    def generate_csp_header(self) -> Optional[str]:
+        """Generate Content Security Policy header if enabled.
+
+        Returns:
+            CSP header value or None if disabled.
+        """
+        csp_config = self.get('security', 'csp')
+        if not csp_config or not csp_config.get('enabled'):
+            return None
+
+        directives = csp_config.get('directives', {})
+        if not directives:
+            logger.warning("CSP enabled but no directives configured")
+            return None
+
+        # Build CSP header
+        policy_parts = []
+        for directive, sources in directives.items():
+            if isinstance(sources, list):
+                sources_str = ' '.join(sources)
+                policy_parts.append(f"{directive} {sources_str}")
+            else:
+                logger.warning(f"CSP directive '{directive}' has invalid format (should be list)")
+
+        if policy_parts:
+            return '; '.join(policy_parts)
+
+        return None
+
+    def get_csp_meta_tag(self) -> Optional[str]:
+        """Generate CSP meta tag for HTML if enabled.
+
+        Returns:
+            HTML meta tag string or None if disabled.
+        """
+        csp_header = self.generate_csp_header()
+        if not csp_header:
+            return None
+
+        return f'<meta http-equiv="Content-Security-Policy" content="{csp_header}">'

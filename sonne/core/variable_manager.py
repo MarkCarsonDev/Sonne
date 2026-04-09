@@ -10,6 +10,7 @@ import re
 import importlib.util
 import sys
 import subprocess
+import time
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -47,6 +48,7 @@ class VariableManager:
             'site': {},
             'page': {}
         }
+        self.stats = None  # Injected by SiteGenerator
         
         # Prepare variable file path
         var_file = config.get('variables', 'file', default='sonne_variables.json')
@@ -72,9 +74,9 @@ class VariableManager:
         """Get the current version of Sonne."""
         try:
             import sonne.sonne as sonne
-            return getattr(sonne, '__version__', '0.2.0')
+            return getattr(sonne, '__version__', '0.3.2')
         except ImportError:
-            return '0.2.0'
+            return '0.3.2'
             
     def _load_from_file(self, file_path: str, scope: str) -> None:
         """Load variables from a file based on its extension.
@@ -133,8 +135,8 @@ class VariableManager:
                 continue
                 
             try:
-                logger.info(f"Running script: {script_path}")
-                
+                logger.info(f"  Script: {script_path.name}")
+
                 # Create a module spec and load the module
                 spec = importlib.util.spec_from_file_location(
                     f"sonne_script_{script_path.stem}", 
@@ -146,27 +148,53 @@ class VariableManager:
                 # This is critical for maintaining the reference to self
                 def create_sonne_var(manager):
                     def sonne_var(k, v):
-                        logger.info(f"Script setting variable: {k}")
-                        # Set in both global and site scopes for maximum template compatibility
                         manager.variables['global'][k] = v
                         manager.variables['site'][k] = v
-                        logger.info(f"Variable {k} set in global and site scopes")
+                        logger.debug(f"Variable set: {k}")
                     return sonne_var
-                
-                # Assign the closure, not a lambda
+
+                # Create helper function to get blog posts
+                def create_get_post(manager):
+                    def get_post(slug=None, tag=None):
+                        """Get a blog post by slug or tag.
+
+                        Args:
+                            slug: The slug of the post to retrieve
+                            tag: Return the first post with this tag
+
+                        Returns:
+                            Dictionary containing post data, or None if not found
+                        """
+                        posts = manager.variables.get('global', {}).get('all_blog_posts', [])
+                        if not posts:
+                            posts = manager.variables.get('site', {}).get('all_blog_posts', [])
+
+                        if slug:
+                            for post in posts:
+                                if post.get('slug') == slug:
+                                    return post
+                        elif tag:
+                            for post in posts:
+                                if tag in post.get('tags', []):
+                                    return post
+                        return None
+                    return get_post
+
+                # Assign the closures
                 module.sonne_var = create_sonne_var(self)
-                
+                module.get_post = create_get_post(self)
+
                 # Add the module to sys.modules to ensure it's properly loaded
                 sys.modules[f"sonne_script_{script_path.stem}"] = module
-                
+
                 # Execute the module
+                _t0 = time.perf_counter()
                 spec.loader.exec_module(module)
-                
-                # Verify variables were set (debugging)
-                logger.info(f"After running {script_path.name}:")
-                logger.info(f"  Global variables: {list(self.variables['global'].keys())}")
-                logger.info(f"  Site variables: {list(self.variables['site'].keys())}")
-                
+                if self.stats:
+                    self.stats.record_script(script_path.name, time.perf_counter() - _t0)
+
+                logger.debug(f"After {script_path.name}: globals={list(self.variables['global'].keys())}")
+
             except Exception as e:
                 logger.error(f"Error running script {script_path}: {e}")
                 if logger.level <= logging.DEBUG:
@@ -181,9 +209,16 @@ class VariableManager:
                 
     def load_variables(self) -> None:
         """Load all variables from configured sources."""
+        # Preserve blog post variables if they were already set by collect_post_metadata()
+        existing_blog_vars = {}
+        if hasattr(self, 'variables'):
+            for var_name in ['all_blog_posts', 'tags', 'categories']:
+                if var_name in self.variables.get('global', {}):
+                    existing_blog_vars[var_name] = self.variables['global'][var_name]
+
         # Initialize with empty variables
         self.variables = {
-            'global': {},
+            'global': existing_blog_vars.copy(),  # Preserve blog post variables
             'site': {
                 'generator': 'Sonne',
                 'generator_version': self._get_version(),
@@ -199,6 +234,9 @@ class VariableManager:
             },
             'page': {}
         }
+
+        # Also add blog post variables to site scope for template access
+        self.variables['site'].update(existing_blog_vars)
 
         # Add configuration to site variables - safely get site config
         try:
@@ -245,11 +283,8 @@ class VariableManager:
         # Run data scripts - this should set battery variable
         if self.scripts_dir:
             try:
-                logger.info(f"Running scripts from: {self.scripts_dir}")
                 self._run_data_scripts(self.scripts_dir)
-                logger.info(f"Ran data scripts from {self.scripts_dir}")
-                logger.info(f"Global variables after scripts: {list(self.variables['global'].keys())}")
-                logger.info(f"Site variables after scripts: {list(self.variables['site'].keys())}")
+                logger.debug(f"Scripts complete. Globals: {list(self.variables['global'].keys())}")
             except Exception as e:
                 logger.error(f"Error running data scripts from {self.scripts_dir}: {e}")
                 
@@ -414,26 +449,51 @@ class VariableManager:
             return f"{{-}}{{{var_name}}}"  # Keep the original if not found
             
         # Execute embedded Python: {p}{# ... #}
+        # SECURITY WARNING: This feature allows arbitrary Python code execution
+        # It is DISABLED by default and must be explicitly enabled in configuration
         def execute_embedded_python(match):
+            # Check if embedded Python is enabled in config
+            allow_embedded_python = self.config.get('security', 'allow_embedded_python', default=False)
+
+            if not allow_embedded_python:
+                logger.warning("Embedded Python blocks are disabled. Set security.allow_embedded_python: true in config to enable (NOT RECOMMENDED for untrusted content).")
+                return f"<!-- Embedded Python disabled. Enable in config with security.allow_embedded_python: true -->"
+
             python_code = match.group(1).strip()
-            
-            # Prepare code for execution
+
+            # Log a security warning
+            logger.warning(f"SECURITY: Executing embedded Python code from content file. This is a potential security risk.")
             logger.debug(f"Executing embedded Python code:\n{python_code}")
-            
-            # Create a local scope with access to all variables
-            local_scope = {'data': all_vars, 'result': None}
-            
+
+            # Create a restricted local scope with limited builtins
+            # Remove dangerous builtins
+            safe_builtins = {
+                '__builtins__': {
+                    'len': len, 'str': str, 'int': int, 'float': float, 'bool': bool,
+                    'list': list, 'dict': dict, 'tuple': tuple, 'set': set,
+                    'range': range, 'enumerate': enumerate, 'zip': zip,
+                    'min': min, 'max': max, 'sum': sum, 'abs': abs,
+                    'round': round, 'sorted': sorted, 'reversed': reversed,
+                    'True': True, 'False': False, 'None': None,
+                },
+                'data': all_vars,
+                'result': None,
+            }
+
             try:
-                # Execute the code
-                exec(f"{python_code}", {}, local_scope)
-                
+                # Execute the code with restricted scope
+                exec(python_code, safe_builtins, safe_builtins)
+
                 # Return the result
-                return str(local_scope.get('result', ''))
+                return str(safe_builtins.get('result', ''))
             except Exception as e:
                 logger.error(f"Error executing embedded Python: {e}")
-                return f"<!-- Error in Python Code: {e} -->"
-        
-        # First execute Python code blocks
+                if logger.level <= logging.DEBUG:
+                    import traceback
+                    traceback.print_exc()
+                return f"<!-- Error in Python Code: {str(e)} -->"
+
+        # First execute Python code blocks (if enabled)
         content = re.sub(r'\{p\}\{#([\s\S]*?)#\}', execute_embedded_python, content)
         
         # Then replace variables
