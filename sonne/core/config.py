@@ -85,6 +85,10 @@ DEFAULT_CONFIG = {
         'prod': 'clean',
         'dev': 'directory',
     },
+    'serve': {
+        'host': 'localhost',
+        'port': 8000,
+    },
     'environment': 'prod',
     'build': {
         'incremental': True,

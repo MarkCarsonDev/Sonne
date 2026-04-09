@@ -287,8 +287,8 @@ class QuietHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 @cli.command()
 @click.option('--path', '-p', type=click.Path(exists=True), default=os.getcwd(),
               help='Path to the site directory.')
-@click.option('--port', default=8000, help='Port to serve on.')
-@click.option('--host', default='localhost', help='Host to serve on.')
+@click.option('--port', default=None, type=int, help='Port to serve on.')
+@click.option('--host', default=None, help='Host to serve on.')
 @click.option('--browser/--no-browser', default=True, help='Open in browser.')
 @click.option('--watch/--no-watch', default=True, help='Watch for changes and rebuild.')
 def serve(path, port, host, browser, watch):
@@ -310,6 +310,10 @@ def serve(path, port, host, browser, watch):
             sys.exit(1)
 
         config = Config(base_dir=path)
+        if host is None:
+            host = config.get('serve', 'host') or 'localhost'
+        if port is None:
+            port = config.get('serve', 'port') or 8000
         output_dir = os.path.join(path, config.get('paths', 'output'))
 
         # Always build before serving
