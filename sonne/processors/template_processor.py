@@ -386,7 +386,9 @@ class TemplateProcessor:
             # Figcaption: "title · Xk (−Y%)" + toggle button
             figcaption = soup.new_tag('figcaption')
 
-            caption_label = title or alt
+            # Strip transform directives from title (format: "Display title | crop=16:9 rotate=90")
+            display_title = title.split('|')[0].strip() if title and '|' in title else title
+            caption_label = display_title or alt
             if caption_label:
                 caption_text = soup.new_tag('span')
                 caption_text['class'] = 'caption-text'

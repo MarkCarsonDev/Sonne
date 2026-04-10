@@ -315,6 +315,8 @@ class BlogProcessor:
             'featured': front_matter.get('featured', False),
             'template': front_matter.get('template', self.config.get('blog', 'template', default='blog_post.html')),
             'cover_img': front_matter.get('cover_img', front_matter.get('cover_image', None)),
+            'cover_crop': front_matter.get('cover_crop', None),
+            'cover_rotate': front_matter.get('cover_rotate', None),
             'source_path': str(file_path),
             'metadata': front_matter,
         }
@@ -553,9 +555,16 @@ class BlogProcessor:
             html_pattern = r'<img[^>]+src=["\'](([^"\']+))["\']'
 
             image_refs = []
+            img_transforms = {}  # img_path -> transforms dict
             for match in re.finditer(md_pattern, content):
                 path_with_title = match.group(2).strip()
+                # Extract path (before any quoted title)
+                title_match = re.search(r'\s+"([^"]*)"', path_with_title)
                 img_path = path_with_title.split()[0] if ' ' in path_with_title else path_with_title
+                if title_match:
+                    _, transforms = self._parse_transforms(title_match.group(1))
+                    if transforms:
+                        img_transforms[img_path] = transforms
                 image_refs.append(img_path)
             for match in re.finditer(html_pattern, content):
                 image_refs.append(match.group(1))
@@ -582,7 +591,8 @@ class BlogProcessor:
                 os.makedirs(os.path.dirname(original_path), exist_ok=True)
 
                 # Resize and save the "original" (high-res but capped)
-                original_kb = self._save_resized(source_img_path, original_path, orig_max_w)
+                transforms = img_transforms.get(img_ref, {})
+                original_kb = self._save_resized(source_img_path, original_path, orig_max_w, transforms)
 
                 dithered_kb = None
                 if dither_enabled and PIL_AVAILABLE:
@@ -591,7 +601,7 @@ class BlogProcessor:
                     dithered_dir = os.path.join(output_dir, img_dir, 'dithered')
                     os.makedirs(dithered_dir, exist_ok=True)
                     dithered_path = os.path.join(dithered_dir, stem + '.png')
-                    dithered_kb = self._process_blog_image(source_img_path, dithered_path, dith_max_w)
+                    dithered_kb = self._process_blog_image(source_img_path, dithered_path, dith_max_w, transforms)
 
                 # Inject size info into the already-processed HTML.
                 # process_markdown already converted <img src="foo.jpg"> into a
@@ -645,7 +655,14 @@ class BlogProcessor:
                     original_path = os.path.join(output_dir, rel_path)
                     os.makedirs(os.path.dirname(original_path), exist_ok=True)
 
-                    original_kb = self._save_resized(source_path, original_path, orig_max_w)
+                    # Build cover transforms from front matter
+                    cover_transforms = {}
+                    if post.get('cover_crop'):
+                        cover_transforms['crop'] = post['cover_crop']
+                    if post.get('cover_rotate'):
+                        cover_transforms['rotate'] = post['cover_rotate']
+
+                    original_kb = self._save_resized(source_path, original_path, orig_max_w, cover_transforms or None)
                     dithered_kb = None
                     dithered_rel = rel_path  # fallback: use original if no dithering
                     if dither_cover and dither_enabled and PIL_AVAILABLE:
@@ -655,7 +672,7 @@ class BlogProcessor:
                         os.makedirs(dithered_dir, exist_ok=True)
                         dithered_rel = os.path.join(img_dir, 'dithered', stem + '.png')
                         dithered_path = os.path.join(output_dir, dithered_rel)
-                        dithered_kb = self._process_blog_image(source_path, dithered_path, dith_max_w)
+                        dithered_kb = self._process_blog_image(source_path, dithered_path, dith_max_w, cover_transforms or None)
 
                     post['cover_img_original'] = rel_path
                     post['cover_img_dithered'] = dithered_rel if dithered_kb else rel_path
@@ -675,6 +692,60 @@ class BlogProcessor:
                 import traceback
                 traceback.print_exc()
 
+    @staticmethod
+    def _parse_transforms(title_str: str):
+        """Parse transform directives from an image title string.
+
+        Format: "Display title | crop=16:9 rotate=90"
+        Returns: (display_title, transforms_dict)
+        """
+        if '|' not in title_str:
+            return title_str.strip(), {}
+        display, raw = title_str.split('|', 1)
+        transforms = {}
+        for token in raw.strip().split():
+            if '=' in token:
+                k, v = token.split('=', 1)
+                try:
+                    transforms[k.strip()] = int(v) if v.isdigit() else v.strip()
+                except ValueError:
+                    transforms[k.strip()] = v.strip()
+        return display.strip(), transforms
+
+    @staticmethod
+    def _apply_transforms(img: 'Image.Image', transforms: dict) -> 'Image.Image':
+        """Apply crop and rotate transforms to a PIL Image.
+
+        Supported keys:
+            rotate: degrees (positive = clockwise)
+            crop:   aspect ratio string e.g. "16:9"
+        """
+        if not transforms:
+            return img
+        if 'rotate' in transforms:
+            try:
+                img = img.rotate(-float(transforms['rotate']), expand=True)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid rotate value: {transforms['rotate']}")
+        if 'crop' in transforms:
+            ratio_str = str(transforms['crop'])
+            if ':' in ratio_str:
+                try:
+                    wr, hr = ratio_str.split(':', 1)
+                    target = float(wr) / float(hr)
+                    current = img.width / img.height
+                    if current > target:
+                        new_w = int(img.height * target)
+                        left = (img.width - new_w) // 2
+                        img = img.crop((left, 0, left + new_w, img.height))
+                    elif current < target:
+                        new_h = int(img.width / target)
+                        top = (img.height - new_h) // 2
+                        img = img.crop((0, top, img.width, top + new_h))
+                except (ValueError, ZeroDivisionError):
+                    logger.warning(f"Invalid crop ratio: {ratio_str}")
+        return img
+
     def _resize_img(self, img: 'Image.Image', max_width: int) -> 'Image.Image':
         """Return a copy of img resized to max_width, preserving aspect ratio."""
         from PIL import Image
@@ -683,7 +754,7 @@ class BlogProcessor:
             return img.resize((max_width, h), Image.LANCZOS)
         return img.copy()
 
-    def _save_resized(self, source_path: str, output_path: str, max_width: int) -> float:
+    def _save_resized(self, source_path: str, output_path: str, max_width: int, transforms: dict = None) -> float:
         """Resize source image to max_width and save, preserving original format.
 
         Returns:
@@ -693,8 +764,10 @@ class BlogProcessor:
         try:
             with Image.open(source_path) as img:
                 img = ImageOps.exif_transpose(img)
-                resized = self._resize_img(img.convert('RGB') if img.mode not in ('RGB', 'RGBA', 'L') else img,
-                                           max_width)
+                img = img.convert('RGB') if img.mode not in ('RGB', 'RGBA', 'L') else img
+                if transforms:
+                    img = self._apply_transforms(img, transforms)
+                resized = self._resize_img(img, max_width)
                 fmt = img.format or 'JPEG'
                 save_kw = {'optimize': True}
                 if fmt in ('JPEG', 'JPG'):
@@ -706,13 +779,14 @@ class BlogProcessor:
             shutil.copy2(source_path, output_path)
             return os.path.getsize(output_path) / 1024
 
-    def _process_blog_image(self, source_path: str, dithered_path: str, max_width: int = 400) -> float:
+    def _process_blog_image(self, source_path: str, dithered_path: str, max_width: int = 400, transforms: dict = None) -> float:
         """Resize and dither a blog post image using the shared ImageProcessor pipeline.
 
         Args:
             source_path: Source image path.
             dithered_path: Output path for the dithered PNG (always .png).
             max_width: Resize to this width before dithering.
+            transforms: Optional dict of transform directives (crop, rotate).
 
         Returns:
             File size in KB.
@@ -722,6 +796,8 @@ class BlogProcessor:
         try:
             with Image.open(source_path) as img:
                 img = ImageOps.exif_transpose(img)
+                if transforms:
+                    img = self._apply_transforms(img, transforms)
                 resized = self._resize_img(img, max_width)
                 if self.image_processor is not None:
                     dithered = self.image_processor._apply_dither(resized)
