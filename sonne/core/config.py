@@ -66,6 +66,7 @@ DEFAULT_CONFIG = {
         'formats': ['webp', 'png'],
         'sizes': [1200, 800, 400],
         'lazy_loading': True,
+        'only_used': False,
     },
     'variables': {
         'file': 'sonne_variables.json',

@@ -94,9 +94,29 @@ class ImageProcessor:
             # Return a deterministic fallback based on path and mtime
             return hashlib.sha256(f"{file_path}:{os.path.getmtime(file_path)}".encode()).hexdigest()
         
+    def _collect_used_images(self, content_dir: str) -> set:
+        """Scan content files for image references and return a set of absolute paths."""
+        used = set()
+        img_pattern = re.compile(r'!\[.*?\]\(([^)\s"\']+)|src=["\']([^"\']+)["\']|cover_img:\s*(\S+)')
+        for root, dirs, files in os.walk(content_dir):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            for fname in files:
+                if not fname.endswith(('.md', '.html', '.htm', '.yaml', '.yml')):
+                    continue
+                try:
+                    with open(os.path.join(root, fname), 'r', encoding='utf-8', errors='ignore') as f:
+                        text = f.read()
+                    for m in img_pattern.finditer(text):
+                        ref = m.group(1) or m.group(2) or m.group(3)
+                        if ref and not ref.startswith(('http://', 'https://', 'data:', '/')):
+                            used.add(os.path.normpath(os.path.join(root, ref)))
+                except Exception:
+                    pass
+        return used
+
     def process_all(self, content_dir: str, skip_cache: bool = False) -> None:
         """Process all images in a directory.
-        
+
         Args:
             content_dir: Directory containing content to scan for images.
             skip_cache: Whether to skip cache and reprocess all images.
@@ -104,36 +124,44 @@ class ImageProcessor:
         # Skip if PIL is not available
         if not PIL_AVAILABLE:
             return
-            
+
+        only_used = self.config.get('images', 'only_used', default=False)
+        used_paths = self._collect_used_images(content_dir) if only_used else None
+
         # Process content directory images
         if content_dir and os.path.exists(content_dir):
             logger.info(f"Processing images in content directory: {content_dir}")
-            self._process_directory_images(content_dir, skip_cache)
-            
+            self._process_directory_images(content_dir, skip_cache, used_paths=used_paths)
+
         # Process static/images directory
         static_dir = self.paths.get('static')
         if static_dir and os.path.exists(static_dir):
             static_images_dir = os.path.join(static_dir, 'images')
             if os.path.exists(static_images_dir):
                 logger.info(f"Processing images in static/images directory: {static_images_dir}")
-                self._process_directory_images(static_images_dir, skip_cache, is_static=True)
-            
+                self._process_directory_images(static_images_dir, skip_cache, is_static=True, used_paths=used_paths)
+
         # Save cache
         self._save_cache()
     
-    def _process_directory_images(self, directory: str, skip_cache: bool = False, is_static: bool = False) -> None:
+    def _process_directory_images(self, directory: str, skip_cache: bool = False, is_static: bool = False, used_paths: set = None) -> None:
         """Process all images in a directory, optionally in parallel.
 
         Args:
             directory: Directory to scan for images.
             skip_cache: Whether to skip cache and reprocess.
             is_static: Whether this is the static/images directory.
+            used_paths: If set, only process images whose absolute path is in this set.
         """
         image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
         all_paths = []
         for ext in image_extensions:
             for file_path in Path(directory).glob(f'**/*{ext}'):
                 if any(part.startswith('.') for part in file_path.parts):
+                    continue
+                abs_path = str(file_path.resolve())
+                if used_paths is not None and abs_path not in used_paths:
+                    logger.debug(f"Skipping unused image: {file_path}")
                     continue
                 all_paths.append(str(file_path))
 
