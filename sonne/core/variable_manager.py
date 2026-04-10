@@ -268,7 +268,13 @@ class VariableManager:
                 logger.debug(f"Loaded variables from {self.variable_file}")
             except Exception as e:
                 logger.error(f"Error loading variables from {self.variable_file}: {e}")
-                
+
+        # Restore fresh blog post variables after loading from variable file,
+        # since the saved JSON may have stale post data (old dates, old URLs).
+        if existing_blog_vars:
+            self.variables['global'].update(existing_blog_vars)
+            self.variables['site'].update(existing_blog_vars)
+
         # Load from data directory
         if self.data_dir:
             try:
