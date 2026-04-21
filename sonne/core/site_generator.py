@@ -506,22 +506,43 @@ if ('MutationObserver' in window) {
             logger.info("Created dithering assets in output directory")
 
     def _inject_page_sizes(self, output_dir: str) -> None:
-        """Walk all generated HTML files and inject a fixed page-size label."""
-        # The label HTML template — we estimate its byte cost for the size calc.
-        # Tag overhead ≈ 46 bytes + len(size_str). We'll do one iteration to
-        # approximate: compute size without tag, add overhead, format, inject.
-        LABEL_OVERHEAD = 50  # bytes for the surrounding markup
+        """Walk all generated HTML files and inject a page-size label.
+
+        Shows base HTML size with an asterisk; hovering reveals total weight
+        including all locally-served images referenced on the page.
+        """
+        import re as _re
+
+        LABEL_OVERHEAD = 150  # rough bytes for injected markup
 
         CSS = (
             '<style id="page-size-css">'
             '#page-size-label{'
             'position:fixed;bottom:0.4rem;right:0.6rem;'
             'font-size:0.7rem;font-family:monospace;'
-            'opacity:0.35;pointer-events:none;z-index:9999;'
+            'opacity:0.35;cursor:default;z-index:9999;'
             '}'
+            '#page-size-label:hover{opacity:0.85}'
+            '#page-size-label[data-full]::after{'
+            'content:attr(data-full);'
+            'display:none;'
+            'position:absolute;bottom:1.4rem;right:0;'
+            'background:var(--bg,#141514);'
+            'border:0.1px solid #ffffff33;'
+            'padding:0.2rem 0.5rem;'
+            'border-radius:0.2em;'
+            'white-space:nowrap;'
+            'font-size:0.65rem;'
+            'opacity:1;'
+            '}'
+            '#page-size-label[data-full]:hover::after{display:block}'
             '</style>'
         )
         CSS_BYTES = len(CSS.encode('utf-8'))
+
+        img_src_re = _re.compile(
+            r'src=["\']([^"\']+\.(?:webp|png|jpg|jpeg|gif|svg))["\']', _re.I
+        )
 
         for root, _dirs, files in os.walk(output_dir):
             for fname in files:
@@ -537,12 +558,32 @@ if ('MutationObserver' in window) {
                         continue
 
                     base_bytes = len(html.encode('utf-8'))
-                    # Estimate size after injection
-                    label_text = f'~{(base_bytes + CSS_BYTES + LABEL_OVERHEAD) / 1024:.1f} KB'
-                    label_html = f'<span id="page-size-label">{label_text}</span>'
-                    inject = CSS + label_html
+                    total_bytes = base_bytes + CSS_BYTES + LABEL_OVERHEAD
 
-                    new_html = html.replace('</body>', inject + '</body>', 1)
+                    # Sum sizes of all locally-referenced images
+                    img_bytes = 0
+                    for m in img_src_re.finditer(html):
+                        src = m.group(1)
+                        if src.startswith(('http://', 'https://', 'data:')):
+                            continue
+                        img_path = (
+                            os.path.join(output_dir, src.lstrip('/'))
+                            if src.startswith('/')
+                            else os.path.join(root, src)
+                        )
+                        try:
+                            img_bytes += os.path.getsize(img_path)
+                        except OSError:
+                            pass
+
+                    label_text = f'~{total_bytes / 1024:.1f} KB*'
+                    if img_bytes:
+                        full_text = f'~{(total_bytes + img_bytes) / 1024:.0f} KB with images'
+                        label_html = f'<span id="page-size-label" data-full="{full_text}">{label_text}</span>'
+                    else:
+                        label_html = f'<span id="page-size-label">{label_text}</span>'
+
+                    new_html = html.replace('</body>', CSS + label_html + '</body>', 1)
                     with open(fpath, 'w', encoding='utf-8') as f:
                         f.write(new_html)
                 except Exception as e:
