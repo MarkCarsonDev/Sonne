@@ -76,7 +76,6 @@ class TestUrlStyle:
 
 
 class TestKnownBugs:
-    @pytest.mark.xfail(strict=True, reason="A1: shallow copy lets user config mutate DEFAULT_CONFIG")
     def test_loading_config_does_not_mutate_defaults(self, tmp_path):
         write_yaml(tmp_path / 'sonne.yaml', {
             'images': {'sizes': [100]},
@@ -86,19 +85,16 @@ class TestKnownBugs:
         Config(base_dir=str(tmp_path))
         assert config_module.DEFAULT_CONFIG == snapshot
 
-    @pytest.mark.xfail(strict=True, reason="A2: formats/keywords lists extend instead of replace")
     def test_user_formats_list_replaces_default(self, tmp_path):
         write_yaml(tmp_path / 'sonne.yaml', {'images': {'formats': ['png']}})
         cfg = Config(base_dir=str(tmp_path))
         assert cfg.get('images', 'formats') == ['png']
 
-    @pytest.mark.xfail(strict=True, reason="B13: posts_per_page=0 passes validation, crashes later")
     def test_validate_rejects_zero_posts_per_page(self, tmp_path):
         cfg = Config(base_dir=str(tmp_path))
         cfg.set('blog', 'posts_per_page', value=0)
         assert any('posts_per_page' in w for w in cfg.validate())
 
-    @pytest.mark.xfail(strict=True, reason="deprecation shim for schema-only key names not implemented yet")
     def test_deprecated_key_names_are_aliased(self, tmp_path):
         write_yaml(tmp_path / 'sonne.yaml', {
             'images': {'parallel_processing': False, 'max_workers': 2},

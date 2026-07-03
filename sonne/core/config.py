@@ -3,22 +3,17 @@ Configuration management for Sonne.
 Supports multiple configuration formats and provides validation.
 """
 
+import copy
 import os
 import json
 import yaml
 from pathlib import Path
 import logging
 from typing import Dict, Any, Optional, List
-from enum import Enum
+
+from sonne.core.deprecations import apply_config_deprecations
 
 logger = logging.getLogger('sonne')
-
-
-class MergeStrategy(Enum):
-    """Strategy for merging configuration values."""
-    REPLACE = 'replace'  # Replace with new value
-    EXTEND = 'extend'  # Extend lists, merge dicts
-    UNIQUE = 'unique'  # Extend lists with unique values only
 
 # Default configuration settings
 DEFAULT_CONFIG = {
@@ -37,6 +32,7 @@ DEFAULT_CONFIG = {
         'templates': 'templates',
         'data': 'data',
         'cache': '.cache',
+        'scripts': 'scripts',
     },
     'blog': {
         'enabled': True,
@@ -67,6 +63,8 @@ DEFAULT_CONFIG = {
         'sizes': [1200, 800, 400],
         'lazy_loading': True,
         'only_used': False,
+        'parallel': True,
+        'parallel_workers': 0,  # 0 = auto (min(4, cpu_count))
     },
     'variables': {
         'file': 'sonne_variables.json',
@@ -95,6 +93,7 @@ DEFAULT_CONFIG = {
         'incremental': True,
         'show_progress': True,
         'statistics': True,
+        'show_page_size': False,
     },
 }
 
@@ -149,11 +148,11 @@ class Config:
         Returns:
             Complete configuration dictionary.
         """
-        config = DEFAULT_CONFIG.copy()
-        
+        config = copy.deepcopy(DEFAULT_CONFIG)
+
         if not self.config_path:
             return config
-            
+
         try:
             ext = Path(self.config_path).suffix.lower()
             with open(self.config_path, 'r', encoding='utf-8') as f:
@@ -164,9 +163,15 @@ class Config:
                 else:
                     logger.warning(f"Unsupported config format: {ext}")
                     return config
-                    
+
                 # Deep merge with defaults
-                self._deep_merge(user_config, config)
+                if isinstance(user_config, dict):
+                    apply_config_deprecations(user_config)
+                    self._deep_merge(user_config, config)
+                elif user_config is not None:
+                    logger.warning(
+                        f"Configuration file {self.config_path} is not a mapping; ignoring it"
+                    )
                 logger.debug(f"Loaded configuration from {self.config_path}")
                 
         except Exception as e:
@@ -175,49 +180,25 @@ class Config:
             
         return config
         
-    def _deep_merge(
-        self,
-        source: Dict[str, Any],
-        destination: Dict[str, Any],
-        strategy: MergeStrategy = MergeStrategy.REPLACE,
-        list_merge_keys: Optional[List[str]] = None
-    ) -> None:
-        """Recursively merge source dictionary into destination with configurable strategies.
+    def _deep_merge(self, source: Dict[str, Any], destination: Dict[str, Any]) -> None:
+        """Recursively merge source dictionary into destination.
+
+        Nested dicts are merged; lists and scalars from source replace the
+        destination value outright (a user setting `images.formats: [png]`
+        means exactly that list, not an extension of the default).
 
         Args:
             source: Source dictionary with new values.
             destination: Destination dictionary to update.
-            strategy: Default merge strategy for lists.
-            list_merge_keys: Keys that should use EXTEND strategy for lists.
         """
-        if list_merge_keys is None:
-            # Keys where we want to extend lists instead of replacing
-            list_merge_keys = ['keywords', 'formats']
-
         for key, value in source.items():
-            if key in destination:
-                # Both are dicts - recurse
-                if isinstance(destination[key], dict) and isinstance(value, dict):
-                    self._deep_merge(value, destination[key], strategy, list_merge_keys)
-
-                # Both are lists - apply strategy
-                elif isinstance(destination[key], list) and isinstance(value, list):
-                    if key in list_merge_keys or strategy == MergeStrategy.EXTEND:
-                        # Extend the list
-                        destination[key].extend(value)
-                    elif strategy == MergeStrategy.UNIQUE:
-                        # Extend with unique values only
-                        for item in value:
-                            if item not in destination[key]:
-                                destination[key].append(item)
-                    else:  # REPLACE strategy
-                        destination[key] = value
-
-                # Types don't match or not special case - replace
-                else:
-                    destination[key] = value
+            if (
+                key in destination
+                and isinstance(destination[key], dict)
+                and isinstance(value, dict)
+            ):
+                self._deep_merge(value, destination[key])
             else:
-                # Key doesn't exist in destination - just set it
                 destination[key] = value
                 
     def get(self, *keys, default=None):
@@ -377,6 +358,26 @@ class Config:
                 warnings.append("Blog is enabled but directory is not set")
             if not blog.get('template'):
                 warnings.append("Blog is enabled but template is not set")
+            posts_per_page = blog.get('posts_per_page', 10)
+            if isinstance(posts_per_page, bool) or not isinstance(posts_per_page, int) \
+                    or posts_per_page < 1:
+                warnings.append("blog.posts_per_page must be a positive integer")
+
+        # Validate serve configuration
+        port = self.get('serve', 'port')
+        if port is not None and (
+            isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65535
+        ):
+            warnings.append("serve.port must be an integer between 0 and 65535")
+
+        # Validate environment against url_style mapping
+        environment = self.get('environment', default='prod')
+        url_style = self.get('url_style')
+        if isinstance(url_style, dict) and environment not in url_style:
+            warnings.append(
+                f"environment '{environment}' has no url_style entry; "
+                "the 'clean' URL style will be used"
+            )
 
         return warnings
 
