@@ -73,7 +73,6 @@ class TestDataScripts:
         vm.load_variables()
         assert hasattr(vm.get('footer_custom'), '__html__')
 
-    @pytest.mark.xfail(strict=True, reason="footer.py executes twice (data-script glob + footer loader)")
     def test_footer_script_runs_exactly_once(self, tmp_path):
         scripts = tmp_path / 'scripts'
         scripts.mkdir()
@@ -105,7 +104,6 @@ class TestDataFiles:
         vm.load_variables()
         assert vm.get('stats') == [{'a': '1', 'b': '2'}]
 
-    @pytest.mark.xfail(strict=True, reason="legacy {'data': ...} unwrap corrupts ordinary data files")
     def test_data_key_in_user_data_not_unwrapped(self, tmp_path):
         data = tmp_path / 'data'
         data.mkdir()
@@ -118,7 +116,6 @@ class TestDataFiles:
 
 
 class TestPersistence:
-    @pytest.mark.xfail(strict=True, reason="preserve_prior is dead config; variable file always loads")
     def test_prior_variables_not_loaded_by_default(self, tmp_path):
         (tmp_path / 'sonne_variables.json').write_text(
             json.dumps({'stale': {'data': 'old'}}), encoding='utf-8'
@@ -127,7 +124,6 @@ class TestPersistence:
         vm.load_variables()
         assert vm.get('stale') is None
 
-    @pytest.mark.xfail(strict=True, reason="save() persists derived state (all_blog_posts etc.)")
     def test_save_excludes_derived_state(self, tmp_path):
         scripts = tmp_path / 'scripts'
         scripts.mkdir()
@@ -143,7 +139,6 @@ class TestPersistence:
 
 
 class TestVersion:
-    @pytest.mark.xfail(strict=True, reason="_get_version imports nonexistent sonne.sonne; always falls back")
     def test_version_tracks_package_version(self, tmp_path, monkeypatch):
         monkeypatch.setattr(sonne, '__version__', '99.0.0-test')
         vm = make_vm(tmp_path)

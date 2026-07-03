@@ -31,12 +31,12 @@ def count_files():
 # Get the last build time
 build_time = datetime.now().strftime("%B %d, %Y at %H:%M")
 
-# Get the Sonne version
+# Get the Sonne version (single-sourced in sonne/__init__.py)
 try:
     import sonne
-    version = getattr(sonne, '__version__', '0.3.2')
+    version = getattr(sonne, '__version__', 'unknown')
 except ImportError:
-    version = '0.3.2'
+    version = 'unknown'
 
 # Generate the custom footer HTML
 footer_html = f"""

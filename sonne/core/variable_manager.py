@@ -47,7 +47,14 @@ class VariableManager:
             'page': {}
         }
         self.stats = None  # Injected by SiteGenerator
-        
+
+        # Provenance tracking: names set by data scripts (the only variables
+        # that persist across builds when variables.preserve_prior is on),
+        # and script paths already executed this load (prevents double runs).
+        self._script_vars = set()
+        self._executed_scripts = set()
+
+
         # Prepare variable file path
         var_file = config.get('variables', 'file', default='sonne_variables.json')
         
@@ -69,22 +76,24 @@ class VariableManager:
 
         
     def _get_version(self) -> str:
-        """Get the current version of Sonne."""
-        try:
-            import sonne.sonne as sonne
-            return getattr(sonne, '__version__', '0.3.2')
-        except ImportError:
-            return '0.3.2'
-            
-    def _load_from_file(self, file_path: str, scope: str) -> None:
+        """Get the current version of Sonne (single-sourced in sonne/__init__.py)."""
+        import sonne
+        return getattr(sonne, '__version__', 'unknown')
+
+
+    def _load_from_file(self, file_path: str, scope: str, legacy_unwrap: bool = False) -> None:
         """Load variables from a file based on its extension.
-        
+
         Args:
             file_path: Path to the data file.
             scope: Variable scope ('global', 'site', or 'page').
+            legacy_unwrap: Unwrap the legacy ``{"var": {"data": value}}``
+                format. Only valid for Sonne's own variable file — user data
+                files may legitimately contain a "data" key and must never
+                be unwrapped.
         """
         ext = Path(file_path).suffix.lower()
-        
+
         with open(file_path, 'r', encoding='utf-8') as f:
             if ext in ['.json']:
                 data = json.load(f)
@@ -97,11 +106,12 @@ class VariableManager:
                 # Unsupported format
                 logger.warning(f"Unsupported data file format: {ext}")
                 return
-                
+
         # Update the appropriate scope
         if isinstance(data, dict):
-            # For old-style Sonne variables with {"variable": {"data": value}}
-            if all(isinstance(v, dict) and "data" in v for v in data.values()):
+            if legacy_unwrap and data and all(
+                isinstance(v, dict) and "data" in v for v in data.values()
+            ):
                 for key, value_dict in data.items():
                     self.variables[scope][key] = value_dict.get("data")
             else:
@@ -131,7 +141,9 @@ class VariableManager:
             # Skip files starting with underscore
             if script_path.name.startswith('_'):
                 continue
-                
+
+            self._executed_scripts.add(str(script_path.resolve()))
+
             try:
                 logger.info(f"  Script: {script_path.name}")
 
@@ -148,6 +160,7 @@ class VariableManager:
                     def sonne_var(k, v):
                         manager.variables['global'][k] = v
                         manager.variables['site'][k] = v
+                        manager._script_vars.add(k)
                         logger.debug(f"Variable set: {k}")
                     return sonne_var
 
@@ -207,6 +220,10 @@ class VariableManager:
                 
     def load_variables(self) -> None:
         """Load all variables from configured sources."""
+        # Reset per-load bookkeeping
+        self._script_vars = set()
+        self._executed_scripts = set()
+
         # Preserve blog post variables if they were already set by collect_post_metadata()
         existing_blog_vars = {}
         if hasattr(self, 'variables'):
@@ -259,10 +276,13 @@ class VariableManager:
         except Exception as e:
             logger.error(f"Error processing site configuration: {e}")
             
-        # Load from variable file if it exists
-        if os.path.exists(self.variable_file):
+        # Load prior variables only when persistence is explicitly enabled.
+        # By default every build starts fresh — the variable file otherwise
+        # becomes a self-perpetuating stale cache.
+        preserve_prior = self.config.get('variables', 'preserve_prior', default=False)
+        if preserve_prior and os.path.exists(self.variable_file):
             try:
-                self._load_from_file(self.variable_file, 'global')
+                self._load_from_file(self.variable_file, 'global', legacy_unwrap=True)
                 logger.debug(f"Loaded variables from {self.variable_file}")
             except Exception as e:
                 logger.error(f"Error loading variables from {self.variable_file}: {e}")
@@ -278,13 +298,10 @@ class VariableManager:
             try:
                 self._load_from_directory(self.data_dir, 'site')
                 logger.debug(f"Loaded data from {self.data_dir}")
-                
-                # Specifically load project data
-                self.load_project_data()
             except Exception as e:
                 logger.error(f"Error loading data from {self.data_dir}: {e}")
-                
-        # Run data scripts - this should set battery variable
+
+        # Run data scripts
         if self.scripts_dir:
             try:
                 self._run_data_scripts(self.scripts_dir)
@@ -302,6 +319,18 @@ class VariableManager:
         footer_found = False
         for footer_path in footer_py_paths:
             if footer_path and os.path.exists(footer_path):
+                # Skip scripts already executed by _run_data_scripts
+                # (scripts/footer.py would otherwise run twice)
+                if str(Path(footer_path).resolve()) in self._executed_scripts:
+                    footer_found = True
+                    # Apply the footer_custom Markup handling the dedicated
+                    # loader would normally do below.
+                    if 'footer_custom' in self.variables.get('global', {}):
+                        footer_content = Markup(self.variables['global']['footer_custom'])
+                        self.variables['global']['footer_custom'] = footer_content
+                        self.variables['site']['footer_custom'] = footer_content
+                        self.variables['site']['footer']['custom'] = footer_content
+                    break
                 try:
                     # Create a module spec and load the module
                     spec = importlib.util.spec_from_file_location(
@@ -316,6 +345,7 @@ class VariableManager:
                         def sonne_var(k, v):
                             manager.set(k, v, 'global')
                             manager.set(k, v, 'site')
+                            manager._script_vars.add(k)
                         return sonne_var
                     
                     module.sonne_var = create_sonne_var(self)
@@ -405,27 +435,16 @@ class VariableManager:
             if 'footer' not in self.variables['site']:
                 self.variables['site']['footer'] = {}
             self.variables['site']['footer']['custom'] = value
-        
-        # For 'battery', ensure it's in site scope for template accessibility
-        if key == 'battery' and scope in ['global', 'page']:
-            self.variables['site'][key] = value
-            logger.info(f"Battery variable set in {scope} and also in site scope")
-        
+
     def set_page_variables(self, variables: Dict[str, Any]) -> None:
         """Set page-level variables.
-        
+
         Args:
             variables: Dictionary of page variables.
         """
         self.variables['page'] = variables
-        
-        # For better accessibility, copy any battery or weather data to page scope
-        for key in ['battery', 'weather', 'forecast']:
-            if key in self.variables.get('global', {}):
-                self.variables['page'][key] = self.variables['global'][key]
-            elif key in self.variables.get('site', {}):
-                self.variables['page'][key] = self.variables['site'][key]
-        
+
+
     def substitute_variables(self, content: str) -> str:
         """Substitute variables in content. Handles both Mond and Sonne variable formats.
         
@@ -506,69 +525,44 @@ class VariableManager:
         
         return content
         
+    # Derived state must never persist across builds: it is recomputed from
+    # content every build, and stale copies were previously served when the
+    # blog was later disabled or posts changed.
+    _NEVER_PERSIST = {'all_blog_posts', 'tags', 'categories', 'build_time'}
+
     def save(self) -> None:
-        """Save variables to file."""
-        # Only save global variables
+        """Persist script-produced variables to the variable file.
+
+        Does nothing unless ``variables.preserve_prior`` is enabled. Only
+        variables set via ``sonne_var`` in data scripts are written — derived
+        state (posts, taxonomies, generator info) is always excluded.
+        """
+        if not self.config.get('variables', 'preserve_prior', default=False):
+            logger.debug("variables.preserve_prior disabled; not saving variable file")
+            return
+
         try:
             # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(os.path.abspath(self.variable_file)), exist_ok=True)
-            
-            # Convert to old format for backward compatibility
+
+            # Keep the {"var": {"data": ...}} format for backward compatibility
             old_format = {}
             for key, value in self.variables.get('global', {}).items():
+                if key not in self._script_vars or key in self._NEVER_PERSIST \
+                        or key.startswith('generator'):
+                    continue
                 # Convert Markup to string
                 if hasattr(value, '__html__'):
                     value = str(value)
-                    
+
                 old_format[key] = {
                     "data": value,
                     "datetime": datetime.now().isoformat()
                 }
-                
+
             with open(self.variable_file, 'w', encoding='utf-8') as f:
                 json.dump(old_format, f, indent=2, default=str)
-                
+
             logger.debug(f"Saved variables to {self.variable_file}")
         except Exception as e:
             logger.error(f"Error saving variables: {e}")
-
-    def load_project_data(self) -> None:
-        """Load project data from JSON or YAML files in the data directory.
-        
-        This is a convenience method to ensure project data is loaded from common locations.
-        """
-        if not self.data_dir:
-            logger.warning("No data directory found, unable to load project data")
-            return
-            
-        project_files = [
-            os.path.join(self.data_dir, 'projects.json'),
-            os.path.join(self.data_dir, 'projects.yaml'),
-            os.path.join(self.data_dir, 'projects.yml'),
-            os.path.join(self.data_dir, 'portfolio.json'),
-            os.path.join(self.data_dir, 'portfolio.yaml'),
-            os.path.join(self.data_dir, 'portfolio.yml')
-        ]
-        
-        for file_path in project_files:
-            if os.path.exists(file_path):
-                try:
-                    logger.info(f"Loading project data from {file_path}")
-                    self._load_from_file(file_path, 'global')
-                    
-                    # Check if 'projects' key exists in loaded data
-                    if 'projects' in self.variables.get('global', {}):
-                        # Ensure 'projects' is also directly available to templates
-                        projects = self.variables['global']['projects']
-                        logger.info(f"Found {len(projects)} projects in {file_path}")
-                        
-                        # Make 'projects' directly available at the top level
-                        self.set('projects', projects, 'global')
-                        # Also set in site scope
-                        self.set('projects', projects, 'site')
-                        return
-                        
-                except Exception as e:
-                    logger.error(f"Error loading project data from {file_path}: {e}")
-                    
-        logger.warning("No project data found in data directory")
