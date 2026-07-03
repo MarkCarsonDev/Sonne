@@ -6,8 +6,7 @@ Provides utilities for file operations like copying, ensuring directories exist,
 import os
 import shutil
 import logging
-from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional
 import glob
 
 logger = logging.getLogger('sonne')

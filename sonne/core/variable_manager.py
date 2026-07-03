@@ -9,14 +9,12 @@ import csv
 import re
 import importlib.util
 import sys
-import subprocess
 import time
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
 import logging
 import importlib
-from typing import Dict, Any, Optional, List, Tuple, Union
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger('sonne')
 
@@ -463,12 +461,12 @@ class VariableManager:
 
             if not allow_embedded_python:
                 logger.warning("Embedded Python blocks are disabled. Set security.allow_embedded_python: true in config to enable (NOT RECOMMENDED for untrusted content).")
-                return f"<!-- Embedded Python disabled. Enable in config with security.allow_embedded_python: true -->"
+                return "<!-- Embedded Python disabled. Enable in config with security.allow_embedded_python: true -->"
 
             python_code = match.group(1).strip()
 
             # Log a security warning
-            logger.warning(f"SECURITY: Executing embedded Python code from content file. This is a potential security risk.")
+            logger.warning("SECURITY: Executing embedded Python code from content file. This is a potential security risk.")
             logger.debug(f"Executing embedded Python code:\n{python_code}")
 
             # Create a restricted local scope with limited builtins

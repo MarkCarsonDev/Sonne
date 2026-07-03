@@ -8,11 +8,9 @@ import re
 import json
 import markdown
 import yaml
-from pathlib import Path
 import logging
-from typing import Dict, Any, Optional, List, Tuple, Union
+from typing import Dict, Any, List, Tuple
 from bs4 import BeautifulSoup
-import re
 
 try:
     import jinja2
@@ -290,11 +288,11 @@ class TemplateProcessor:
         
         # Process image tags for dithering support
         if self.dithering_enabled:
-            logger.debug(f"Dithering is enabled, processing image tags...")
+            logger.debug("Dithering is enabled, processing image tags...")
             html_content = self._process_image_tags(html_content)
             logger.debug(f"After processing images, HTML length: {len(html_content)}")
         else:
-            logger.debug(f"Dithering is disabled, skipping image processing")
+            logger.debug("Dithering is disabled, skipping image processing")
 
         return front_matter, html_content
     

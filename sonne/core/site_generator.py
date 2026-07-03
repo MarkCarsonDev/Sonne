@@ -4,19 +4,17 @@ Coordinates the various processing steps to generate a complete static site.
 """
 
 import os
-import sys
 import shutil
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any
 
 from sonne.core.config import Config
 from sonne.core.variable_manager import VariableManager
 from sonne.processors.blog_processor import BlogProcessor
 from sonne.processors.template_processor import TemplateProcessor
 from sonne.processors.image_processor import ImageProcessor
-from sonne.utils.file_utils import copy_static_files, ensure_dir, copy_template_static_files, copy_core_static_files
+from sonne.utils.file_utils import copy_static_files, ensure_dir, copy_template_static_files
 from sonne.utils.build_stats import BuildStatistics
 
 logger = logging.getLogger('sonne')

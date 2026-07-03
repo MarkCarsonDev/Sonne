@@ -14,7 +14,6 @@ import webbrowser
 import threading
 from pathlib import Path
 from shutil import copytree, ignore_patterns
-from typing import Optional
 
 try:
     from rich.console import Console
@@ -59,7 +58,7 @@ def check_sonne_directory(path: str, command_name: str = "command") -> bool:
         True if appears to be Sonne directory, False otherwise.
     """
     if not is_sonne_directory(path):
-        error_msg = f"\n❌ This doesn't appear to be a Sonne project directory.\n"
+        error_msg = "\n❌ This doesn't appear to be a Sonne project directory.\n"
 
         if console and RICH_AVAILABLE:
             console.print(Panel(
@@ -142,7 +141,7 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
             sys.exit(1)
 
         if console and RICH_AVAILABLE and not no_progress:
-            console.print(f"\n[bold cyan]Building Sonne Site[/bold cyan]")
+            console.print("\n[bold cyan]Building Sonne Site[/bold cyan]")
             console.print(f"[dim]Location: {path}[/dim]\n")
         else:
             logger.info(f"Build started  [{path}]")
@@ -193,7 +192,7 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         if clean:
             output_dir = config_obj.get('paths', 'output')
             if console and RICH_AVAILABLE:
-                console.print(f"[yellow]Cleaning output directory...[/yellow]")
+                console.print("[yellow]Cleaning output directory...[/yellow]")
             else:
                 logger.info(f"Cleaning output directory  [{output_dir}]")
             generator.clean_output()

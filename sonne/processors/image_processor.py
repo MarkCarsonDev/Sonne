@@ -12,7 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import logging
-from typing import Dict, Any, Optional, List, Tuple, Union
+from typing import Dict, Any, Optional
 
 try:
     from PIL import Image, ImageOps

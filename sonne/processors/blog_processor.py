@@ -5,16 +5,15 @@ Handles parsing, rendering, and generating blog posts and related pages.
 
 import os
 import re
-import markdown
 import shutil
 import time
 from datetime import datetime
 from pathlib import Path
 import logging
-from typing import Dict, Any, Optional, List, Tuple, Union
+from typing import Dict, Any, Optional, List
 import math
 
-from sonne.utils.path_utils import sanitize_filename, validate_path_within_root, safe_join
+from sonne.utils.path_utils import sanitize_filename, validate_path_within_root
 
 logger = logging.getLogger('sonne')
 

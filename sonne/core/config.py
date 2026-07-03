@@ -8,7 +8,7 @@ import json
 import yaml
 from pathlib import Path
 import logging
-from typing import Dict, Any, Optional, List, Literal
+from typing import Dict, Any, Optional, List
 from enum import Enum
 
 logger = logging.getLogger('sonne')

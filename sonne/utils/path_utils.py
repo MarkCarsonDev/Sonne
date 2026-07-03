@@ -3,7 +3,6 @@ Path utility functions for Sonne.
 Provides secure path handling, validation, and sanitization.
 """
 
-import os
 import re
 from pathlib import Path
 from typing import Optional, Union
