@@ -1,4 +1,8 @@
 include README.md
 include LICENSE
+include CHANGELOG.md
 recursive-include sonne/static *
 recursive-include sonne/templates *
+recursive-include sonne/schemas *.json
+recursive-include sonne/examples *
+recursive-include tests *

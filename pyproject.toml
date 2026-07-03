@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sonne"
+dynamic = ["version"]
+description = "A minimalist static site generator optimized for low footprint sites"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Mark Carson", email = "markcarson.dev@gmail.com" }]
+requires-python = ">=3.9"
+keywords = [
+    "static site generator",
+    "blog",
+    "markdown",
+    "html",
+    "web",
+    "minimalist",
+    "energy-efficient",
+    "dithering",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Site Management",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Markup :: HTML",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "markdown>=3.4.0",
+    "Pillow>=9.0.0",
+    "click>=8.0.0",
+    "PyYAML>=6.0",
+    "Jinja2>=3.0.0",
+    "MarkupSafe>=2.0.0",
+    "beautifulsoup4>=4.9.0",
+    "rich>=13.0.0",
+    "watchdog>=2.0.0",
+    "numpy>=1.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+    "ruff>=0.4.0",
+    "build>=1.0.0",
+]
+
+[project.scripts]
+sonne = "sonne.cli.commands:main"
+
+[project.urls]
+Source = "https://github.com/MarkCarsonDev/Sonne"
+"Bug Reports" = "https://github.com/MarkCarsonDev/Sonne/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "sonne.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["sonne*"]
+
+[tool.setuptools.package-data]
+sonne = [
+    "templates/**/*",
+    "schemas/*.json",
+    "static/**/*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+extend-exclude = ["sonne/templates", "sonne/examples"]
+
+[tool.ruff.lint]
+# Default rule set (pyflakes + core pycodestyle errors); expand deliberately.
+select = ["E4", "E7", "E9", "F"]
