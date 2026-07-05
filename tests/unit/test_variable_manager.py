@@ -2,7 +2,6 @@
 import json
 import textwrap
 
-import pytest
 
 import sonne
 from sonne.core.config import Config

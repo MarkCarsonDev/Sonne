@@ -10,10 +10,15 @@ import time
 from datetime import datetime
 from pathlib import Path
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from xml.sax.saxutils import escape
 import math
 
-from sonne.utils.path_utils import sanitize_filename, validate_path_within_root
+from sonne.utils.path_utils import validate_path_within_root, strip_relative_prefix
+from sonne.utils.text import slugify
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 logger = logging.getLogger('sonne')
 
@@ -185,8 +190,10 @@ class BlogProcessor:
     def _collect_posts(self) -> None:
         """Collect all blog posts."""
         for file_path in Path(self.blog_content_dir).glob('**/*.md'):
-            # Skip files in _drafts directory unless include_drafts is enabled
-            if '_drafts' in str(file_path) and not self.config.get('blog', 'include_drafts', default=False):
+            # Skip files in a _drafts directory unless include_drafts is
+            # enabled. Match path components, not substrings — a post named
+            # 'year_end_drafts.md' is not a draft.
+            if '_drafts' in file_path.parts and not self.config.get('blog', 'include_drafts', default=False):
                 continue
                 
             try:
@@ -237,6 +244,10 @@ class BlogProcessor:
                         value = f"{parts[0]}-{parts[1].zfill(2)}-{parts[2].zfill(2)}"
                     return datetime.strptime(value, '%Y-%m-%d')
                 except (ValueError, TypeError):
+                    logger.warning(
+                        f"Unparseable date '{value}' in {file_path.name}; "
+                        "falling back to the file's timestamp (expected YYYY-MM-DD)"
+                    )
                     return fallback
             if isinstance(value, datetime):
                 return value
@@ -254,8 +265,12 @@ class BlogProcessor:
         # Process slug
         slug = front_matter.get('slug', front_matter.get('page_url', None))
         if not slug:
-            # Generate slug from title or filename
-            title = front_matter.get('title', file_path.stem)
+            # Generate slug from title, or from the filename with any
+            # Jekyll-style date prefix stripped (the date is already part of
+            # the URL pattern; leaving it in the slug duplicated it)
+            title = front_matter.get('title')
+            if title is None:
+                title = re.sub(r'^\d{4}-\d{2}-\d{2}-', '', file_path.stem)
             slug = self._slugify(title)
             
         # Build URL based on pattern
@@ -263,12 +278,22 @@ class BlogProcessor:
         if not url_pattern:
             url_pattern = '{year}/{month}/{day}/{slug}'  # Set a default if None
             
-        url = url_pattern.format(
-            year=date.year,
-            month=f"{date.month:02d}",
-            day=f"{date.day:02d}",
-            slug=slug
-        )
+        try:
+            url = url_pattern.format(
+                year=date.year,
+                month=f"{date.month:02d}",
+                day=f"{date.day:02d}",
+                slug=slug
+            )
+        except (KeyError, IndexError) as e:
+            logger.error(
+                f"Invalid blog.url_pattern '{url_pattern}': unknown placeholder {e}. "
+                "Supported placeholders: {year}, {month}, {day}, {slug}. "
+                "Falling back to the default pattern."
+            )
+            url = '{year}/{month:02d}/{day:02d}/{slug}'.format(
+                year=date.year, month=date.month, day=date.day, slug=slug
+            )
         
         # Format URL according to URL style configuration
         blog_dir = self.config.get('blog', 'directory', default='blog')
@@ -543,7 +568,7 @@ class BlogProcessor:
         """
         try:
             try:
-                from PIL import Image
+                import PIL  # noqa: F401 — availability check only
                 PIL_AVAILABLE = True
             except ImportError:
                 PIL_AVAILABLE = False
@@ -585,7 +610,7 @@ class BlogProcessor:
                     logger.warning(f"Image not found: {source_img_path} (referenced in {post['title']})")
                     continue
 
-                rel_img_path = img_ref.lstrip('./')
+                rel_img_path = strip_relative_prefix(img_ref)
                 original_path = os.path.join(output_dir, rel_img_path)
                 os.makedirs(os.path.dirname(original_path), exist_ok=True)
 
@@ -614,11 +639,11 @@ class BlogProcessor:
                         from bs4 import BeautifulSoup
                         soup = BeautifulSoup(post['content'], 'html.parser')
                         # img_ref may have a leading ./ — normalise for comparison
-                        norm_ref = img_ref.lstrip('./')
+                        norm_ref = strip_relative_prefix(img_ref)
                         matched = False
                         for img_tag in soup.find_all('img'):
                             orig_src = img_tag.get('data-original-src', '')
-                            if orig_src.lstrip('./') == norm_ref or orig_src.endswith('/' + norm_ref):
+                            if strip_relative_prefix(orig_src) == norm_ref or orig_src.endswith('/' + norm_ref):
                                 img_tag['data-dithered-size'] = f'{dithered_kb:.0f}K'
                                 img_tag['data-original-size'] = f'{original_kb:.0f}K'
                                 img_tag['data-size-reduction'] = str(pct)
@@ -650,7 +675,7 @@ class BlogProcessor:
                 post_source_dir = os.path.dirname(post.get('source_path', ''))
                 source_path = os.path.normpath(os.path.join(post_source_dir, cover_img))
                 if os.path.exists(source_path):
-                    rel_path = cover_img.lstrip('./')
+                    rel_path = strip_relative_prefix(cover_img)
                     original_path = os.path.join(output_dir, rel_path)
                     os.makedirs(os.path.dirname(original_path), exist_ok=True)
 
@@ -813,8 +838,16 @@ class BlogProcessor:
 
     def _generate_index_pages(self) -> None:
         """Generate blog index pages with pagination."""
-        # Determine pagination
+        # Determine pagination. validate() flags bad values at build start;
+        # this guard keeps a bad config from silently producing no index
+        # pages (the ZeroDivisionError used to be swallowed upstream).
         posts_per_page = self.config.get('blog', 'posts_per_page', default=10)
+        if not isinstance(posts_per_page, int) or isinstance(posts_per_page, bool) \
+                or posts_per_page < 1:
+            logger.warning(
+                f"Invalid blog.posts_per_page ({posts_per_page!r}); using 10"
+            )
+            posts_per_page = 10
         total_pages = math.ceil(len(self.posts) / posts_per_page)
         
         # Get base blog URL and directory
@@ -1005,9 +1038,6 @@ class BlogProcessor:
                     if hasattr(self.config, 'config') and 'images' in self.config.config:
                         variables['site']['images'] = self.config.config['images']
                     
-                    # Get template
-                    template_name = taxonomy_config.get('template', f"{singular}.html")
-                    
                     # Dummy content for template processor
                     dummy_content = f"<!-- {singular.capitalize()} Page: {term_name} -->"
                     
@@ -1073,9 +1103,6 @@ class BlogProcessor:
                 # Make sure 'images' is available if defined in config
                 if hasattr(self.config, 'config') and 'images' in self.config.config:
                     variables['site']['images'] = self.config.config['images']
-                
-                # Get template
-                template_name = taxonomy_config.get('list_template', f"{taxonomy_type}.html")
                 
                 # Fake content for template processor
                 dummy_content = f"<!-- {taxonomy_type.capitalize()} Index Page -->"
@@ -1249,31 +1276,36 @@ class BlogProcessor:
             # Build RSS feed
             rss_items = []
 
+            def rfc822(dt) -> str:
+                """Format a datetime as RFC 822 with a real UTC offset."""
+                if not isinstance(dt, datetime):
+                    dt = datetime.now()
+                if dt.tzinfo is None:
+                    dt = dt.astimezone()  # attach the local timezone
+                return dt.strftime('%a, %d %b %Y %H:%M:%S %z')
+
             for post in self.posts[:max_items]:
                 post_url = site_url + post['full_url']
                 author = post.get('author', self.config.get('site', 'author', default=''))
-
-                # Format post date with timezone if available
-                try:
-                    pub_date = post['date'].strftime('%a, %d %b %Y %H:%M:%S +0000')
-                except:
-                    pub_date = datetime.now().strftime('%a, %d %b %Y %H:%M:%S +0000')
+                pub_date = rfc822(post.get('date'))
 
                 # Cover image — prefer dithered (lighter), fall back to original
                 cover_rel = post.get('cover_img_dithered') or post.get('cover_img_original')
                 media_tag = ''
                 if cover_rel:
                     img_url = f"{post_url.rstrip('/')}/{cover_rel.lstrip('/')}"
-                    media_tag = f'\n        <media:thumbnail url="{img_url}" />'
+                    media_tag = f'\n        <media:thumbnail url="{escape(img_url, {chr(34): "&quot;"})}" />'
 
+                # All text content must be XML-escaped — titles like
+                # "Tips & Tricks" previously produced invalid feeds.
                 rss_items.append(
                     f'    <item>\n'
-                    f'        <title>{post["title"]}</title>\n'
-                    f'        <link>{post_url}</link>\n'
-                    f'        <guid isPermaLink="true">{post_url}</guid>\n'
+                    f'        <title>{escape(str(post["title"]))}</title>\n'
+                    f'        <link>{escape(post_url)}</link>\n'
+                    f'        <guid isPermaLink="true">{escape(post_url)}</guid>\n'
                     f'        <pubDate>{pub_date}</pubDate>\n'
-                    f'        <author>{author}</author>\n'
-                    f'        <description><![CDATA[{post["excerpt"]}]]></description>'
+                    f'        <author>{escape(str(author))}</author>\n'
+                    f'        <description>{escape(str(post["excerpt"]))}</description>'
                     f'{media_tag}\n'
                     f'    </item>\n'
                 )
@@ -1285,12 +1317,12 @@ class BlogProcessor:
                 '    xmlns:atom="http://www.w3.org/2005/Atom"\n'
                 '    xmlns:media="http://search.yahoo.com/mrss/">\n'
                 '<channel>\n'
-                f'    <title>{site_title}</title>\n'
-                f'    <link>{site_url}</link>\n'
-                f'    <description>{site_description}</description>\n'
-                f'    <language>{self.config.get("site", "language", default="en")}</language>\n'
-                f'    <lastBuildDate>{datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0000")}</lastBuildDate>\n'
-                f'    <atom:link href="{site_url}/{rss_path}" rel="self" type="application/rss+xml" />\n'
+                f'    <title>{escape(str(site_title))}</title>\n'
+                f'    <link>{escape(str(site_url))}</link>\n'
+                f'    <description>{escape(str(site_description))}</description>\n'
+                f'    <language>{escape(str(self.config.get("site", "language", default="en")))}</language>\n'
+                f'    <lastBuildDate>{rfc822(datetime.now())}</lastBuildDate>\n'
+                f'    <atom:link href="{escape(f"{site_url}/{rss_path}", {chr(34): "&quot;"})}" rel="self" type="application/rss+xml" />\n'
                 + ''.join(rss_items) +
                 '</channel>\n'
                 '</rss>\n'
@@ -1310,7 +1342,7 @@ class BlogProcessor:
                 traceback.print_exc()
             
     def _slugify(self, text: str) -> str:
-        """Convert text to slug format with security sanitization.
+        """Convert text to slug format (delegates to the canonical slugify).
 
         Args:
             text: Text to convert.
@@ -1318,32 +1350,7 @@ class BlogProcessor:
         Returns:
             Slug formatted string, safe for use in URLs and filenames.
         """
-        # First ensure text is a string
-        text = str(text)
-
-        # First pass: basic slug conversion
-        # Remove special characters (keep word chars, spaces, hyphens)
-        text = re.sub(r'[^\w\s-]', '', text.lower())
-        # Replace spaces with hyphens
-        text = re.sub(r'[\s]+', '-', text)
-        # Remove multiple hyphens
-        text = re.sub(r'[-]+', '-', text)
-        # Strip leading/trailing hyphens
-        text = text.strip('-')
-
-        # Second pass: security sanitization
-        # Use our secure sanitize_filename to catch edge cases
-        text = sanitize_filename(text, replace_char='-')
-
-        # Ensure slug isn't empty
-        if not text:
-            text = 'untitled'
-
-        # Ensure slug isn't too long (max 100 chars for URLs)
-        if len(text) > 100:
-            text = text[:100].rstrip('-')
-
-        return text
+        return slugify(text)
         
     def _generate_excerpt(self, html_content: str, length: int = 200) -> str:
         """Generate an excerpt from HTML content.

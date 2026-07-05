@@ -170,14 +170,10 @@ class TemplateProcessor:
         # Word count
         self.jinja_env.filters['word_count'] = lambda text: len(text.split())
 
-        # Slugify — mirrors _slugify in blog_processor
-        def _slugify_filter(text: str) -> str:
-            import re as _re
-            text = str(text).lower()
-            text = _re.sub(r'[^\w\s-]', '', text)
-            text = _re.sub(r'[\s_]+', '-', text.strip())
-            return _re.sub(r'-+', '-', text)
-        self.jinja_env.filters['slugify'] = _slugify_filter
+        # Slugify — MUST be the same algorithm the blog uses for post URLs
+        # and taxonomy pages, or template-built tag links 404.
+        from sonne.utils.text import slugify as _canonical_slugify
+        self.jinja_env.filters['slugify'] = _canonical_slugify
         
         # Truncate words
         self.jinja_env.filters['truncate_words'] = lambda text, length=30: ' '.join(
@@ -265,34 +261,38 @@ class TemplateProcessor:
         # No front matter found
         return {}, content
         
-    def process_markdown(self, content: str) -> Tuple[Dict[str, Any], str]:
+    def process_markdown(self, content: str, rewrite_dithered: bool = True) -> Tuple[Dict[str, Any], str]:
         """Process Markdown content.
-        
+
         Args:
             content: Markdown content.
-            
+            rewrite_dithered: Rewrite <img> tags to the blog pipeline's
+                dithered paths (``<dir>/dithered/<stem>.png``). Only the blog
+                pipeline creates those files, so this must be False for
+                regular pages — their images would otherwise 404.
+
         Returns:
             Tuple of (front_matter, html_content).
         """
         # Extract front matter
         front_matter, content_without_front_matter = self.extract_front_matter(content)
-        
+
         # Replace image paths from /static/images/ to /images/
         content_without_front_matter = self._replace_image_paths(content_without_front_matter)
-        
+
         # Convert Markdown to HTML
         html_content = markdown.markdown(
             content_without_front_matter,
             extensions=self.markdown_extensions
         )
-        
+
         # Process image tags for dithering support
-        if self.dithering_enabled:
+        if self.dithering_enabled and rewrite_dithered:
             logger.debug("Dithering is enabled, processing image tags...")
             html_content = self._process_image_tags(html_content)
             logger.debug(f"After processing images, HTML length: {len(html_content)}")
         else:
-            logger.debug("Dithering is disabled, skipping image processing")
+            logger.debug("Dithered img rewrite skipped (disabled or non-blog content)")
 
         return front_matter, html_content
     
@@ -345,9 +345,11 @@ class TemplateProcessor:
         logger.debug(f"Found {len(img_tags)} image tags to process for dithering")
 
         for idx, img in enumerate(img_tags):
-            # Skip SVG images
             src = img.get('src', '')
-            if src.endswith('.svg'):
+            # Skip SVGs, external images, and absolute (static-pipeline)
+            # references — the blog pipeline only creates dithered variants
+            # for images that live next to the post.
+            if src.endswith('.svg') or src.startswith(('http://', 'https://', 'data:', '/')):
                 continue
 
             # Get attributes
@@ -420,24 +422,14 @@ class TemplateProcessor:
             button.append(button_text)
             figcaption.append(button)
 
-            # Build structure
-            # First, we need to remember img's parent before we move it
-            parent = img.parent
-            parent_index = list(parent.children).index(img)
-
-            # Extract img from current location and add to wrapper
+            # Build structure: anchor the figure at the img's position while
+            # the img is still in the tree, then move the img inside it.
+            # (The previous index-based reinsertion misplaced images when a
+            # paragraph contained more than one.)
+            img.insert_before(figure)
             img_wrapper.append(img.extract())
             figure.append(img_wrapper)
-
-            # Only add figcaption if there's alt text or button
-            if alt or True:  # Always add for button
-                figure.append(figcaption)
-
-            # Insert figure at the position where img was
-            if parent_index < len(list(parent.children)):
-                parent.insert(parent_index, figure)
-            else:
-                parent.append(figure)
+            figure.append(figcaption)
 
         return str(soup)
         
@@ -453,9 +445,11 @@ class TemplateProcessor:
         Returns:
             Tuple of (front_matter, processed_content).
         """
-        # Extract front matter and convert Markdown if needed
+        # Extract front matter and convert Markdown if needed.
+        # Regular pages must not have their images rewritten to blog-style
+        # dithered paths — only the blog pipeline generates those files.
         if is_markdown:
-            front_matter, html_content = self.process_markdown(content)
+            front_matter, html_content = self.process_markdown(content, rewrite_dithered=False)
         else:
             front_matter, html_content = self.extract_front_matter(content)
             
@@ -464,9 +458,15 @@ class TemplateProcessor:
         
         # Add relative URL
         try:
+            page_vars = variables.get('page', {}) if isinstance(variables, dict) else {}
+            # Blog posts arrive with their permalink already computed —
+            # prefer it over the content-relative path (which pointed
+            # canonical/self links at a URL that is never generated).
+            if isinstance(page_vars, dict) and page_vars.get('full_url'):
+                front_matter['url'] = page_vars['full_url']
             # For special sources like blog_index, tags_index, etc.
-            if isinstance(source_path, str) and not os.path.exists(source_path):
-                front_matter['url'] = variables.get('page', {}).get('url', '/')
+            elif isinstance(source_path, str) and not os.path.exists(source_path):
+                front_matter['url'] = page_vars.get('url', '/') if isinstance(page_vars, dict) else '/'
             else:
                 rel_url = os.path.relpath(
                     source_path, 

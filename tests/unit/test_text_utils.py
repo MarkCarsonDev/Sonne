@@ -27,7 +27,6 @@ class TestBlogSlugify:
 
 
 class TestCanonicalSlugify:
-    @pytest.mark.xfail(strict=True, reason="B10: no canonical slugify in sonne.utils.text yet")
     def test_canonical_module_exists_and_matches_blog_semantics(self):
         from sonne.utils.text import slugify
         assert slugify('Hello World!') == 'hello-world'
@@ -35,7 +34,6 @@ class TestCanonicalSlugify:
         assert slugify('Hello World!') == blog_slugify('Hello World!')
         assert slugify('snake_case_tag') == blog_slugify('snake_case_tag')
 
-    @pytest.mark.xfail(strict=True, reason="B10: Jinja slugify filter diverges from blog slugifier")
     def test_jinja_filter_matches_blog_slugifier(self, site_factory):
         from sonne.core.config import Config
         from sonne.core.site_generator import SiteGenerator

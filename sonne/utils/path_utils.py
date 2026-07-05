@@ -103,6 +103,23 @@ def safe_join(base: Union[str, Path], *paths: Union[str, Path]) -> Optional[Path
         return None
 
 
+def strip_relative_prefix(path: str) -> str:
+    """Remove leading ``./`` segments from a relative path string.
+
+    Unlike ``str.lstrip('./')`` (which strips a *character set* and corrupted
+    ``../images/a.jpg`` into ``images/a.jpg`` and ``.hidden/`` into
+    ``hidden/``), this only removes literal ``./`` prefixes.
+
+    Args:
+        path: Relative path string (any separator style).
+
+    Returns:
+        Path without leading ``./`` segments; ``../`` prefixes and leading
+        dots in filenames are preserved.
+    """
+    return re.sub(r'^(\./)+', '', path)
+
+
 def is_sonne_directory(directory: Union[str, Path]) -> bool:
     """Check if a directory appears to be a valid Sonne project.
 

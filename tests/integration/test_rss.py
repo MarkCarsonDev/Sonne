@@ -19,13 +19,11 @@ class TestRss:
         assert '<rss' in text
         assert '<item>' in text
 
-    @pytest.mark.xfail(strict=True, reason="B2: RSS not XML-escaped; '&'/'<' in titles break the feed")
     def test_feed_is_valid_xml_with_special_chars(self, rss_out):
         tree = ET.parse(rss_out)
         titles = [t.text for t in tree.getroot().iter('title')]
         assert 'Tips & Tricks <fast>' in titles
 
-    @pytest.mark.xfail(strict=True, reason="B2: pubDate hardcodes +0000 on naive local timestamps")
     def test_pubdate_has_real_utc_offset(self, rss_out):
         from email.utils import parsedate_to_datetime
         tree = ET.parse(rss_out)

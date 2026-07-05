@@ -32,6 +32,23 @@ class TestExtractFrontMatter:
         assert fm['date'].year == 2025 and fm['date'].month == 2
 
 
+class TestPageUrl:
+    def test_blog_post_url_prefers_precomputed_permalink(self, site_factory, tmp_path):
+        # B11 regression: blog posts arrive at process_page with their real
+        # permalink in page vars; page.url must use it, not the
+        # content-relative source path.
+        site = site_factory('minimal')
+        cfg = Config(base_dir=str(site))
+        tp = SiteGenerator(cfg, base_dir=str(site)).template_processor
+        source = site / 'content' / 'about.md'
+        variables = {
+            'global': {}, 'site': {},
+            'page': {'full_url': '/blog/2025/02/01/hello-world/'},
+        }
+        front_matter, _ = tp.process_page('content', False, str(source), variables)
+        assert front_matter['url'] == '/blog/2025/02/01/hello-world/'
+
+
 class TestProcessMarkdown:
     def test_markdown_rendered_to_html(self, template_processor):
         _, html = template_processor.process_markdown('**bold** text')

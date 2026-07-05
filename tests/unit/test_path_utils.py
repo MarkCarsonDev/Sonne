@@ -1,5 +1,4 @@
 """sonne.utils.path_utils characterization + the B7 relative-prefix helper."""
-import pytest
 
 from sonne.utils.path_utils import (
     is_sonne_directory,
@@ -57,7 +56,6 @@ class TestNormalizeWebPath:
 
 
 class TestStripRelativePrefix:
-    @pytest.mark.xfail(strict=True, reason="B7: helper replacing broken lstrip('./') not implemented yet")
     def test_helper_preserves_parent_refs_and_dotfiles(self):
         from sonne.utils.path_utils import strip_relative_prefix
         assert strip_relative_prefix('./images/a.jpg') == 'images/a.jpg'

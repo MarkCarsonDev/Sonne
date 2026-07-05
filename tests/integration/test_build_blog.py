@@ -39,12 +39,10 @@ class TestBlogBuild:
 
 
 class TestBlogKnownBugs:
-    @pytest.mark.xfail(strict=True, reason="B1: date prefix from filename leaks into slug/URL")
     def test_filename_date_prefix_stripped_from_slug(self, blog_build, builder):
         _, _, out = blog_build
         assert (out / 'blog' / '2025' / '03' / '05' / 'shiny-day' / 'index.html').exists()
 
-    @pytest.mark.xfail(strict=True, reason="B8: '_drafts' substring match drops year_end_drafts.md")
     def test_post_with_drafts_substring_in_name_is_published(self, blog_build, builder):
         _, _, out = blog_build
         assert (out / 'blog' / '2025' / '04' / '01' / 'year-end-drafts' / 'index.html').exists()
@@ -54,7 +52,6 @@ class TestBlogKnownBugs:
         _, _, out = blog_build
         assert (out / 'blog-archive' / 'note' / 'index.html').exists()
 
-    @pytest.mark.xfail(strict=True, reason="bad url_pattern placeholder drops all posts with no useful error")
     def test_bad_url_pattern_names_the_placeholder(self, site_factory, caplog, builder):
         site = site_factory('blog', overlay='blog_site')
         with caplog.at_level(logging.ERROR, logger='sonne'):

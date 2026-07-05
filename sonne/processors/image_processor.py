@@ -95,23 +95,57 @@ class ImageProcessor:
             return hashlib.sha256(f"{file_path}:{os.path.getmtime(file_path)}".encode()).hexdigest()
         
     def _collect_used_images(self, content_dir: str) -> set:
-        """Scan content files for image references and return a set of absolute paths."""
+        """Scan content and template files for image references.
+
+        Returns a set of resolved absolute source paths. Absolute references
+        (``/images/foo.png``) are mapped back into the static directory,
+        which mirrors the output root; relative references resolve against
+        the referencing file's directory. Quoted front-matter values
+        (``cover_img: "x.jpg"``) are handled.
+        """
         used = set()
-        img_pattern = re.compile(r'!\[.*?\]\(([^)\s"\']+)|src=["\']([^"\']+)["\']|cover_img:\s*(\S+)')
-        for root, dirs, files in os.walk(content_dir):
-            dirs[:] = [d for d in dirs if not d.startswith('.')]
-            for fname in files:
-                if not fname.endswith(('.md', '.html', '.htm', '.yaml', '.yml')):
-                    continue
-                try:
-                    with open(os.path.join(root, fname), 'r', encoding='utf-8', errors='ignore') as f:
-                        text = f.read()
-                    for m in img_pattern.finditer(text):
-                        ref = m.group(1) or m.group(2) or m.group(3)
-                        if ref and not ref.startswith(('http://', 'https://', 'data:', '/')):
-                            used.add(os.path.normpath(os.path.join(root, ref)))
-                except Exception:
-                    pass
+        img_pattern = re.compile(
+            r'!\[.*?\]\(([^)\s"\']+)'          # markdown image
+            r'|src=["\']([^"\']+)["\']'         # html src attribute
+            r'|cover_img:\s*["\']?([^\s"\']+)'  # front matter cover, optionally quoted
+        )
+        static_dir = self.paths.get('static')
+
+        def add_ref(ref: str, root: str) -> None:
+            if not ref or ref.startswith(('http://', 'https://', 'data:')):
+                return
+            if ref.startswith('/'):
+                # Served from the output root, which mirrors the static dir
+                # (the markdown pipeline collapses /static/images -> /images)
+                if not static_dir:
+                    return
+                rel = ref.lstrip('/')
+                if rel.startswith('static/'):
+                    rel = rel[len('static/'):]
+                candidate = Path(static_dir) / rel
+            else:
+                candidate = Path(root) / ref
+            try:
+                # resolve() on both sides of the comparison (case/symlinks)
+                used.add(str(candidate.resolve()))
+            except OSError as e:
+                logger.debug(f"Could not resolve image reference {ref}: {e}")
+
+        templates_dir = self.paths.get('templates')
+        scan_dirs = [d for d in (content_dir, templates_dir) if d and os.path.exists(d)]
+        for scan_dir in scan_dirs:
+            for root, dirs, files in os.walk(scan_dir):
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
+                for fname in files:
+                    if not fname.endswith(('.md', '.html', '.htm', '.yaml', '.yml')):
+                        continue
+                    try:
+                        with open(os.path.join(root, fname), 'r', encoding='utf-8', errors='ignore') as f:
+                            text = f.read()
+                        for m in img_pattern.finditer(text):
+                            add_ref(m.group(1) or m.group(2) or m.group(3), root)
+                    except Exception as e:
+                        logger.debug(f"Could not scan {fname} for image refs: {e}")
         return used
 
     def process_all(self, content_dir: str, skip_cache: bool = False) -> None:
@@ -204,8 +238,11 @@ class ImageProcessor:
             self._copy_static_image(source_path)
             return
             
-        # Get dithering flag from config
-        dither = self.config.get('images', 'dither', True)
+        # Get dithering flag from config. NOTE: Config.get takes *keys with a
+        # keyword-only default — a positional True here used to be treated as
+        # a key lookup ('images.dither.True'), which returned None and meant
+        # static images were never dithered at all.
+        dither = self.config.get('images', 'dither', default=True)
         if not dither:
             # If dithering is disabled, just copy the file
             self._copy_static_image(source_path)
@@ -334,25 +371,10 @@ class ImageProcessor:
         if not output_filename:
             output_filename = Path(source_path).stem
 
-        # Check cache
-        file_hash = self._file_hash(source_path) if not skip_cache else None
-        cache_key = f"{source_path}:{file_hash}:{dither}:{optimize}:{'-'.join(map(str, formats))}:{'-'.join(map(str, sizes))}"
-        
-        _t0 = time.perf_counter()
-
-        if not skip_cache and cache_key in self.cache:
-            if self.stats:
-                self.stats.record_image(source_path, time.perf_counter() - _t0, cached=True)
-            return self.cache[cache_key]
-
-        # Prepare output directory
-        output_dir = os.path.join(self.paths['output'], 'assets', 'images')
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Process the image
-        results = {}
+        # Settings that affect output — ALL of them must be part of the
+        # cache key, or changing a setting serves stale variants.
         _dither_method = self.config.get('images', 'dither_method', default='bayer')
-        _img_width = _img_height = 0
+        _dither_colors = self.config.get('images', 'dither_colors', default=4)
 
         # --- Speed config ---
         webp_method          = int(self.config.get('images', 'webp_method',          default=0))
@@ -369,6 +391,31 @@ class ImageProcessor:
             dither_sizes = set(dither_sizes_cfg)
         else:
             dither_sizes = {min(sizes)}  # only the smallest by default
+
+        # Check cache ("v2": cache key layout changed when dither settings
+        # were added; the version prefix invalidates old entries once)
+        file_hash = self._file_hash(source_path) if not skip_cache else None
+        cache_key = (
+            f"v2:{source_path}:{file_hash}:{dither}:{optimize}"
+            f":{'-'.join(map(str, formats))}:{'-'.join(map(str, sizes))}"
+            f":{_dither_method}:{_dither_colors}:{webp_method}:{webp_method_original}"
+            f":{'-'.join(map(str, dither_formats))}:{'-'.join(map(str, sorted(dither_sizes)))}"
+        )
+
+        _t0 = time.perf_counter()
+
+        if not skip_cache and cache_key in self.cache:
+            if self.stats:
+                self.stats.record_image(source_path, time.perf_counter() - _t0, cached=True)
+            return self.cache[cache_key]
+
+        # Prepare output directory
+        output_dir = os.path.join(self.paths['output'], 'assets', 'images')
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Process the image
+        results = {}
+        _img_width = _img_height = 0
 
         try:
             with Image.open(source_path) as img:
@@ -412,6 +459,11 @@ class ImageProcessor:
                                 'assets', 'images', output_name).replace('\\', '/')
                         except Exception as e:
                             logger.error(f"Error saving original image in {fmt} format: {e}")
+
+                    # Honor images.dither — previously the flag was only in
+                    # the cache key and dithered variants were written anyway
+                    if not dither:
+                        continue
 
                     # Only dither at configured sizes (default: smallest only)
                     if width not in dither_sizes:
@@ -641,10 +693,14 @@ class ImageProcessor:
                 best = int(np.argmin(np.sum((centres - old_lab) ** 2, axis=-1)))
                 result[r, c] = best
                 err = old - palette_rgb[best].astype(float)
-                if c + 1 < W:             out_arr[r,   c+1] += err * 7/16
-                if r+1 < H and c-1 >= 0: out_arr[r+1, c-1] += err * 3/16
-                if r + 1 < H:             out_arr[r+1, c  ] += err * 5/16
-                if r+1 < H and c+1 < W:  out_arr[r+1, c+1] += err * 1/16
+                if c + 1 < W:
+                    out_arr[r, c + 1] += err * 7 / 16
+                if r + 1 < H and c - 1 >= 0:
+                    out_arr[r + 1, c - 1] += err * 3 / 16
+                if r + 1 < H:
+                    out_arr[r + 1, c] += err * 5 / 16
+                if r + 1 < H and c + 1 < W:
+                    out_arr[r + 1, c + 1] += err * 1 / 16
 
         p_img = Image.fromarray(result, 'P')
         flat = palette_rgb.flatten().tolist() + [0] * (768 - len(palette_rgb.flatten()))
