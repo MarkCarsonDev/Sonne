@@ -130,7 +130,10 @@ class TemplateProcessor:
             for file in files:
                 if any(file.endswith(ext) for ext in template_extensions):
                     rel_path = os.path.relpath(os.path.join(root, file), templates_dir)
-                    template_files.append(rel_path)
+                    # Jinja template names always use forward slashes; the
+                    # OS separator made every subdirectory template appear
+                    # broken on Windows.
+                    template_files.append(rel_path.replace(os.sep, "/"))
 
         # Validate each template
         for template_path in template_files:

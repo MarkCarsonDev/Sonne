@@ -31,6 +31,19 @@ class TestExtractFrontMatter:
         assert fm["date"].year == 2025 and fm["date"].month == 2
 
 
+class TestTemplateValidation:
+    def test_subdirectory_templates_validate(self, site_factory):
+        # Regression: os.sep in template names made every subdirectory
+        # template (templates/partials/x.html) fail validation on Windows.
+        site = site_factory('minimal')
+        partials = site / 'templates' / 'partials'
+        partials.mkdir()
+        (partials / 'card.html').write_text('<div>{{ x }}</div>', encoding='utf-8')
+        cfg = Config(base_dir=str(site))
+        tp = SiteGenerator(cfg, base_dir=str(site)).template_processor
+        assert tp.validate_templates() == []
+
+
 class TestPageUrl:
     def test_blog_post_url_prefers_precomputed_permalink(self, site_factory, tmp_path):
         # B11 regression: blog posts arrive at process_page with their real

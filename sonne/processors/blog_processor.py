@@ -14,7 +14,11 @@ from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from xml.sax.saxutils import escape
 import math
 
-from sonne.utils.path_utils import validate_path_within_root, strip_relative_prefix
+from sonne.utils.path_utils import (
+    validate_path_within_root,
+    strip_relative_prefix,
+    normalize_web_path,
+)
 from sonne.utils.text import slugify
 
 if TYPE_CHECKING:
@@ -754,8 +758,12 @@ class BlogProcessor:
                             source_path, dithered_path, dith_max_w, cover_transforms or None
                         )
 
-                    post["cover_img_original"] = rel_path
-                    post["cover_img_dithered"] = dithered_rel if dithered_kb else rel_path
+                    # Web paths, not OS paths: os.path.join produced
+                    # backslashed URLs when the site was built on Windows
+                    post["cover_img_original"] = normalize_web_path(rel_path)
+                    post["cover_img_dithered"] = normalize_web_path(
+                        dithered_rel if dithered_kb else rel_path
+                    )
                     post["cover_img_original_kb"] = f"{original_kb:.0f}K" if original_kb else ""
                     post["cover_img_dithered_kb"] = f"{dithered_kb:.0f}K" if dithered_kb else ""
                     if original_kb and dithered_kb:
