@@ -39,6 +39,42 @@
           "description": "Site language code (e.g., en, de, fr)",
           "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
           "default": "en"
+        },
+        "nav": {
+          "type": "array",
+          "description": "Site navigation entries (rendered by the bundled templates)",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string", "description": "Link text" },
+              "url": { "type": "string", "description": "Link target" }
+            },
+            "required": ["text", "url"]
+          }
+        },
+        "footer": {
+          "type": "object",
+          "description": "Footer content (used by some templates)",
+          "properties": {
+            "text": { "type": "string", "description": "Footer text" },
+            "links": {
+              "type": "array",
+              "description": "Footer links",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "text": { "type": "string" },
+                  "url": { "type": "string" }
+                }
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "weather": {
+          "type": "object",
+          "description": "Weather/location settings consumed by the solar template's data scripts",
+          "additionalProperties": true
         }
       },
       "required": ["title", "base_url"]
@@ -117,7 +153,7 @@
         },
         "excerpt_length": {
           "type": "integer",
-          "description": "Length of auto-generated excerpts (words)",
+          "description": "Length of auto-generated excerpts in characters",
           "minimum": 0,
           "default": 200
         },
@@ -142,6 +178,38 @@
               "$ref": "#/definitions/taxonomy"
             }
           }
+        },
+        "rss": {
+          "type": "object",
+          "description": "RSS feed configuration",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Generate an RSS feed",
+              "default": true
+            },
+            "path": {
+              "type": "string",
+              "description": "Feed path relative to the output directory",
+              "default": "feed.xml"
+            },
+            "max_items": {
+              "type": "integer",
+              "description": "Maximum number of items in the feed",
+              "minimum": 1,
+              "default": 20
+            }
+          }
+        },
+        "date_archives": {
+          "type": "boolean",
+          "description": "Generate /blog/YYYY/ and /blog/YYYY/MM/ archive pages",
+          "default": true
+        },
+        "archive_template": {
+          "type": "string",
+          "description": "Template for date archive pages",
+          "default": "archive.html"
         }
       }
     },
@@ -179,22 +247,93 @@
         },
         "lazy_loading": {
           "type": "boolean",
-          "description": "Enable lazy loading for images",
+          "description": "DEPRECATED (no effect): loading=\"lazy\" is always set on generated <img> tags",
           "default": true
         },
         "grayscale_before_dither": {
           "type": "boolean",
-          "description": "Convert to grayscale before dithering",
+          "description": "DEPRECATED (no effect): grayscale conversion is part of the chosen dither_method",
           "default": false
         },
-        "parallel_processing": {
+        "only_used": {
+          "type": "boolean",
+          "description": "Only process images actually referenced from content or templates",
+          "default": false
+        },
+        "dither_method": {
+          "type": "string",
+          "description": "Dithering algorithm",
+          "enum": ["bayer", "grayscale", "palette", "1bit", "halftone", "floyd_steinberg", "threshold", "color_median", "color_octree", "color_lab"],
+          "default": "bayer"
+        },
+        "dither_colors": {
+          "type": "integer",
+          "description": "Number of colors/levels for dithering (2-256)",
+          "minimum": 2,
+          "maximum": 256,
+          "default": 4
+        },
+        "dither_formats": {
+          "type": "array",
+          "description": "Formats to save dithered variants in",
+          "items": { "type": "string", "enum": ["webp", "png", "jpg", "jpeg"] },
+          "default": ["webp"]
+        },
+        "dither_sizes": {
+          "type": "array",
+          "description": "Widths to generate dithered variants at (default: smallest of images.sizes)",
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "dither_cover_images": {
+          "type": "boolean",
+          "description": "Dither blog cover images",
+          "default": true
+        },
+        "blog_original_max_width": {
+          "type": "integer",
+          "description": "Maximum width for blog post 'original' images",
+          "minimum": 1,
+          "default": 1600
+        },
+        "blog_dithered_max_width": {
+          "type": "integer",
+          "description": "Maximum width for blog post dithered images",
+          "minimum": 1,
+          "default": 400
+        },
+        "webp_method": {
+          "type": "integer",
+          "description": "WebP encoder effort for dithered saves (0=fast .. 6=small)",
+          "minimum": 0,
+          "maximum": 6,
+          "default": 0
+        },
+        "webp_method_original": {
+          "type": "integer",
+          "description": "WebP encoder effort for original saves (0=fast .. 6=small)",
+          "minimum": 0,
+          "maximum": 6,
+          "default": 4
+        },
+        "parallel": {
           "type": "boolean",
           "description": "Process images in parallel",
           "default": true
         },
+        "parallel_workers": {
+          "type": "integer",
+          "description": "Worker threads for parallel processing (0 = auto)",
+          "minimum": 0,
+          "default": 0
+        },
+        "parallel_processing": {
+          "type": "boolean",
+          "description": "DEPRECATED: use images.parallel (aliased automatically with a warning)",
+          "default": true
+        },
         "max_workers": {
           "type": "integer",
-          "description": "Maximum worker threads for parallel processing (0 = auto)",
+          "description": "DEPRECATED: use images.parallel_workers (aliased automatically with a warning)",
           "minimum": 0,
           "default": 0
         }
@@ -211,10 +350,33 @@
         },
         "preserve_prior": {
           "type": "boolean",
-          "description": "Preserve prior build variables",
+          "description": "Persist script-produced variables across builds via the variable file. When false (default) every build starts fresh and no variable file is written. Derived state (posts, taxonomies) never persists.",
           "default": false
         }
       }
+    },
+    "serve": {
+      "type": "object",
+      "description": "Development server settings",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Host to bind the dev server to",
+          "default": "localhost"
+        },
+        "port": {
+          "type": "integer",
+          "description": "Port for the dev server",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 8000
+        }
+      }
+    },
+    "solar": {
+      "type": "object",
+      "description": "Settings for the solar template's data scripts (theme-specific; not read by Sonne core)",
+      "additionalProperties": true
     },
     "security": {
       "type": "object",
@@ -298,6 +460,11 @@
           "type": "boolean",
           "description": "Show build statistics on completion",
           "default": true
+        },
+        "show_page_size": {
+          "type": "boolean",
+          "description": "Inject a page-size label (with image-weight tooltip) into generated pages",
+          "default": false
         }
       }
     }

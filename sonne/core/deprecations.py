@@ -5,16 +5,17 @@ All config key renames go through this module so old site configs keep
 working with a warning. Add an entry to DEPRECATED_CONFIG_KEYS and update
 the schema (mark the old key deprecated) plus README and CHANGELOG.
 """
+
 import logging
 import warnings
 from typing import Any, Dict
 
-logger = logging.getLogger('sonne')
+logger = logging.getLogger("sonne")
 
 # (old key path) -> (new key path). The code-facing names are canonical.
 DEPRECATED_CONFIG_KEYS = {
-    ('images', 'parallel_processing'): ('images', 'parallel'),
-    ('images', 'max_workers'): ('images', 'parallel_workers'),
+    ("images", "parallel_processing"): ("images", "parallel"),
+    ("images", "max_workers"): ("images", "parallel_workers"),
 }
 
 # Keys we have warned about already (once per process, not per Config load).

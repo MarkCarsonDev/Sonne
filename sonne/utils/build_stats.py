@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 from pathlib import Path
 import logging
 
-logger = logging.getLogger('sonne')
+logger = logging.getLogger("sonne")
 
 
 @dataclass
@@ -89,22 +89,31 @@ class BuildStatistics:
     def record_phase(self, name: str, seconds: float) -> None:
         self.phase_times[name] = seconds
 
-    def record_image(self, filename: str, seconds: float, method: str = '',
-                     cached: bool = False, width: int = 0, height: int = 0) -> None:
-        self.image_times.append({
-            'file': filename,
-            'seconds': seconds,
-            'method': method,
-            'cached': cached,
-            'width': width,
-            'height': height,
-        })
+    def record_image(
+        self,
+        filename: str,
+        seconds: float,
+        method: str = "",
+        cached: bool = False,
+        width: int = 0,
+        height: int = 0,
+    ) -> None:
+        self.image_times.append(
+            {
+                "file": filename,
+                "seconds": seconds,
+                "method": method,
+                "cached": cached,
+                "width": width,
+                "height": height,
+            }
+        )
 
     def record_script(self, name: str, seconds: float) -> None:
         self.script_times[name] = seconds
 
     def record_post(self, slug: str, seconds: float) -> None:
-        self.post_times.append({'slug': slug, 'seconds': seconds})
+        self.post_times.append({"slug": slug, "seconds": seconds})
 
     # --- Formatting ---
 
@@ -121,10 +130,10 @@ class BuildStatistics:
     @staticmethod
     def _bar(value: float, total: float, width: int = 24) -> str:
         if total <= 0:
-            return '░' * width
+            return "░" * width
         filled = round((value / total) * width)
         filled = max(0, min(width, filled))
-        return '█' * filled + '░' * (width - filled)
+        return "█" * filled + "░" * (width - filled)
 
     def format_report(self, verbose: bool = False, perf: bool = False) -> str:
         """Format a human-readable build report.
@@ -215,18 +224,18 @@ class BuildStatistics:
             total_timed = sum(self.phase_times.values())
 
             PHASE_LABELS = {
-                'scripts':     'Scripts     ',
-                'static_copy': 'Static copy ',
-                'images':      'Images      ',
-                'blog':        'Blog posts  ',
-                'pages':       'Pages       ',
-                'finalize':    'Finalize    ',
+                "scripts": "Scripts     ",
+                "static_copy": "Static copy ",
+                "images": "Images      ",
+                "blog": "Blog posts  ",
+                "pages": "Pages       ",
+                "finalize": "Finalize    ",
             }
 
-            phase_order = ['images', 'blog', 'pages', 'scripts', 'static_copy', 'finalize']
+            phase_order = ["images", "blog", "pages", "scripts", "static_copy", "finalize"]
             shown = sorted(
                 self.phase_times.items(),
-                key=lambda kv: phase_order.index(kv[0]) if kv[0] in phase_order else 99
+                key=lambda kv: phase_order.index(kv[0]) if kv[0] in phase_order else 99,
             )
 
             lines.append("Phases:")
@@ -238,21 +247,23 @@ class BuildStatistics:
             lines.append("")
 
             # Slowest images
-            uncached = [t for t in self.image_times if not t['cached']]
+            uncached = [t for t in self.image_times if not t["cached"]]
             if uncached:
-                slowest = sorted(uncached, key=lambda t: t['seconds'], reverse=True)[:5]
+                slowest = sorted(uncached, key=lambda t: t["seconds"], reverse=True)[:5]
                 lines.append("Slowest images:")
                 for t in slowest:
-                    name = Path(t['file']).name
-                    dims = f"{t['width']}×{t['height']}" if t['width'] else ''
-                    method = f", {t['method']}" if t['method'] else ''
-                    extra = f"  ({dims}{method})" if (dims or method) else ''
+                    name = Path(t["file"]).name
+                    dims = f"{t['width']}×{t['height']}" if t["width"] else ""
+                    method = f", {t['method']}" if t["method"] else ""
+                    extra = f"  ({dims}{method})" if (dims or method) else ""
                     lines.append(f"  {name:<35}  {self._fmt_time(t['seconds']):>7}{extra}")
                 lines.append("")
 
             # Slowest posts
             if self.post_times:
-                slowest_posts = sorted(self.post_times, key=lambda t: t['seconds'], reverse=True)[:5]
+                slowest_posts = sorted(self.post_times, key=lambda t: t["seconds"], reverse=True)[
+                    :5
+                ]
                 lines.append("Slowest posts:")
                 for t in slowest_posts:
                     lines.append(f"  {t['slug']:<40}  {self._fmt_time(t['seconds']):>7}")
@@ -261,24 +272,30 @@ class BuildStatistics:
             # Script timings
             if self.script_times:
                 lines.append("Scripts:")
-                for name, secs in sorted(self.script_times.items(), key=lambda kv: kv[1], reverse=True):
+                for name, secs in sorted(
+                    self.script_times.items(), key=lambda kv: kv[1], reverse=True
+                ):
                     lines.append(f"  {name:<35}  {self._fmt_time(secs):>7}")
                 lines.append("")
 
             # Actionable hints
             hints = []
-            slow_images = [t for t in uncached if t['seconds'] > 3.0]
+            slow_images = [t for t in uncached if t["seconds"] > 3.0]
             if slow_images:
-                methods = {t['method'] for t in slow_images if t['method']}
-                if 'lab_kmeans' in methods:
-                    hints.append("⚡ Some images took >3s with lab_kmeans — try dither: bayer for faster builds")
+                methods = {t["method"] for t in slow_images if t["method"]}
+                if "lab_kmeans" in methods:
+                    hints.append(
+                        "⚡ Some images took >3s with lab_kmeans — try dither: bayer for faster builds"
+                    )
             slow_scripts = {k: v for k, v in self.script_times.items() if v > 2.0}
             if slow_scripts:
-                names = ', '.join(slow_scripts.keys())
+                names = ", ".join(slow_scripts.keys())
                 hints.append(f"⚡ Slow scripts block the build: {names}")
             total = self.cache_hits + self.cache_misses
             if total > 0 and self.cache_hit_rate < 50:
-                hints.append("⚡ Low cache hit rate — run with --skip-cache only when images change")
+                hints.append(
+                    "⚡ Low cache hit rate — run with --skip-cache only when images change"
+                )
             if hints:
                 lines.append("Hints:")
                 for h in hints:
@@ -301,35 +318,35 @@ class BuildStatistics:
     def to_dict(self) -> Dict:
         """Convert statistics to dictionary format."""
         return {
-            'duration': self.duration,
-            'pages': {
-                'processed': self.pages_processed,
-                'skipped': self.pages_skipped,
-                'blog_posts': self.blog_posts_processed,
+            "duration": self.duration,
+            "pages": {
+                "processed": self.pages_processed,
+                "skipped": self.pages_skipped,
+                "blog_posts": self.blog_posts_processed,
             },
-            'images': {
-                'processed': self.images_processed,
-                'cached': self.images_cached,
-                'savings_bytes': self.image_savings,
-                'savings_mb': self.image_savings_mb,
+            "images": {
+                "processed": self.images_processed,
+                "cached": self.images_cached,
+                "savings_bytes": self.image_savings,
+                "savings_mb": self.image_savings_mb,
             },
-            'templates': {
-                'rendered': self.templates_rendered,
-                'errors': self.template_errors,
+            "templates": {
+                "rendered": self.templates_rendered,
+                "errors": self.template_errors,
             },
-            'cache': {
-                'hits': self.cache_hits,
-                'misses': self.cache_misses,
-                'hit_rate': self.cache_hit_rate,
+            "cache": {
+                "hits": self.cache_hits,
+                "misses": self.cache_misses,
+                "hit_rate": self.cache_hit_rate,
             },
-            'files': {
-                'copied': self.files_copied,
-                'deleted': self.files_deleted,
+            "files": {
+                "copied": self.files_copied,
+                "deleted": self.files_deleted,
             },
-            'performance': {
-                'phase_times': self.phase_times,
-                'script_times': self.script_times,
+            "performance": {
+                "phase_times": self.phase_times,
+                "script_times": self.script_times,
             },
-            'warnings': len(self.warnings),
-            'errors': len(self.errors),
+            "warnings": len(self.warnings),
+            "errors": len(self.errors),
         }

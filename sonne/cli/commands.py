@@ -21,6 +21,7 @@ import yaml
 try:
     from rich.console import Console
     from rich.panel import Panel
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -32,11 +33,9 @@ from sonne.utils.path_utils import is_sonne_directory, CONFIG_FILENAMES
 
 # Set up logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s  %(levelname)-8s %(message)s',
-    datefmt='%H:%M:%S'
+    level=logging.INFO, format="%(asctime)s  %(levelname)-8s %(message)s", datefmt="%H:%M:%S"
 )
-logger = logging.getLogger('sonne')
+logger = logging.getLogger("sonne")
 
 # Initialize rich console if available
 console = Console() if RICH_AVAILABLE else None
@@ -57,18 +56,20 @@ def check_sonne_directory(path: str, command_name: str = "command") -> bool:
         error_msg = "\nThis doesn't appear to be a Sonne project directory.\n"
 
         if console and RICH_AVAILABLE:
-            console.print(Panel(
-                "[bold red]Not a Sonne Project[/bold red]\n\n"
-                f"The directory [cyan]{path}[/cyan] doesn't contain a Sonne configuration file.\n\n"
-                "[bold]To create a new Sonne site:[/bold]\n"
-                "  sonne new -p my-site -t blog\n\n"
-                "[bold]Expected files:[/bold]\n"
-                "  • sonne.yaml or sonne.yml\n"
-                "  • content/ directory\n"
-                "  • templates/ directory\n",
-                title="Error",
-                border_style="red"
-            ))
+            console.print(
+                Panel(
+                    "[bold red]Not a Sonne Project[/bold red]\n\n"
+                    f"The directory [cyan]{path}[/cyan] doesn't contain a Sonne configuration file.\n\n"
+                    "[bold]To create a new Sonne site:[/bold]\n"
+                    "  sonne new -p my-site -t blog\n\n"
+                    "[bold]Expected files:[/bold]\n"
+                    "  • sonne.yaml or sonne.yml\n"
+                    "  • content/ directory\n"
+                    "  • templates/ directory\n",
+                    title="Error",
+                    border_style="red",
+                )
+            )
         else:
             logger.error(error_msg)
             logger.error(f"The directory {path} doesn't contain a Sonne configuration file.")
@@ -85,15 +86,16 @@ def check_sonne_directory(path: str, command_name: str = "command") -> bool:
 
     return True
 
+
 # Main CLI group
 @click.group()
 @click.version_option()
-@click.option('--verbose', '-v', count=True, help='Increase verbosity.')
-@click.option('--quiet', '-q', is_flag=True, help='Suppress all output except errors.')
+@click.option("--verbose", "-v", count=True, help="Increase verbosity.")
+@click.option("--quiet", "-q", is_flag=True, help="Suppress all output except errors.")
 @click.pass_context
 def cli(ctx, verbose, quiet):
     """Sonne - A minimalist static site generator optimized for low footprint sites.
-    
+
     Designed to create efficient websites with minimal resource requirements.
     """
     # Set up logging based on verbosity
@@ -101,25 +103,36 @@ def cli(ctx, verbose, quiet):
         logger.setLevel(logging.ERROR)
     else:
         levels = [logging.INFO, logging.DEBUG]
-        logger.setLevel(levels[min(verbose, len(levels)-1)])
-        
+        logger.setLevel(levels[min(verbose, len(levels) - 1)])
+
     # Initialize context
     ctx.ensure_object(dict)
-    ctx.obj['start_time'] = time.time()
+    ctx.obj["start_time"] = time.time()
+
 
 @cli.command()
-@click.option('--path', '-p', type=click.Path(exists=True), default=os.getcwd(),
-              help='Path to the site directory.')
-@click.option('--config', '-c', type=click.Path(exists=False),
-              help='Path to the configuration file.')
-@click.option('--clean', is_flag=True, help='Clean the output directory before building.')
-@click.option('--skip-images', is_flag=True, help='Skip image processing during build.')
-@click.option('--skip-cache', is_flag=True, help='Ignore cache and rebuild everything.')
-@click.option('--dev', is_flag=True, help='Build site for development environment.')
-@click.option('--no-progress', is_flag=True, help='Disable progress bars.')
-@click.option('--perf', is_flag=True, help='Show detailed performance breakdown after build.')
-@click.option('--yes', '-y', is_flag=True,
-              help='Continue past confirmation prompts (e.g. template errors); for CI.')
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True),
+    default=os.getcwd(),
+    help="Path to the site directory.",
+)
+@click.option(
+    "--config", "-c", type=click.Path(exists=False), help="Path to the configuration file."
+)
+@click.option("--clean", is_flag=True, help="Clean the output directory before building.")
+@click.option("--skip-images", is_flag=True, help="Skip image processing during build.")
+@click.option("--skip-cache", is_flag=True, help="Ignore cache and rebuild everything.")
+@click.option("--dev", is_flag=True, help="Build site for development environment.")
+@click.option("--no-progress", is_flag=True, help="Disable progress bars.")
+@click.option("--perf", is_flag=True, help="Show detailed performance breakdown after build.")
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    help="Continue past confirmation prompts (e.g. template errors); for CI.",
+)
 @click.pass_context
 def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, perf, yes):
     """Build the static site.
@@ -152,7 +165,9 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         validation_warnings = config_obj.validate()
         if validation_warnings:
             if console and RICH_AVAILABLE:
-                console.print(f"[yellow]Configuration warnings ({len(validation_warnings)}):[/yellow]")
+                console.print(
+                    f"[yellow]Configuration warnings ({len(validation_warnings)}):[/yellow]"
+                )
                 for warning in validation_warnings:
                     console.print(f"  [yellow]-[/yellow] {warning}")
                 console.print()
@@ -163,7 +178,7 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
 
         # Set environment if --dev flag is used
         if dev:
-            config_obj.set('environment', value='dev')
+            config_obj.set("environment", value="dev")
             logger.info("Environment: development")
 
         # Initialize site generator
@@ -173,7 +188,9 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         template_errors = generator.template_processor.validate_templates()
         if template_errors:
             if console and RICH_AVAILABLE:
-                console.print(f"\n[bold red]Template validation errors ({len(template_errors)}):[/bold red]")
+                console.print(
+                    f"\n[bold red]Template validation errors ({len(template_errors)}):[/bold red]"
+                )
                 for error in template_errors:
                     console.print(f"  [red]-[/red] {error}")
                 console.print()
@@ -186,8 +203,10 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
                 logger.warning("Continuing despite template errors (--yes)")
             elif not sys.stdin.isatty():
                 # Non-interactive (CI, pipes): don't hang on a prompt
-                logger.error("Template errors and no TTY to confirm; "
-                             "pass --yes to continue anyway. Build cancelled")
+                logger.error(
+                    "Template errors and no TTY to confirm; "
+                    "pass --yes to continue anyway. Build cancelled"
+                )
                 sys.exit(1)
             elif not click.confirm("Templates have errors. Continue anyway?", default=False):
                 logger.info("Build cancelled")
@@ -195,7 +214,7 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
 
         # Clean if requested
         if clean:
-            output_dir = config_obj.get('paths', 'output')
+            output_dir = config_obj.get("paths", "output")
             if console and RICH_AVAILABLE:
                 console.print("[yellow]Cleaning output directory...[/yellow]")
             else:
@@ -206,8 +225,8 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         stats = generator.generate(skip_images=skip_images, skip_cache=skip_cache)
 
         # Calculate elapsed time
-        elapsed = time.time() - ctx.obj['start_time']
-        output_dir = os.path.abspath(config_obj.get('paths', 'output'))
+        elapsed = time.time() - ctx.obj["start_time"]
+        output_dir = os.path.abspath(config_obj.get("paths", "output"))
 
         if console and RICH_AVAILABLE:
             console.print(f"\n[bold green]Build complete[/bold green]  ({elapsed:.2f}s)")
@@ -230,63 +249,81 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         # Full traceback only in verbose mode (matches new/serve)
         if logger.level <= logging.DEBUG:
             import traceback
+
             traceback.print_exc()
         sys.exit(1)
 
+
 @cli.command()
-@click.option('--path', '-p', type=click.Path(), default=os.getcwd(),
-              help='Path where the new site will be created.')
-@click.option('--template', '-t', type=click.Choice(['blog', 'portfolio', 'minimal', 'solar']),
-              default='minimal', help='Site template to use.')
-@click.option('--name', '-n', help='Site name (used in configuration).')
-@click.option('--force', '-f', is_flag=True, help='Overwrite existing files.')
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(),
+    default=os.getcwd(),
+    help="Path where the new site will be created.",
+)
+@click.option(
+    "--template",
+    "-t",
+    type=click.Choice(["blog", "portfolio", "minimal", "solar"]),
+    default="minimal",
+    help="Site template to use.",
+)
+@click.option("--name", "-n", help="Site name (used in configuration).")
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing files.")
 def new(path, template, name, force):
     """Create a new Sonne site from a template."""
     try:
         site_path = Path(path)
         site_name = name or site_path.name
-        
+
         # Check if directory exists and is not empty
         if site_path.exists() and any(site_path.iterdir()) and not force:
             logger.error(f"Directory exists and is not empty: {site_path}")
             logger.error("Use --force to overwrite existing files")
             sys.exit(1)
-            
+
         logger.info(f"Creating new {template} site: {site_name} at {site_path}")
-        
+
         # Ensure the directory exists
         os.makedirs(site_path, exist_ok=True)
-        
+
         # Get template directory
-        template_dir = Path(__file__).parent.parent / 'templates' / template
+        template_dir = Path(__file__).parent.parent / "templates" / template
         if not template_dir.exists():
             logger.error(f"Template not found: {template}")
             sys.exit(1)
-            
+
         # Copy template files
-        copytree(template_dir, site_path, dirs_exist_ok=True, 
-                 ignore=ignore_patterns('__pycache__', '*.pyc', '*.pyo', '.git'))
-        
+        copytree(
+            template_dir,
+            site_path,
+            dirs_exist_ok=True,
+            ignore=ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".git"),
+        )
+
         # Update the template's own config with the site name. Edit the YAML
         # directly — loading through Config would merge in every default and
         # dump the whole tree over the template's minimal config.
-        config_path = site_path / 'sonne.yaml'
+        config_path = site_path / "sonne.yaml"
         if config_path.exists():
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 site_config = yaml.safe_load(f) or {}
-            site_config.setdefault('site', {})['title'] = site_name
-            with open(config_path, 'w', encoding='utf-8') as f:
+            site_config.setdefault("site", {})["title"] = site_name
+            with open(config_path, "w", encoding="utf-8") as f:
                 yaml.dump(site_config, f, default_flow_style=False, sort_keys=False)
-        
+
         logger.info(f"Site created successfully at {site_path}")
         logger.info("To build your site, run: sonne build")
-        
+
     except Exception as e:
         logger.error(f"Error creating site: {e}")
         if logger.level <= logging.DEBUG:
             import traceback
+
             traceback.print_exc()
         sys.exit(1)
+
 
 class QuietHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP request handler with quiet logging."""
@@ -299,6 +336,7 @@ class QuietHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 class ReuseAddrTCPServer(socketserver.TCPServer):
     """TCPServer that can rebind immediately after a restart (no TIME_WAIT wait)."""
+
     allow_reuse_address = True
 
 
@@ -316,13 +354,19 @@ def _rebuild_site(base_dir: str) -> None:
     generator = SiteGenerator(config, base_dir=base_dir)
     generator.generate(skip_cache=False)
 
+
 @cli.command()
-@click.option('--path', '-p', type=click.Path(exists=True), default=os.getcwd(),
-              help='Path to the site directory.')
-@click.option('--port', default=None, type=int, help='Port to serve on.')
-@click.option('--host', default=None, help='Host to serve on.')
-@click.option('--browser/--no-browser', default=True, help='Open in browser.')
-@click.option('--watch/--no-watch', default=True, help='Watch for changes and rebuild.')
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True),
+    default=os.getcwd(),
+    help="Path to the site directory.",
+)
+@click.option("--port", default=None, type=int, help="Port to serve on.")
+@click.option("--host", default=None, help="Host to serve on.")
+@click.option("--browser/--no-browser", default=True, help="Open in browser.")
+@click.option("--watch/--no-watch", default=True, help="Watch for changes and rebuild.")
 def serve(path, port, host, browser, watch):
     """Serve the site locally for development.
 
@@ -348,16 +392,15 @@ def serve(path, port, host, browser, watch):
 
         config = Config(base_dir=path)
         if host is None:
-            host = config.get('serve', 'host')
+            host = config.get("serve", "host")
             if host is None:
-                host = 'localhost'
+                host = "localhost"
         if port is None:
-            port = config.get('serve', 'port')
+            port = config.get("serve", "port")
             if port is None:
                 port = 8000
-        output_path = config.get('paths', 'output', default='output')
-        output_dir = output_path if os.path.isabs(output_path) \
-            else os.path.join(path, output_path)
+        output_path = config.get("paths", "output", default="output")
+        output_dir = output_path if os.path.isabs(output_path) else os.path.join(path, output_path)
 
         # Always build before serving
         click.echo("Building site...")
@@ -369,6 +412,7 @@ def serve(path, port, host, browser, watch):
             logger.error(f"Initial build failed: {e}")
             if logger.level <= logging.DEBUG:
                 import traceback
+
                 traceback.print_exc()
             sys.exit(1)
 
@@ -390,17 +434,19 @@ def serve(path, port, host, browser, watch):
                         self.base_dir = base_dir
                         self.config = config
                         self._lock = threading.Lock()
-                        self._pending = None          # pending debounce timer
+                        self._pending = None  # pending debounce timer
                         self._building = False
 
                         self.watch_dirs = [
-                            d for d in [
-                                config.get('paths', 'content'),
-                                config.get('paths', 'data'),
-                                config.get('paths', 'scripts'),
-                                config.get('paths', 'static'),
-                                config.get('paths', 'templates'),
-                            ] if d
+                            d
+                            for d in [
+                                config.get("paths", "content"),
+                                config.get("paths", "data"),
+                                config.get("paths", "scripts"),
+                                config.get("paths", "static"),
+                                config.get("paths", "templates"),
+                            ]
+                            if d
                         ]
                         # Same candidate list config discovery uses — a
                         # project using .sonne.yaml etc. must also rebuild
@@ -425,9 +471,7 @@ def serve(path, port, host, browser, watch):
                         with self._lock:
                             if self._pending:
                                 self._pending.cancel()
-                            self._pending = threading.Timer(
-                                self.DEBOUNCE_SECONDS, self._rebuild
-                            )
+                            self._pending = threading.Timer(self.DEBOUNCE_SECONDS, self._rebuild)
                             self._pending.daemon = True
                             self._pending.start()
 
@@ -445,6 +489,7 @@ def serve(path, port, host, browser, watch):
                             click.echo(f"Rebuild failed: {e}")
                             if logger.level <= logging.DEBUG:
                                 import traceback
+
                                 traceback.print_exc()
                         finally:
                             with self._lock:
@@ -455,7 +500,7 @@ def serve(path, port, host, browser, watch):
                 observer.schedule(event_handler, path, recursive=True)
                 observer.start()
 
-                watched = ', '.join(event_handler.watch_dirs + ['config'])
+                watched = ", ".join(event_handler.watch_dirs + ["config"])
                 click.echo(f"Watching: {watched}")
 
             except ImportError:
@@ -478,6 +523,7 @@ def serve(path, port, host, browser, watch):
         logger.error(f"Error: {e}")
         if logger.level <= logging.DEBUG:
             import traceback
+
             traceback.print_exc()
         sys.exit(1)
     finally:
@@ -487,9 +533,11 @@ def serve(path, port, host, browser, watch):
         if httpd is not None:
             httpd.server_close()
 
+
 def main():
     """Main entry point for CLI."""
     cli(obj={})
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

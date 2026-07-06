@@ -5,6 +5,7 @@ This module owns the ONE canonical slugify. Post URLs, taxonomy page paths,
 and the Jinja ``slugify`` filter must all use it — divergent slug algorithms
 previously produced tag links pointing at pages that were never generated.
 """
+
 import re
 
 from sonne.utils.path_utils import sanitize_filename
@@ -29,18 +30,18 @@ def slugify(text) -> str:
     text = str(text)
 
     # Basic slug conversion: keep word chars, spaces, hyphens
-    text = re.sub(r'[^\w\s-]', '', text.lower())
-    text = re.sub(r'[\s]+', '-', text)
-    text = re.sub(r'[-]+', '-', text)
-    text = text.strip('-')
+    text = re.sub(r"[^\w\s-]", "", text.lower())
+    text = re.sub(r"[\s]+", "-", text)
+    text = re.sub(r"[-]+", "-", text)
+    text = text.strip("-")
 
     # Security sanitization for filesystem use
-    text = sanitize_filename(text, replace_char='-')
+    text = sanitize_filename(text, replace_char="-")
 
     if not text:
-        text = 'untitled'
+        text = "untitled"
 
     if len(text) > MAX_SLUG_LENGTH:
-        text = text[:MAX_SLUG_LENGTH].rstrip('-')
+        text = text[:MAX_SLUG_LENGTH].rstrip("-")
 
     return text

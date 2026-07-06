@@ -8,18 +8,23 @@ from pathlib import Path
 from typing import Optional, Union
 import logging
 
-logger = logging.getLogger('sonne')
+logger = logging.getLogger("sonne")
 
 # Config filenames Sonne recognizes, in discovery order. Single source of
 # truth for config discovery, project detection, AND the serve watcher —
 # these previously kept three diverging copies.
 CONFIG_FILENAMES = [
-    'sonne.yaml', 'sonne.yml', 'sonne.json', '.sonne/config.yaml',
-    'sonne.config', '.sonne.yaml', '.sonne.json',
+    "sonne.yaml",
+    "sonne.yml",
+    "sonne.json",
+    ".sonne/config.yaml",
+    "sonne.config",
+    ".sonne.yaml",
+    ".sonne.json",
 ]
 
 
-def sanitize_filename(filename: str, replace_char: str = '_') -> str:
+def sanitize_filename(filename: str, replace_char: str = "_") -> str:
     """Sanitize a filename by removing/replacing dangerous characters.
 
     Args:
@@ -30,12 +35,12 @@ def sanitize_filename(filename: str, replace_char: str = '_') -> str:
         Sanitized filename safe for filesystem use.
     """
     # Remove null bytes
-    filename = filename.replace('\x00', '')
+    filename = filename.replace("\x00", "")
 
     # Remove path separators and parent directory references
-    filename = filename.replace('..', '')
-    filename = filename.replace('/', replace_char)
-    filename = filename.replace('\\', replace_char)
+    filename = filename.replace("..", "")
+    filename = filename.replace("/", replace_char)
+    filename = filename.replace("\\", replace_char)
 
     # Remove other dangerous characters
     # Windows reserved: < > : " | ? *
@@ -44,13 +49,32 @@ def sanitize_filename(filename: str, replace_char: str = '_') -> str:
     filename = re.sub(dangerous_chars, replace_char, filename)
 
     # Remove leading/trailing spaces and dots (problematic on Windows)
-    filename = filename.strip('. ')
+    filename = filename.strip(". ")
 
     # Handle Windows reserved names
     reserved_names = {
-        'CON', 'PRN', 'AUX', 'NUL',
-        'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
-        'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "COM1",
+        "COM2",
+        "COM3",
+        "COM4",
+        "COM5",
+        "COM6",
+        "COM7",
+        "COM8",
+        "COM9",
+        "LPT1",
+        "LPT2",
+        "LPT3",
+        "LPT4",
+        "LPT5",
+        "LPT6",
+        "LPT7",
+        "LPT8",
+        "LPT9",
     }
     name_without_ext = Path(filename).stem.upper()
     if name_without_ext in reserved_names:
@@ -58,7 +82,7 @@ def sanitize_filename(filename: str, replace_char: str = '_') -> str:
 
     # Ensure filename isn't empty
     if not filename:
-        filename = 'unnamed'
+        filename = "unnamed"
 
     return filename
 
@@ -125,7 +149,7 @@ def strip_relative_prefix(path: str) -> str:
         Path without leading ``./`` segments; ``../`` prefixes and leading
         dots in filenames are preserved.
     """
-    return re.sub(r'^(\./)+', '', path)
+    return re.sub(r"^(\./)+", "", path)
 
 
 def is_sonne_directory(directory: Union[str, Path]) -> bool:
@@ -143,7 +167,7 @@ def is_sonne_directory(directory: Union[str, Path]) -> bool:
     has_config = any((directory / f).exists() for f in CONFIG_FILENAMES)
 
     # Check for typical Sonne directories
-    typical_dirs = ['content', 'templates', 'static']
+    typical_dirs = ["content", "templates", "static"]
     has_typical_structure = any((directory / d).exists() for d in typical_dirs)
 
     return has_config or has_typical_structure
@@ -179,7 +203,7 @@ def normalize_web_path(path: Union[str, Path]) -> str:
     """
     path_str = str(path)
     # Replace backslashes with forward slashes
-    web_path = path_str.replace('\\', '/')
+    web_path = path_str.replace("\\", "/")
     # Remove double slashes
-    web_path = re.sub(r'/+', '/', web_path)
+    web_path = re.sub(r"/+", "/", web_path)
     return web_path

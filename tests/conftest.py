@@ -5,6 +5,7 @@ The suite is a characterization suite: it pins current behavior so refactors
 are safe. Tests for known bugs assert the FIXED behavior and are marked
 ``@pytest.mark.xfail(strict=True, reason="Bxx: ...")`` until the fix lands.
 """
+
 import copy
 import shutil
 from pathlib import Path
@@ -17,8 +18,8 @@ from sonne.core.config import Config
 from sonne.core.site_generator import SiteGenerator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-BUNDLED_TEMPLATES = REPO_ROOT / 'sonne' / 'templates'
-FIXTURES = Path(__file__).resolve().parent / 'fixtures'
+BUNDLED_TEMPLATES = REPO_ROOT / "sonne" / "templates"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +41,7 @@ def make_image(path, size=(16, 16), color=(200, 60, 60), fmt=None):
     """Generate a tiny test image with Pillow (no binaries in the repo)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    img = Image.new('RGB', size, color)
+    img = Image.new("RGB", size, color)
     img.save(path, format=fmt)
     return path
 
@@ -58,8 +59,9 @@ def site_factory(tmp_path):
     Copies sonne/templates/<template> into a temp dir, then copies
     tests/fixtures/<overlay> on top of it.
     """
-    def _factory(template='minimal', overlay=None, name=None):
-        site_dir = tmp_path / (name or f'site_{template}')
+
+    def _factory(template="minimal", overlay=None, name=None):
+        site_dir = tmp_path / (name or f"site_{template}")
         shutil.copytree(BUNDLED_TEMPLATES / template, site_dir)
         if overlay:
             overlay_dir = FIXTURES / overlay
@@ -82,7 +84,7 @@ def build_site(site_dir, config_overrides=None, **generate_kwargs):
         config.set(*keys, value=value)
     generator = SiteGenerator(config, base_dir=str(site_dir))
     generator.generate(**generate_kwargs)
-    return generator, Path(generator.paths['output'])
+    return generator, Path(generator.paths["output"])
 
 
 @pytest.fixture

@@ -1,9 +1,7 @@
 # Sonne Static Site Generator
 
-![Sonne Logo](https://via.placeholder.com/200x100.png?text=Sonne+SSG)
-
-[![PyPI version](https://img.shields.io/badge/pypi-v0.2.0-blue.svg)](https://pypi.org/project/sonne/)
-[![Python Versions](https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11-blue)](https://pypi.org/project/sonne/)
+[![PyPI version](https://img.shields.io/badge/pypi-v0.4.0-blue.svg)](https://pypi.org/project/sonne/)
+[![Python Versions](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/sonne/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Overview
@@ -32,14 +30,16 @@ pip install sonne
 
 ### Dependencies
 
-Sonne has the following dependencies:
+Sonne has the following dependencies (installed automatically by pip):
 
-- Python 3.8+
+- Python 3.9+
 - markdown
-- Pillow (for image processing)
-- click (for CLI commands)
+- Pillow and numpy (image processing and dithering)
+- click and rich (CLI and console output)
 - PyYAML
-- Jinja2
+- Jinja2 and MarkupSafe
+- beautifulsoup4 (HTML post-processing)
+- watchdog (file watching for `sonne serve`)
 
 ## Quick Start
 
@@ -53,7 +53,8 @@ Available templates:
 
 - `blog`: Full-featured blog template
 - `portfolio`: Portfolio/showcase site template
-- `minimal`: Bare-bones template
+- `minimal`: Bare-bones template (the default)
+- `solar`: Solar-powered-site theme with battery/weather data scripts
 
 ### Build the site
 
@@ -166,7 +167,9 @@ categories:
   - coding
 excerpt: An optional custom excerpt for this post
 featured: true
-cover_img: /assets/images/post-cover.jpg
+# Post-relative path: the cover is resized/dithered alongside the post.
+# (Absolute /... paths are served from static/ and are not processed here.)
+cover_img: post-cover.jpg
 ---
 
 Post content here...
@@ -207,7 +210,7 @@ Therefore, in your templates, you should reference these files without the "stat
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% if page.title %}{{ page.title }} - {% endif %}{{ site.title }}</title>
     <meta name="description" content="{{ page.description | default(site.description) }}">
-    <link rel="stylesheet" href="/assets/css/main.css">
+    <link rel="stylesheet" href="/css/main.css">
 </head>
 <body>
     <header>
@@ -346,10 +349,12 @@ Variables can be defined in:
 
 ### Variable Substitution
 
-Variables can be used in content using special syntax:
+Variables can be used in content using special syntax. Lookups are by flat
+variable name (page scope wins over site, site over global) — dotted paths
+are not supported here:
 
 ```markdown
-My name is {+}{site.author}
+My name is {+}{author}
 ```
 
 ### Python Data Sources
@@ -357,7 +362,7 @@ My name is {+}{site.author}
 You can create Python scripts to generate dynamic data:
 
 ```python
-# data/team.py
+# scripts/team.py
 
 # The sonne_var function will be injected by Sonne at runtime
 # Ignore any linting warnings
@@ -499,15 +504,20 @@ def _register_jinja_filters(self) -> None:
 
 ### Embedded Python in Content
 
-You can embed Python code in your content files using the special syntax:
+You can embed Python code in your content files using the special syntax
+(disabled by default; set `security.allow_embedded_python: true` to enable —
+see the Security section below). The code runs with a restricted set of
+builtins — no imports and no modules like `datetime`; set the `result`
+variable to emit output. Existing variables are available via `data`:
 
 ```
-{p}{# 
-result = "Generated at " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+{p}{#
+result = "This site has " + str(len(data.get('all_blog_posts', []))) + " posts"
 #}
 ```
 
-This will execute the Python code during site generation.
+This will execute the Python code during site generation. For anything that
+needs imports, use a data script in `scripts/` instead.
 
 ## Command Reference
 
@@ -528,6 +538,7 @@ Options:
 
 ```bash
 sonne build [-p PATH] [-c CONFIG] [--clean] [--skip-images] [--skip-cache]
+            [--dev] [--no-progress] [--perf] [--yes]
 ```
 
 Options:
@@ -537,6 +548,10 @@ Options:
 - `--clean`: Clean output directory before building
 - `--skip-images`: Skip image processing
 - `--skip-cache`: Ignore cache and rebuild everything
+- `--dev`: Build for the development environment (dev url_style)
+- `--no-progress`: Disable progress output
+- `--perf`: Show a detailed performance breakdown after the build
+- `-y, --yes`: Continue past confirmation prompts (for CI)
 
 ### Serve the site
 
@@ -574,17 +589,29 @@ Options:
 
 ### Logging
 
-Increase verbosity for more detailed logs:
+Increase verbosity for more detailed logs (debug level):
 
 ```bash
 sonne build -v
 ```
 
-Use `-vv` for even more detailed logs.
+## Security
+
+Building a Sonne site executes code:
+
+- **Data scripts** (`scripts/*.py`) run with full process privileges on every
+  build — the same trust model as Jekyll plugins or a Makefile. Only build
+  sites you trust, and never point CI at untrusted site content.
+- **Embedded Python** in content (`{p}{# ... #}`) is disabled by default.
+  Enabling `security.allow_embedded_python` allows content files to execute
+  code; the builtin restriction is best-effort, not a sandbox. Prefer data
+  scripts.
 
 ## Contributing
 
-Contributions to Sonne are welcome! Here are ways you can contribute:
+Contributions to Sonne are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md)
+for setup, testing, and PR guidelines, and [docs/BACKLOG.md](docs/BACKLOG.md)
+for issue-ready improvement ideas. Ways you can contribute:
 
 1. Report bugs and feature requests on GitHub
 2. Submit pull requests with bug fixes and improvements
