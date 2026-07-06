@@ -47,7 +47,6 @@ class TestBlogKnownBugs:
         _, _, out = blog_build
         assert (out / 'blog' / '2025' / '04' / '01' / 'year-end-drafts' / 'index.html').exists()
 
-    @pytest.mark.xfail(strict=True, reason="A4: blog-dir exclusion by string prefix swallows blog-archive/")
     def test_sibling_dir_starting_with_blog_name_is_rendered(self, blog_build, builder):
         _, _, out = blog_build
         assert (out / 'blog-archive' / 'note' / 'index.html').exists()

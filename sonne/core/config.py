@@ -124,11 +124,21 @@ class Config:
         current_dir = os.path.abspath(self.base_dir)
         
         # Search in current and parent directories (up to 3 levels)
-        for _ in range(3):
+        base_abs = current_dir
+        for level in range(3):
             for path in search_paths:
                 full_path = os.path.join(current_dir, path)
                 if os.path.exists(full_path):
-                    logger.info(f"Found configuration file at {full_path}")
+                    if level == 0:
+                        logger.info(f"Found configuration file at {full_path}")
+                    else:
+                        # Adopting a config from a parent directory is easy
+                        # to do by accident (e.g. running from a subfolder
+                        # of another Sonne project) — be loud about it.
+                        logger.warning(
+                            f"Using configuration from a parent directory: "
+                            f"{full_path} (searched from {base_abs})"
+                        )
                     return full_path
             
             # Move up one directory
