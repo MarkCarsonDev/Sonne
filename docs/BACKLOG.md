@@ -4,6 +4,12 @@ Known, deliberately deferred improvements from the 0.4.0 readiness pass.
 Each entry is written so it can be pasted into a GitHub issue as-is
 (`gh issue create -t "<title>" -F <body>`). File references are as of 0.4.0.
 
+> **Full implementation plans now exist for every item** — see
+> [plans/00-INDEX.md](plans/00-INDEX.md) for the priority-ordered set with
+> design decisions, files, and test plans. Item #8 is resolved by
+> [plans/01-jinja-consolidation.md](plans/01-jinja-consolidation.md), which
+> deletes the embedded-Python executor.
+
 ---
 
 ## 1. Perf: vectorize LAB k-means dithering
