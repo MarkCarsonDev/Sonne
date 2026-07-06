@@ -981,8 +981,6 @@ class BlogProcessor:
     def _generate_taxonomy_type_pages(self, taxonomy_type: str) -> None:
         """Generate pages for a specific taxonomy type (tags or categories)."""
         try:
-            # Get taxonomy configuration
-            taxonomy_config = self.config.get('blog', 'taxonomies', default={}).get(taxonomy_type, {})
             singular = taxonomy_type[:-1]  # Remove 's' to get singular form
             
             # Skip if no taxonomies of this type
