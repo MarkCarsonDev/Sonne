@@ -27,7 +27,6 @@ class TestNew:
         result = runner.invoke(cli, ['new', '-p', str(target), '-t', 'minimal'])
         assert result.exit_code != 0
 
-    @pytest.mark.xfail(strict=True, reason="new dumps the entire merged default config over the template's sonne.yaml")
     def test_new_preserves_template_config(self, runner, tmp_path):
         target = tmp_path / 'clean-config'
         result = runner.invoke(cli, ['new', '-p', str(target), '-t', 'minimal', '-n', 'Test Site'])
@@ -53,7 +52,30 @@ class TestBuild:
         result = runner.invoke(cli, ['build', '-p', str(empty)])
         assert result.exit_code != 0
 
-    @pytest.mark.xfail(strict=True, reason="no --yes flag; template-error confirm hangs non-interactive builds")
     def test_build_has_yes_flag(self, runner):
         result = runner.invoke(cli, ['build', '--help'])
         assert '--yes' in result.output
+
+
+class TestServeInternals:
+    def test_server_allows_address_reuse(self):
+        from sonne.cli.commands import ReuseAddrTCPServer
+        assert ReuseAddrTCPServer.allow_reuse_address is True
+
+    def test_rebuild_helper_reloads_config(self, site_factory):
+        # The watch rebuild must re-read sonne.yaml, not reuse the Config
+        # captured at serve startup.
+        from sonne.cli.commands import _rebuild_site
+        site = site_factory('minimal')
+        _rebuild_site(str(site))
+        assert (site / 'output' / 'index.html').exists()
+        config_file = site / 'sonne.yaml'
+        config_file.write_text(
+            config_file.read_text(encoding='utf-8').replace(
+                'My Minimal Site', 'Retitled Site'
+            ),
+            encoding='utf-8',
+        )
+        _rebuild_site(str(site))
+        html = (site / 'output' / 'index.html').read_text(encoding='utf-8')
+        assert 'Retitled Site' in html

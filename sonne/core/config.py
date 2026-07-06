@@ -12,6 +12,7 @@ import logging
 from typing import Dict, Any, Optional, List
 
 from sonne.core.deprecations import apply_config_deprecations
+from sonne.utils.path_utils import CONFIG_FILENAMES
 
 logger = logging.getLogger('sonne')
 
@@ -117,11 +118,8 @@ class Config:
         Returns:
             Path to config file if found, None otherwise.
         """
-        search_paths = [
-            'sonne.yaml', 'sonne.yml', 'sonne.json', '.sonne/config.yaml',
-            'sonne.config', '.sonne.yaml', '.sonne.json'
-        ]
-        
+        search_paths = CONFIG_FILENAMES
+
         # Look in specified base directory and parent directories
         current_dir = os.path.abspath(self.base_dir)
         

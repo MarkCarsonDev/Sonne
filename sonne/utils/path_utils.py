@@ -10,6 +10,14 @@ import logging
 
 logger = logging.getLogger('sonne')
 
+# Config filenames Sonne recognizes, in discovery order. Single source of
+# truth for config discovery, project detection, AND the serve watcher —
+# these previously kept three diverging copies.
+CONFIG_FILENAMES = [
+    'sonne.yaml', 'sonne.yml', 'sonne.json', '.sonne/config.yaml',
+    'sonne.config', '.sonne.yaml', '.sonne.json',
+]
+
 
 def sanitize_filename(filename: str, replace_char: str = '_') -> str:
     """Sanitize a filename by removing/replacing dangerous characters.
@@ -132,12 +140,7 @@ def is_sonne_directory(directory: Union[str, Path]) -> bool:
     directory = Path(directory)
 
     # Check for config file
-    config_files = [
-        'sonne.yaml', 'sonne.yml', 'sonne.json',
-        '.sonne/config.yaml', 'sonne.config'
-    ]
-
-    has_config = any((directory / f).exists() for f in config_files)
+    has_config = any((directory / f).exists() for f in CONFIG_FILENAMES)
 
     # Check for typical Sonne directories
     typical_dirs = ['content', 'templates', 'static']
