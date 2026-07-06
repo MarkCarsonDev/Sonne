@@ -378,13 +378,24 @@
       "description": "Settings for the solar template's data scripts (theme-specific; not read by Sonne core)",
       "additionalProperties": true
     },
+    "content": {
+      "type": "object",
+      "description": "Content-file rendering options",
+      "properties": {
+        "render_jinja": {
+          "type": "boolean",
+          "description": "Render content files through Jinja before markdown conversion (variables, loops, script-registered functions). Per-file front matter `jinja: true|false` overrides this either way.",
+          "default": false
+        }
+      }
+    },
     "security": {
       "type": "object",
       "description": "Security settings",
       "properties": {
         "allow_embedded_python": {
           "type": "boolean",
-          "description": "⚠️ WARNING: Allows arbitrary code execution in content files. Only enable if you trust ALL content authors.",
+          "description": "REMOVED (no effect): embedded {p}{#...#} Python blocks no longer exist. Use data scripts with sonne_global()/sonne_filter() plus content.render_jinja instead.",
           "default": false
         },
         "csp": {

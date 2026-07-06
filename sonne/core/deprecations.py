@@ -18,6 +18,16 @@ DEPRECATED_CONFIG_KEYS = {
     ("images", "max_workers"): ("images", "parallel_workers"),
 }
 
+# (key path) -> guidance. Keys that no longer exist at all; their presence
+# gets a once-per-process warning and the key is dropped from the config.
+REMOVED_CONFIG_KEYS = {
+    ("security", "allow_embedded_python"): (
+        "embedded Python blocks ({p}{#...#}) were removed; use a data script "
+        "with sonne_global()/sonne_filter() plus Jinja in content "
+        "(content.render_jinja) instead"
+    ),
+}
+
 # Keys we have warned about already (once per process, not per Config load).
 _warned = set()
 
@@ -55,5 +65,22 @@ def apply_config_deprecations(user_config: Dict[str, Any]) -> None:
                 f"Config key '{'.'.join(old_path)}' is deprecated; "
                 f"use '{'.'.join(new_path)}' instead"
             )
+            logger.warning(message)
+            warnings.warn(message, DeprecationWarning, stacklevel=2)
+
+    for removed_path, guidance in REMOVED_CONFIG_KEYS.items():
+        section = user_config
+        for part in removed_path[:-1]:
+            section = section.get(part) if isinstance(section, dict) else None
+            if section is None:
+                break
+        if not isinstance(section, dict) or removed_path[-1] not in section:
+            continue
+
+        section.pop(removed_path[-1])
+
+        if removed_path not in _warned:
+            _warned.add(removed_path)
+            message = f"Config key '{'.'.join(removed_path)}' no longer exists: {guidance}"
             logger.warning(message)
             warnings.warn(message, DeprecationWarning, stacklevel=2)

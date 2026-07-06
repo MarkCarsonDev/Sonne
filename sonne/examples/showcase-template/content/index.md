@@ -49,20 +49,30 @@ sonne serve
 
 Here are some ways Sonne helps you build better websites:
 
-#### Variable Substitution
+#### Variables in Content
+
+Opt a file in with `jinja: true` front matter (or site-wide with
+`content.render_jinja: true`) and it becomes a full Jinja template:
 
 ```markdown
-The current year is {+}{site.year}.
-My name is {+}{site.author}.
+The current year is {{ year }}.
+My name is {{ author }}.
 ```
 
-#### Embedded Python
+See the live demo page: [/jinja-demo/](/jinja-demo/)
 
+#### Python from Data Scripts
+
+Register real Python functions in `scripts/*.py` and call them anywhere:
+
+```python
+# scripts/tools.py
+sonne_global('roll', lambda: __import__('random').randint(1, 100))
+sonne_filter('shout', lambda s: str(s).upper())
 ```
-{p}{# 
-import random
-result = "Random number: " + str(random.randint(1, 100))
-#}
+
+```markdown
+Random number: {{ roll() }} — {{ 'hello'|shout }}
 ```
 
 #### Custom Data Sources

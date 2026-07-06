@@ -347,15 +347,47 @@ Variables can be defined in:
 - CSV files in the `data` directory
 - Python scripts in the `scripts` directory
 
-### Variable Substitution
+### Variables in Content (Jinja)
 
-Variables can be used in content using special syntax. Lookups are by flat
-variable name (page scope wins over site, site over global) — dotted paths
-are not supported here:
+Content files (Markdown and HTML pages) can be rendered through Jinja before
+Markdown conversion, giving you variables, loops, conditionals, filters, and
+`{% include %}` right inside your content. It's opt-in:
+
+```yaml
+content:
+  render_jinja: true    # site-wide
+```
+
+or per file, in front matter (this overrides the site setting either way):
+
+```yaml
+---
+title: My Post
+jinja: true
+---
+```
+
+Then:
 
 ```markdown
-My name is {+}{author}
+The year is {{ year }} and this site has {{ all_blog_posts | length }} posts.
+
+{% for member in team_members %}
+- **{{ member.name }}** — {{ member.role }}
+{% endfor %}
 ```
+
+Notes:
+
+- Content rendering does **not** autoescape (your content becomes markdown
+  source), so HTML-bearing variables insert as-is — no `| safe` needed here,
+  unlike in `.html` templates.
+- Files with literal `{{` in code samples: leave Jinja off for that file
+  (`jinja: false`) or wrap the sample in `{% raw %}...{% endraw %}`.
+- The old `{+}{variable}` / `{-}{variable}` substitution syntax and
+  `{p}{# ... #}` embedded Python blocks have been removed (they were never
+  functional in the current pipeline); the build warns if it finds those
+  markers in your content.
 
 ### Python Data Sources
 
@@ -490,34 +522,29 @@ self.markdown_extensions = [
 ]
 ```
 
-### Custom Jinja2 Filters
+### Custom Jinja Filters and Functions (from your site's scripts)
 
-To add custom Jinja2 filters, modify the `_register_jinja_filters` method in `template_processor.py`:
+Data scripts can register real Python callables that become available in
+every template — and, with `content.render_jinja`, in every content file.
+No need to touch Sonne's source:
 
 ```python
-def _register_jinja_filters(self) -> None:
-    # Existing filters...
-  
-    # Add your custom filter
-    self.jinja_env.filters['my_filter'] = lambda text: text.upper()
+# scripts/tools.py
+from datetime import datetime
+
+def read_time(html):
+    words = len(html.split())
+    return f"{max(1, round(words / 220))} min read"
+
+sonne_filter('shout', lambda s: str(s).upper())   # {{ title | shout }}
+sonne_global('read_time', read_time)              # {{ read_time(content) }}
+sonne_global('built_at', datetime.now().strftime('%Y-%m-%d'))
 ```
 
-### Embedded Python in Content
-
-You can embed Python code in your content files using the special syntax
-(disabled by default; set `security.allow_embedded_python: true` to enable —
-see the Security section below). The code runs with a restricted set of
-builtins — no imports and no modules like `datetime`; set the `result`
-variable to emit output. Existing variables are available via `data`:
-
-```
-{p}{#
-result = "This site has " + str(len(data.get('all_blog_posts', []))) + " posts"
-#}
-```
-
-This will execute the Python code during site generation. For anything that
-needs imports, use a data script in `scripts/` instead.
+Filters and globals that would shadow a built-in name are ignored with a
+warning. This replaces the removed embedded-Python (`{p}{#...#}`) feature:
+your Python lives in proper `.py` files (testable, lintable, full imports)
+instead of inside markdown.
 
 ## Command Reference
 
@@ -602,10 +629,11 @@ Building a Sonne site executes code:
 - **Data scripts** (`scripts/*.py`) run with full process privileges on every
   build — the same trust model as Jekyll plugins or a Makefile. Only build
   sites you trust, and never point CI at untrusted site content.
-- **Embedded Python** in content (`{p}{# ... #}`) is disabled by default.
-  Enabling `security.allow_embedded_python` allows content files to execute
-  code; the builtin restriction is best-effort, not a sandbox. Prefer data
-  scripts.
+- **Content Jinja** (`content.render_jinja`) makes content files templates.
+  Jinja is not a security boundary — treat content authors as trusted, the
+  same as script authors. There is no embedded-Python-in-content feature
+  (the old `{p}{#...#}` blocks and `security.allow_embedded_python` flag
+  were removed).
 
 ## Contributing
 

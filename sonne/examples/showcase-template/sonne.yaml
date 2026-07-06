@@ -71,6 +71,11 @@ images:
     - 400
   lazy_loading: true
 
+content:
+  render_jinja: false  # opt in per file with `jinja: true` front matter
+                       # (site-wide true would break the template tutorials,
+                       #  whose code samples contain literal Jinja syntax)
+
 variables:
   file: sonne_variables.json
   preserve_prior: true

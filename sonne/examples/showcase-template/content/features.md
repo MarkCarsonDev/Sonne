@@ -179,12 +179,12 @@ stats = {
 sonne_var("stats", stats)
 ```
 
-### Variable Substitution
+### Variables in Content
 
-Use variables directly in content.
+Use variables directly in content (Jinja, opt-in via `content.render_jinja`).
 
 ```markdown
-There are {+}{stats.posts} posts on this site.
+There are {{ stats.posts }} posts on this site.
 ```
 
 ## Performance Features
@@ -301,20 +301,25 @@ Here's how Sonne compares to other popular static site generators:
 
 ## Examples in Action
 
-### Variable Substitution
+### Variables in Content
 
 ```markdown
-The current year is {+}{site.year}.
-This site was last built on {+}{site.build_time}.
+The current year is {{ year }}.
+This site was last built on {{ build_time }}.
 ```
 
-### Embedded Python
+(See it live on the [Jinja demo page](/jinja-demo/).)
 
-```
-{p}{# 
+### Python from Data Scripts
+
+```python
+# scripts/tools.py
 import random
-result = f"Random number: {random.randint(1, 100)}"
-#}
+sonne_global('lucky_number', lambda: random.randint(1, 100))
+```
+
+```markdown
+Your lucky number is {{ lucky_number() }}.
 ```
 
 ### Image Dithering

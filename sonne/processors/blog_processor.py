@@ -527,8 +527,12 @@ class BlogProcessor:
         """
         # Pass 1: process images for all posts so cover_img_dithered is populated
         # on every post dict before any template renders related-post strips.
+        # Content Jinja for posts also happens here: metadata collection runs
+        # BEFORE data scripts, so a Jinja re-render at that stage would miss
+        # script variables. This pass runs after scripts.
         for post in self.posts:
             try:
+                self._render_post_content_jinja(post)
                 post_url = post["url"].rstrip("/")
                 blog_dir = self.config.get("blog", "directory", default="blog")
                 rel_path = os.path.join(blog_dir, post_url)
@@ -594,6 +598,41 @@ class BlogProcessor:
                     self.stats.record_post(
                         post.get("slug", post.get("title", "?")), time.perf_counter() - _t0
                     )
+
+    def _render_post_content_jinja(self, post: Dict[str, Any]) -> None:
+        """Re-render a post's content with Jinja when enabled for the post.
+
+        Replaces post['content'] (and a generated excerpt) from raw_content
+        via Jinja -> markdown -> image-tag rewrite, with the full variable
+        context including script variables.
+        """
+        front_matter = post.get("metadata", {}) or {}
+        if not self.template_processor.content_jinja_enabled(front_matter):
+            return
+        raw = post.get("raw_content")
+        if not raw:
+            return
+
+        context = self.template_processor.build_content_context(
+            {
+                "global": self.variable_manager.variables.get("global", {}),
+                "site": self.variable_manager.variables.get("site", {}),
+            }
+        )
+        context["page"] = post
+        _, html_content = self.template_processor.process_markdown(
+            raw,
+            rewrite_dithered=True,
+            jinja_context=context,
+            source=post.get("source_path", post.get("title", "post")),
+        )
+        post["content"] = html_content
+
+        # Regenerate an auto-excerpt so {{ ... }} never leaks into it;
+        # explicit front-matter excerpts are left alone.
+        if not front_matter.get("excerpt") and not front_matter.get("description"):
+            excerpt_length = self.config.get("blog", "excerpt_length", default=200)
+            post["excerpt"] = self._generate_excerpt(html_content, excerpt_length)
 
     def _copy_post_images(self, post: Dict[str, Any], output_dir: str) -> None:
         """Copy and process images referenced in a blog post.

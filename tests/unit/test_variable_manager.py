@@ -28,21 +28,25 @@ class TestScopes:
         assert vm.get("nope", default="d") == "d"
 
 
-class TestSubstitution:
-    def test_sonne_variable_replaced(self, tmp_path):
+class TestScriptExtensions:
+    def test_scripts_can_register_filters_and_globals(self, tmp_path):
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        (scripts / "ext.py").write_text(
+            "sonne_filter('shout', lambda s: str(s).upper())\n"
+            "sonne_global('answer_fn', lambda: 42)\n",
+            encoding="utf-8",
+        )
         vm = make_vm(tmp_path)
-        vm.set("name", "World", "site")
-        assert vm.substitute_variables("Hi {+}{name}") == "Hi World"
+        vm.load_variables()
+        assert vm.custom_filters["shout"]("hi") == "HI"
+        assert vm.custom_globals["answer_fn"]() == 42
 
-    def test_unknown_variable_left_intact(self, tmp_path):
+    def test_extensions_reset_between_loads(self, tmp_path):
         vm = make_vm(tmp_path)
-        assert vm.substitute_variables("Hi {+}{ghost}") == "Hi {+}{ghost}"
-
-    def test_embedded_python_disabled_by_default(self, tmp_path):
-        vm = make_vm(tmp_path)
-        out = vm.substitute_variables("{p}{# result = 1+1 #}")
-        assert "2" not in out
-        assert "disabled" in out.lower()
+        vm.custom_filters["stale"] = str
+        vm.load_variables()
+        assert "stale" not in vm.custom_filters
 
 
 class TestDataScripts:

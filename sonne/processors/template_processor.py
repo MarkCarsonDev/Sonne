@@ -269,8 +269,110 @@ class TemplateProcessor:
         # No front matter found
         return {}, content
 
+    # Legacy substitution/embedded-python markers. These syntaxes were
+    # removed (they were never wired into the build); markers found in
+    # content now render literally, so warn the author once per file.
+    _LEGACY_MARKER_RE = re.compile(r"\{\+\}\{|\{-\}\{|\{p\}\{#")
+    _legacy_marker_warned = set()
+
+    def _warn_legacy_markers(self, content: str, source: str) -> None:
+        """Warn once per source file about removed {+}{}/{-}{}/{p}{# syntax."""
+        if source in self._legacy_marker_warned:
+            return
+        if self._LEGACY_MARKER_RE.search(content):
+            self._legacy_marker_warned.add(source)
+            logger.warning(
+                f"{source} contains removed Sonne/Mond markers ({{+}}{{...}}, "
+                f"{{-}}{{...}} or {{p}}{{#...#}}); these render literally now. "
+                "Use Jinja instead: {{ variable }} with content.render_jinja "
+                "(or `jinja: true` front matter), and data scripts with "
+                "sonne_global()/sonne_filter() for Python."
+            )
+
+    def register_extensions(self, filters: Dict[str, Any], globals_: Dict[str, Any]) -> None:
+        """Register script-provided Jinja filters and globals.
+
+        Called by SiteGenerator after data scripts run. Names that collide
+        with built-in filters/globals are ignored with a warning.
+
+        Args:
+            filters: Mapping of filter name -> callable.
+            globals_: Mapping of global name -> value or callable.
+        """
+        if not self.jinja_env:
+            return
+        for name, fn in (filters or {}).items():
+            if name in self.jinja_env.filters:
+                logger.warning(f"Script filter '{name}' collides with a built-in filter; ignored")
+                continue
+            self.jinja_env.filters[name] = fn
+        for name, value in (globals_ or {}).items():
+            if name in self.jinja_env.globals:
+                logger.warning(f"Script global '{name}' collides with a built-in global; ignored")
+                continue
+            self.jinja_env.globals[name] = value
+
+    def render_content_jinja(self, content: str, context: Dict[str, Any], source: str) -> str:
+        """Render a content body through Jinja before markdown conversion.
+
+        Note: unlike .html templates, from_string templates are NOT
+        autoescaped (select_autoescape keys off the template name), so
+        HTML-bearing variables insert raw — the right semantic for markdown
+        source. Errors log and fall back to the unrendered content
+        (log-and-continue house style).
+
+        Args:
+            content: Raw content body (front matter already stripped).
+            context: Template context (same shape the page template gets).
+            source: Source path for error messages.
+
+        Returns:
+            Rendered content, or the original on error / no Jinja env.
+        """
+        if not self.jinja_env:
+            return content
+        try:
+            return self.jinja_env.from_string(content).render(**context)
+        except Exception as e:
+            logger.error(f"Jinja error in content {source}: {e}; rendering without Jinja")
+            return content
+
+    def build_content_context(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """Build the Jinja context for content rendering.
+
+        Mirrors template rendering: global and site variables are available
+        bare, plus a merged `site` namespace. `page` is filled by the caller
+        (post dict) or defaulted to the file's front matter.
+        """
+        variables = variables if isinstance(variables, dict) else {}
+        global_vars = variables.get("global", {}) or {}
+        site_vars = variables.get("site", {}) or {}
+        context = {}
+        context.update(global_vars)
+        context.update(site_vars)
+        merged_site = dict(site_vars)
+        for key, value in global_vars.items():
+            merged_site.setdefault(key, value)
+        context["site"] = merged_site
+        return context
+
+    def content_jinja_enabled(self, front_matter: Dict[str, Any]) -> bool:
+        """Whether content Jinja applies to a file, honoring the override.
+
+        Per-file front matter `jinja: true|false` beats the site-wide
+        `content.render_jinja` setting (default false).
+        """
+        per_file = front_matter.get("jinja")
+        if isinstance(per_file, bool):
+            return per_file
+        return bool(self.config.get("content", "render_jinja", default=False))
+
     def process_markdown(
-        self, content: str, rewrite_dithered: bool = True
+        self,
+        content: str,
+        rewrite_dithered: bool = True,
+        jinja_context: Dict[str, Any] = None,
+        source: str = "<content>",
     ) -> Tuple[Dict[str, Any], str]:
         """Process Markdown content.
 
@@ -280,12 +382,26 @@ class TemplateProcessor:
                 dithered paths (``<dir>/dithered/<stem>.png``). Only the blog
                 pipeline creates those files, so this must be False for
                 regular pages — their images would otherwise 404.
+            jinja_context: When given AND content Jinja is enabled for this
+                file (config default or `jinja:` front matter), the body is
+                rendered through Jinja before markdown conversion.
+            source: Source path for warnings/errors.
 
         Returns:
             Tuple of (front_matter, html_content).
         """
         # Extract front matter
         front_matter, content_without_front_matter = self.extract_front_matter(content)
+
+        self._warn_legacy_markers(content_without_front_matter, source)
+
+        # Optional Jinja pass over the raw body
+        if jinja_context is not None and self.content_jinja_enabled(front_matter):
+            context = dict(jinja_context)
+            context.setdefault("page", front_matter)
+            content_without_front_matter = self.render_content_jinja(
+                content_without_front_matter, context, source
+            )
 
         # Replace image paths from /static/images/ to /images/
         content_without_front_matter = self._replace_image_paths(content_without_front_matter)
@@ -478,9 +594,29 @@ class TemplateProcessor:
         # Regular pages must not have their images rewritten to blog-style
         # dithered paths — only the blog pipeline generates those files.
         if is_markdown:
-            front_matter, html_content = self.process_markdown(content, rewrite_dithered=False)
+            front_matter, html_content = self.process_markdown(
+                content,
+                rewrite_dithered=False,
+                jinja_context=self.build_content_context(variables),
+                source=str(source_path),
+            )
         else:
             front_matter, html_content = self.extract_front_matter(content)
+            # Content Jinja for real HTML pages only. Blog posts also come
+            # through here (pre-rendered, is_markdown=False, .md source) and
+            # must not get a second Jinja pass.
+            if (
+                isinstance(source_path, str)
+                and source_path.lower().endswith((".html", ".htm"))
+                and os.path.exists(source_path)
+            ):
+                self._warn_legacy_markers(html_content, str(source_path))
+                if self.content_jinja_enabled(front_matter):
+                    context = self.build_content_context(variables)
+                    context.setdefault("page", front_matter)
+                    html_content = self.render_content_jinja(
+                        html_content, context, str(source_path)
+                    )
 
         # Add source path to front matter
         front_matter["source_path"] = source_path

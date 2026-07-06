@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 (pre-1.0: minor versions may contain breaking changes, each called out below).
 
+## [Unreleased]
+
+### Added
+- **Variables in content**: content files can be rendered through Jinja
+  before markdown conversion — variables, loops, filters, includes. Opt-in
+  via `content.render_jinja: true` or per-file `jinja: true|false` front
+  matter (the per-file key wins either way).
+- **Script-registered Jinja extensions**: data scripts get `sonne_filter(name, fn)`
+  and `sonne_global(name, value)` alongside `sonne_var`, making real Python
+  functions callable from every template and (with content Jinja) every
+  content file. Names shadowing built-ins are ignored with a warning.
+- Implementation plans for the whole backlog in `docs/plans/`.
+
+### Removed
+- The `{+}{variable}` / `{-}{variable}` substitution syntax and the
+  `{p}{# ... #}` embedded-Python blocks. These were dead code — nothing in
+  the build pipeline ever invoked them, so the markers already rendered
+  literally. The build now warns (once per file) when it finds them,
+  pointing at the Jinja equivalent.
+- The `security.allow_embedded_python` config key (it only gated the dead
+  executor). Configs that still set it get a warning naming the
+  replacement.
+
 ## [0.4.0] - 2026-07-05
 
 Open-source readiness release: test suite, CI, packaging modernization, and a

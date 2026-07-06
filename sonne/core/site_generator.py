@@ -178,6 +178,11 @@ class SiteGenerator:
             )
             _t = time.perf_counter()
             self.variable_manager.load_variables()
+            # Hand script-registered Jinja filters/globals to the renderer
+            self.template_processor.register_extensions(
+                self.variable_manager.custom_filters,
+                self.variable_manager.custom_globals,
+            )
             self.stats.record_phase("scripts", time.perf_counter() - _t)
             logger.debug(
                 "Global variables: "

@@ -179,13 +179,14 @@ tags:
 ---
 ```
 
-#### Variable Substitution
+#### Variables in Content
 
-You can use variables in your content:
+With `content.render_jinja: true` in your config (or `jinja: true` in a
+file's front matter), content files are full Jinja templates:
 
 ```markdown
-The current year is {+}{site.year}.
-My name is {+}{site.author}.
+The current year is {{ year }}.
+My name is {{ author }}.
 ```
 
 ## Conclusion

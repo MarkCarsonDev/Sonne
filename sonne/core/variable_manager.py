@@ -7,7 +7,6 @@ import os
 import json
 import yaml
 import csv
-import re
 import importlib.util
 import sys
 import time
@@ -51,6 +50,12 @@ class VariableManager:
         # and script paths already executed this load (prevents double runs).
         self._script_vars = set()
         self._executed_scripts = set()
+
+        # Jinja extensions registered by data scripts via sonne_filter /
+        # sonne_global. SiteGenerator hands these to the TemplateProcessor
+        # after load_variables().
+        self.custom_filters = {}
+        self.custom_globals = {}
 
         # Prepare variable file path
         var_file = config.get("variables", "file", default="sonne_variables.json")
@@ -190,9 +195,28 @@ class VariableManager:
 
                     return get_post
 
+                # Jinja extension hooks: scripts can register real Python
+                # callables usable from every template and (with
+                # content.render_jinja) every content file.
+                def create_sonne_filter(manager):
+                    def sonne_filter(name, fn):
+                        manager.custom_filters[name] = fn
+                        logger.debug(f"Jinja filter registered by script: {name}")
+
+                    return sonne_filter
+
+                def create_sonne_global(manager):
+                    def sonne_global(name, value):
+                        manager.custom_globals[name] = value
+                        logger.debug(f"Jinja global registered by script: {name}")
+
+                    return sonne_global
+
                 # Assign the closures
                 module.sonne_var = create_sonne_var(self)
                 module.get_post = create_get_post(self)
+                module.sonne_filter = create_sonne_filter(self)
+                module.sonne_global = create_sonne_global(self)
 
                 # Add the module to sys.modules to ensure it's properly loaded
                 sys.modules[f"sonne_script_{script_path.stem}"] = module
@@ -226,6 +250,8 @@ class VariableManager:
         # Reset per-load bookkeeping
         self._script_vars = set()
         self._executed_scripts = set()
+        self.custom_filters = {}
+        self.custom_globals = {}
 
         # Preserve blog post variables if they were already set by collect_post_metadata()
         existing_blog_vars = {}
@@ -340,7 +366,7 @@ class VariableManager:
                     module = importlib.util.module_from_spec(spec)
                     sys.modules["sonne_script_footer"] = module
 
-                    # Add the sonne_var function to the module's namespace
+                    # Add the script hooks to the module's namespace
                     def create_sonne_var(manager):
                         def sonne_var(k, v):
                             manager.set(k, v, "global")
@@ -350,6 +376,10 @@ class VariableManager:
                         return sonne_var
 
                     module.sonne_var = create_sonne_var(self)
+                    module.sonne_filter = lambda name, fn: self.custom_filters.__setitem__(name, fn)
+                    module.sonne_global = lambda name, value: self.custom_globals.__setitem__(
+                        name, value
+                    )
 
                     # Execute the module
                     spec.loader.exec_module(module)
@@ -444,109 +474,6 @@ class VariableManager:
             variables: Dictionary of page variables.
         """
         self.variables["page"] = variables
-
-    def substitute_variables(self, content: str) -> str:
-        """Substitute variables in content. Handles both Mond and Sonne variable formats.
-
-        Args:
-            content: Content string containing variable references.
-
-        Returns:
-            String with variables substituted.
-        """
-        # Get all variables
-        all_vars = self.get_all()
-
-        # Replace Sonne variables: {+}{variable_name}
-        def replace_sonne_variable(match):
-            var_name = match.group(1)
-            if var_name in all_vars:
-                return str(all_vars[var_name])
-            return f"{{+}}{{{var_name}}}"  # Keep the original if not found
-
-        # Replace Mond variables: {-}{variable_name}
-        def replace_mond_variable(match):
-            var_name = match.group(1)
-            if var_name in all_vars:
-                return str(all_vars[var_name])
-            return f"{{-}}{{{var_name}}}"  # Keep the original if not found
-
-        # Execute embedded Python: {p}{# ... #}
-        # SECURITY WARNING: This feature allows arbitrary Python code execution
-        # It is DISABLED by default and must be explicitly enabled in configuration
-        def execute_embedded_python(match):
-            # Check if embedded Python is enabled in config
-            allow_embedded_python = self.config.get(
-                "security", "allow_embedded_python", default=False
-            )
-
-            if not allow_embedded_python:
-                logger.warning(
-                    "Embedded Python blocks are disabled. Set security.allow_embedded_python: true in config to enable (NOT RECOMMENDED for untrusted content)."
-                )
-                return "<!-- Embedded Python disabled. Enable in config with security.allow_embedded_python: true -->"
-
-            python_code = match.group(1).strip()
-
-            # Log a security warning
-            logger.warning(
-                "SECURITY: Executing embedded Python code from content file. This is a potential security risk."
-            )
-            logger.debug(f"Executing embedded Python code:\n{python_code}")
-
-            # Create a restricted local scope with limited builtins
-            # Remove dangerous builtins
-            safe_builtins = {
-                "__builtins__": {
-                    "len": len,
-                    "str": str,
-                    "int": int,
-                    "float": float,
-                    "bool": bool,
-                    "list": list,
-                    "dict": dict,
-                    "tuple": tuple,
-                    "set": set,
-                    "range": range,
-                    "enumerate": enumerate,
-                    "zip": zip,
-                    "min": min,
-                    "max": max,
-                    "sum": sum,
-                    "abs": abs,
-                    "round": round,
-                    "sorted": sorted,
-                    "reversed": reversed,
-                    "True": True,
-                    "False": False,
-                    "None": None,
-                },
-                "data": all_vars,
-                "result": None,
-            }
-
-            try:
-                # Execute the code with restricted scope
-                exec(python_code, safe_builtins, safe_builtins)
-
-                # Return the result
-                return str(safe_builtins.get("result", ""))
-            except Exception as e:
-                logger.error(f"Error executing embedded Python: {e}")
-                if logger.level <= logging.DEBUG:
-                    import traceback
-
-                    traceback.print_exc()
-                return f"<!-- Error in Python Code: {str(e)} -->"
-
-        # First execute Python code blocks (if enabled)
-        content = re.sub(r"\{p\}\{#([\s\S]*?)#\}", execute_embedded_python, content)
-
-        # Then replace variables
-        content = re.sub(r"\{\+\}\{(.*?)\}", replace_sonne_variable, content)
-        content = re.sub(r"\{\-\}\{(.*?)\}", replace_mond_variable, content)
-
-        return content
 
     # Derived state must never persist across builds: it is recomputed from
     # content every build, and stale copies were previously served when the

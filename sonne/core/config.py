@@ -71,11 +71,14 @@ DEFAULT_CONFIG = {
         "file": "sonne_variables.json",
         "preserve_prior": False,
     },
+    "content": {
+        # Render content files (markdown/HTML pages and posts) through Jinja
+        # before markdown conversion. Off by default so literal {{ }} in
+        # content (code samples) can never break by surprise; a per-file
+        # front matter key `jinja: true|false` overrides this either way.
+        "render_jinja": False,
+    },
     "security": {
-        # WARNING: Enabling embedded Python allows arbitrary code execution in content files
-        # Only enable this if you trust all content authors. NEVER enable for user-submitted content.
-        # Use data scripts in the scripts/ directory as a safer alternative.
-        "allow_embedded_python": False,
         "csp": {
             "enabled": False,
             "directives": {},
@@ -354,13 +357,6 @@ class Config:
                 warnings.append("images.sizes should be a list")
             elif sizes and not all(isinstance(s, int) and s > 0 for s in sizes):
                 warnings.append("images.sizes should contain only positive integers")
-
-        # Security warnings
-        security = self.get("security", default={})
-        if security and security.get("allow_embedded_python"):
-            warnings.append(
-                "WARNING: Embedded Python execution is enabled. This allows arbitrary code execution from content files. Only enable this if you trust all content authors."
-            )
 
         # Validate blog configuration if enabled
         blog = self.get("blog")

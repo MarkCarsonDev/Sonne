@@ -35,10 +35,10 @@ class TestTemplateValidation:
     def test_subdirectory_templates_validate(self, site_factory):
         # Regression: os.sep in template names made every subdirectory
         # template (templates/partials/x.html) fail validation on Windows.
-        site = site_factory('minimal')
-        partials = site / 'templates' / 'partials'
+        site = site_factory("minimal")
+        partials = site / "templates" / "partials"
         partials.mkdir()
-        (partials / 'card.html').write_text('<div>{{ x }}</div>', encoding='utf-8')
+        (partials / "card.html").write_text("<div>{{ x }}</div>", encoding="utf-8")
         cfg = Config(base_dir=str(site))
         tp = SiteGenerator(cfg, base_dir=str(site)).template_processor
         assert tp.validate_templates() == []
