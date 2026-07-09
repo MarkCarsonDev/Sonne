@@ -284,8 +284,14 @@ class ImageProcessor:
         cache_key = f"static:{source_path}:{file_hash}:{dither}:{dither_method}:{dither_colors}"
 
         if not skip_cache and cache_key in self.cache:
-            logger.debug(f"Using cached version of static image: {source_path}")
-            return
+            # Only honor the hit if the outputs survived (--clean keeps the
+            # cache but wipes the output dir)
+            if os.path.exists(output_path) and os.path.exists(original_path):
+                logger.debug(f"Using cached version of static image: {source_path}")
+                return
+            logger.debug(
+                f"Cache hit for static image {source_path} but outputs missing; reprocessing"
+            )
 
         try:
             # Copy original image with _original suffix
@@ -427,9 +433,19 @@ class ImageProcessor:
         _t0 = time.perf_counter()
 
         if not skip_cache and cache_key in self.cache:
-            if self.stats:
-                self.stats.record_image(source_path, time.perf_counter() - _t0, cached=True)
-            return self.cache[cache_key]
+            # A cache hit is only valid if the output files still exist —
+            # `sonne build --clean` wipes the output dir but keeps the cache,
+            # which previously left images missing from clean rebuilds.
+            cached = self.cache[cache_key]
+            if isinstance(cached, dict) and all(
+                os.path.exists(os.path.join(self.paths["output"], rel))
+                for fmts in cached.values()
+                for rel in (fmts.values() if isinstance(fmts, dict) else [])
+            ):
+                if self.stats:
+                    self.stats.record_image(source_path, time.perf_counter() - _t0, cached=True)
+                return cached
+            logger.debug(f"Cache hit for {source_path} but outputs missing; reprocessing")
 
         # Prepare output directory
         output_dir = os.path.join(self.paths["output"], "assets", "images")

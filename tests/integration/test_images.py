@@ -41,6 +41,29 @@ class TestContentImages:
         assert dithered.exists()
 
 
+class TestCleanRebuild:
+    def test_clean_output_with_warm_cache_regenerates_images(
+        self, site_factory, builder, image_factory
+    ):
+        # `sonne build --clean` wipes output but keeps .cache; a cache hit
+        # must verify outputs exist or clean rebuilds lose every image.
+        import shutil
+
+        from sonne.core.config import Config
+        from sonne.core.site_generator import SiteGenerator
+
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        _, out = builder(site)
+        target = out / "assets" / "images" / "photo_400_original.webp"
+        assert target.exists()
+
+        shutil.rmtree(out)  # what --clean does
+        cfg = Config(base_dir=str(site))
+        SiteGenerator(cfg, base_dir=str(site)).generate()  # warm cache, no skip_cache
+        assert target.exists()
+
+
 class TestOnlyUsed:
     def test_referenced_static_image_still_processed(self, site_factory, builder, image_factory):
         site = site_factory("blog", overlay="blog_site")
