@@ -861,10 +861,13 @@ class TemplateProcessor:
     padding: 0.2em 0.6em;
     font-size: 0.8rem;
     background: transparent;
-    border: 1px solid var(--text-color, #fff);
+    /* currentColor fallback: the button inherits the page's text color when
+       the theme doesn't define --text-color (a #fff fallback made the button
+       invisible on light themes) */
+    border: 1px solid var(--text-color, currentColor);
     border-radius: 0.4em;
     cursor: pointer;
-    color: var(--text-color, #fff);
+    color: var(--text-color, currentColor);
     opacity: 0.5;
     transition: opacity 0.1s, background-color 0.1s;
     font-family: inherit;
@@ -872,7 +875,7 @@ class TemplateProcessor:
 
 .request-original-btn:hover {
     opacity: 1;
-    background-color: var(--bg-hover, rgba(255,255,255,0.13));
+    background-color: var(--bg-hover, rgba(128,128,128,0.15));
 }
 
 .request-original-btn.showing-original {
