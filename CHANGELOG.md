@@ -29,6 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   executor). Configs that still set it get a warning naming the
   replacement.
 
+### Fixed
+- **`sonne serve` infinite rebuild loop**: watchdog >= 2.3 emits read-only
+  `opened`/`closed_no_write` events, and the rebuild watcher reacted to
+  every event type. Because each rebuild reads the watched content files
+  (markdown and images), those reads re-triggered the watcher, so a single
+  content edit could spin into an unbroken rebuild cascade. The watcher now
+  ignores read-only events and rebuilds only on actual mutations.
+
 ## [0.4.0] - 2026-07-05
 
 Open-source readiness release: test suite, CI, packaging modernization, and a

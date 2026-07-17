@@ -64,6 +64,47 @@ class TestServeInternals:
 
         assert ReuseAddrTCPServer.allow_reuse_address is True
 
+    def test_read_only_events_do_not_trigger_rebuild(self):
+        # watchdog >= 2.3 emits 'opened'/'closed_no_write' when the build
+        # itself reads content files during a rebuild. Reacting to those made
+        # every rebuild re-trigger itself into an infinite loop (a single
+        # content edit produced an unbroken rebuild cascade).
+        from sonne.cli.commands import _watch_event_triggers_rebuild
+
+        base = "/site"
+        watch_dirs = ["content"]
+        watch_files = ["sonne.yaml"]
+        img = "/site/content/articles/img/photo.jpg"
+
+        for read_only in ("opened", "closed_no_write"):
+            assert not _watch_event_triggers_rebuild(
+                read_only, False, img, base, watch_dirs, watch_files
+            )
+        # Real mutations to the same watched file still rebuild.
+        for mutation in ("modified", "created", "moved", "deleted", "closed"):
+            assert _watch_event_triggers_rebuild(
+                mutation, False, img, base, watch_dirs, watch_files
+            )
+
+    def test_watch_relevance_scopes_to_watched_paths(self):
+        from sonne.cli.commands import _watch_event_triggers_rebuild
+
+        base = "/site"
+        watch_dirs = ["content"]
+        watch_files = ["sonne.yaml"]
+
+        # Output/cache writes are outside the watch set and must be ignored.
+        assert not _watch_event_triggers_rebuild(
+            "modified", False, "/site/output/index.html", base, watch_dirs, watch_files
+        )
+        # Config edits rebuild; directory events never do.
+        assert _watch_event_triggers_rebuild(
+            "modified", False, "/site/sonne.yaml", base, watch_dirs, watch_files
+        )
+        assert not _watch_event_triggers_rebuild(
+            "modified", True, "/site/content", base, watch_dirs, watch_files
+        )
+
     def test_rebuild_helper_reloads_config(self, site_factory):
         # The watch rebuild must re-read sonne.yaml, not reuse the Config
         # captured at serve startup.

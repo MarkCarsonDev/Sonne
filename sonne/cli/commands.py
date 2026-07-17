@@ -340,6 +340,52 @@ class ReuseAddrTCPServer(socketserver.TCPServer):
     allow_reuse_address = True
 
 
+# Read-only watchdog event types (watchdog >= 2.3 emits these). The build
+# reads watched files — content markdown, images — on every rebuild, so
+# treating an 'opened'/'closed_no_write' as a change makes each rebuild
+# re-trigger itself into an infinite loop. Only mutations rebuild.
+IGNORED_WATCH_EVENTS = frozenset({"opened", "closed_no_write"})
+
+
+def _watch_event_triggers_rebuild(
+    event_type: str,
+    is_directory: bool,
+    src_path: str,
+    base_dir: str,
+    watch_dirs: list,
+    watch_files: list,
+) -> bool:
+    """Decide whether a filesystem event should trigger a rebuild.
+
+    Kept watchdog-free so the debounce/relevance policy is unit-testable
+    without a real observer. Routes by path components (never string
+    prefixes on the raw path) so it behaves on both POSIX and Windows.
+
+    Args:
+        event_type: watchdog event type string ('modified', 'opened', ...).
+        is_directory: Whether the event targets a directory.
+        src_path: The event's source path.
+        base_dir: The site root the watcher is anchored at.
+        watch_dirs: Relative source directories that should rebuild on change.
+        watch_files: Relative config filenames that should rebuild on change.
+
+    Returns:
+        True if the event is a real mutation inside the watched set.
+    """
+    if is_directory:
+        return False
+    if event_type in IGNORED_WATCH_EVENTS:
+        return False
+    try:
+        rel = os.path.relpath(src_path, base_dir)
+    except ValueError:
+        # Different drive on Windows — cannot be inside base_dir.
+        return False
+    if any(rel == f or rel.startswith(f + os.sep) for f in watch_files):
+        return True
+    return any(rel.startswith(d + os.sep) or rel == d for d in watch_dirs)
+
+
 def _rebuild_site(base_dir: str) -> None:
     """Rebuild a site with a freshly loaded config.
 
@@ -453,19 +499,15 @@ def serve(path, port, host, browser, watch):
                         # on config edits.
                         self.watch_files = list(CONFIG_FILENAMES)
 
-                    def _relevant(self, event_path):
-                        try:
-                            rel = os.path.relpath(event_path, self.base_dir)
-                        except ValueError:
-                            return False
-                        if any(rel == f or rel.startswith(f + os.sep) for f in self.watch_files):
-                            return True
-                        return any(rel.startswith(d + os.sep) or rel == d for d in self.watch_dirs)
-
                     def on_any_event(self, event):
-                        if event.is_directory:
-                            return
-                        if not self._relevant(event.src_path):
+                        if not _watch_event_triggers_rebuild(
+                            event.event_type,
+                            event.is_directory,
+                            event.src_path,
+                            self.base_dir,
+                            self.watch_dirs,
+                            self.watch_files,
+                        ):
                             return
                         # Reset debounce timer on every relevant event
                         with self._lock:
