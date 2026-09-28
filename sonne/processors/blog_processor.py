@@ -897,15 +897,21 @@ class BlogProcessor:
 
         try:
             with Image.open(source_path) as img:
+                # Read the format first: exif_transpose returns a copy, and copies have no
+                # .format, which used to send every PNG down the JPEG path (B12).
+                fmt = img.format or "JPEG"
                 img = ImageOps.exif_transpose(img)
-                img = img.convert("RGB") if img.mode not in ("RGB", "RGBA", "L") else img
+                if img.mode not in ("RGB", "RGBA", "L"):
+                    keeps_alpha = "A" in img.mode or "transparency" in img.info
+                    img = img.convert("RGBA" if keeps_alpha else "RGB")
                 if transforms:
                     img = self._apply_transforms(img, transforms)
                 resized = self._resize_img(img, max_width)
-                fmt = img.format or "JPEG"
                 save_kw = {"optimize": True}
                 if fmt in ("JPEG", "JPG"):
                     save_kw["quality"] = 85
+                    if resized.mode not in ("RGB", "L"):  # JPEG has no alpha channel
+                        resized = resized.convert("RGB")
                 resized.save(output_path, format=fmt, **save_kw)
             return os.path.getsize(output_path) / 1024
         except Exception as e:

@@ -1,6 +1,5 @@
 """Image pipeline: resizing, dithering, only_used, cache keys."""
 
-import pytest
 from PIL import Image
 
 
@@ -112,7 +111,6 @@ def _post_copy(out, name):
 class TestPostImageFormats:
     """Post-relative images are resized and saved beside the post in their own format."""
 
-    @pytest.mark.xfail(strict=True, reason="B12: _save_resized re-encodes PNGs as JPEG")
     def test_png_stays_png(self, site_factory, builder, image_factory):
         site = site_factory("blog", overlay="blog_site")
         image_factory(site / "content" / "blog" / "chart.png", size=(64, 64), fmt="PNG")
@@ -121,7 +119,6 @@ class TestPostImageFormats:
         with Image.open(_post_copy(out, "chart.png")) as saved:
             assert saved.format == "PNG"
 
-    @pytest.mark.xfail(strict=True, reason="B12: _save_resized re-encodes PNGs as JPEG")
     def test_wide_png_with_transparency_is_resized_and_stays_png(self, site_factory, builder):
         site = site_factory("blog", overlay="blog_site")
         Image.new("RGBA", (2000, 40), (20, 120, 200, 128)).save(

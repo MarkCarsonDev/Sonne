@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   executor). Configs that still set it get a warning naming the
   replacement.
 
+### Fixed
+- Images beside a blog post (and post covers) keep their own format (B12).
+  A PNG was re-encoded as JPEG under its `.png` name, and a PNG with
+  transparency failed to save and was copied unresized, logging an error.
+  JPEG output now always drops any alpha channel first, and palette images
+  with transparency keep it.
+
 ## [0.4.0] - 2026-07-05
 
 Open-source readiness release: test suite, CI, packaging modernization, and a
