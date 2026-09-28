@@ -1,5 +1,8 @@
 """Image pipeline: resizing, dithering, only_used, cache keys."""
 
+import pytest
+from PIL import Image
+
 
 class TestContentImages:
     def test_content_image_resized_to_configured_outputs(
@@ -88,3 +91,51 @@ class TestOnlyUsed:
         image_factory(site / "content" / "blog" / "unused.jpg", size=(32, 32))
         _, out = builder(site, config_overrides={("images", "only_used"): True})
         assert not (out / "assets" / "images" / "unused_400_original.webp").exists()
+
+
+def _add_image_to_post(site, markdown):
+    post = site / "content" / "blog" / "2025-02-01-hello-world.md"
+    post.write_text(post.read_text(encoding="utf-8") + f"\n{markdown}\n", encoding="utf-8")
+
+
+def _post_copy(out, name):
+    """The copy of a post-relative image written beside the post (not the dithered variant or asset renditions)."""
+    found = [
+        path
+        for path in out.rglob(name)
+        if "dithered" not in path.parts and "assets" not in path.parts
+    ]
+    assert len(found) == 1, found
+    return found[0]
+
+
+class TestPostImageFormats:
+    """Post-relative images are resized and saved beside the post in their own format."""
+
+    @pytest.mark.xfail(strict=True, reason="B12: _save_resized re-encodes PNGs as JPEG")
+    def test_png_stays_png(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "chart.png", size=(64, 64), fmt="PNG")
+        _add_image_to_post(site, "![chart](chart.png)")
+        _, out = builder(site)
+        with Image.open(_post_copy(out, "chart.png")) as saved:
+            assert saved.format == "PNG"
+
+    @pytest.mark.xfail(strict=True, reason="B12: _save_resized re-encodes PNGs as JPEG")
+    def test_wide_png_with_transparency_is_resized_and_stays_png(self, site_factory, builder):
+        site = site_factory("blog", overlay="blog_site")
+        Image.new("RGBA", (2000, 40), (20, 120, 200, 128)).save(
+            site / "content" / "blog" / "wide.png", format="PNG"
+        )
+        _add_image_to_post(site, "![wide](wide.png)")
+        _, out = builder(site)
+        with Image.open(_post_copy(out, "wide.png")) as saved:
+            assert (saved.format, saved.mode, saved.width) == ("PNG", "RGBA", 1600)
+
+    def test_jpeg_stays_jpeg(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        _add_image_to_post(site, "![photo](photo.jpg)")
+        _, out = builder(site)
+        with Image.open(_post_copy(out, "photo.jpg")) as saved:
+            assert saved.format == "JPEG"
