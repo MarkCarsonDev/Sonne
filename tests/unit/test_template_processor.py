@@ -168,9 +168,9 @@ class TestTemplateStatistics:
     def render(self, site, template):
         source = write(site / "content" / "page.md", f"---\ntemplate: {template}\n---\n# Page\n")
         processor = make_processor(site)
-        processor.stats = BuildStatistics()
+        stats = processor.stats = BuildStatistics()
         processor.process_page(source.read_text(encoding="utf-8"), True, str(source), EMPTY_SCOPES)
-        return processor.stats
+        return stats
 
     def test_rendered_template_is_counted(self, site):
         stats = self.render(site, "page.html")

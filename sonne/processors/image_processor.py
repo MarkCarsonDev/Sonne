@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
 import numpy as np
 from PIL import Image, ImageOps
 
+from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import IMAGE_EXTENSIONS, PAGE_EXTENSIONS
 
 logger = logging.getLogger("sonne")
@@ -140,7 +141,7 @@ class ImageProcessor:
         self.paths = paths
         self.cache = {}
         self.cache_file = None
-        self.stats = None  # Injected by SiteGenerator
+        self.stats: Optional[BuildStatistics] = None  # Injected by SiteGenerator
         self._warned_dither_methods: Set[str] = set()
         self._used_images_by_content_dir: Dict[Optional[str], Set[str]] = {}
         # Images are processed in a thread pool; guards warnings and stats.
@@ -279,7 +280,7 @@ class ImageProcessor:
         static_images_dir = os.path.join(static_dir, "images")
         return static_images_dir if os.path.exists(static_images_dir) else None
 
-    def _collect_used_images(self, content_dir: str) -> Set[str]:
+    def _collect_used_images(self, content_dir: Optional[str]) -> Set[str]:
         """Scan content and template files for image references.
 
         Returns a set of resolved absolute source paths. Absolute references
@@ -427,7 +428,7 @@ class ImageProcessor:
         shutil.copy2(source_path, original_path)
         logger.debug(f"Copied original image: {source_path} -> {original_path}")
         with Image.open(source_path) as opened:
-            image = ImageOps.exif_transpose(opened)
+            image = upright_image(opened)
             dithered = self._apply_dither(image, dither_method, dither_colors)
             _save_in_source_format(dithered, output_path)
         logger.debug(f"Saved dithered image: {source_path} -> {output_path}")
@@ -491,7 +492,7 @@ class ImageProcessor:
         width = height = 0
         try:
             with Image.open(source_path) as opened:
-                image = ImageOps.exif_transpose(opened)
+                image = upright_image(opened)
                 width, height = image.size
                 stem = output_filename or Path(source_path).stem
                 for key, fmt, rel_path in self._write_variants(image, stem, settings):
@@ -642,7 +643,7 @@ class ImageProcessor:
         return self._apply_dither(image)
 
     def _apply_dither(
-        self, img: "Image.Image", method: str = None, colors: int = None
+        self, img: "Image.Image", method: Optional[str] = None, colors: Optional[int] = None
     ) -> "Image.Image":
         """Apply dithering to an image using the configured (or specified) method.
 
@@ -679,13 +680,17 @@ class ImageProcessor:
         elif method in ("grayscale", "palette"):
             return _grayscale_palette_dither(img, colors)
         elif method in ("1bit", "halftone", "floyd_steinberg"):
-            return img.convert("L").convert("1", dither=Image.FLOYDSTEINBERG)
+            return img.convert("L").convert("1", dither=Image.Dither.FLOYDSTEINBERG)
         elif method == "threshold":
-            return img.convert("L").convert("1", dither=Image.NONE)
+            return img.convert("L").convert("1", dither=Image.Dither.NONE)
         elif method == "color_median":
-            return img.convert("RGB").quantize(colors=colors, method=0, dither=1)
+            return img.convert("RGB").quantize(
+                colors=colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG
+            )
         elif method == "color_octree":
-            return img.convert("RGB").quantize(colors=colors, method=2, dither=1)
+            return img.convert("RGB").quantize(
+                colors=colors, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.FLOYDSTEINBERG
+            )
         elif method == "color_lab":
             return _lab_kmeans_dither(img, colors)
         else:
@@ -724,7 +729,7 @@ class ImageProcessor:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
             with Image.open(input_path) as img:
-                img = ImageOps.exif_transpose(img)
+                img = upright_image(img)
                 dithered = self.dither(img)
                 dithered.save(output_path, optimize=True, format="PNG")
 
@@ -747,6 +752,16 @@ class ImageProcessor:
             logger.error(f"Error copying original image {input_path}: {e}")
 
 
+def upright_image(image: "Image.Image") -> "Image.Image":
+    """The image rotated/flipped per its EXIF orientation (a copy, or the image itself).
+
+    ImageOps.exif_transpose is typed Optional because it returns None in
+    in-place mode; this is the not-in-place call.
+    """
+    transposed = ImageOps.exif_transpose(image)
+    return image if transposed is None else transposed
+
+
 def _joined(values) -> str:
     return "-".join(map(str, values))
 
@@ -760,7 +775,7 @@ def _resize_to_width(image: "Image.Image", width: int) -> "Image.Image":
     if image.width <= width:
         return image.copy()
     height = int(image.height * (width / float(image.width)))
-    resample = Image.BICUBIC if width <= BICUBIC_MAX_WIDTH else Image.LANCZOS
+    resample = Image.Resampling.BICUBIC if width <= BICUBIC_MAX_WIDTH else Image.Resampling.LANCZOS
     return image.resize((width, height), resample)
 
 
@@ -848,7 +863,7 @@ def _bayer_dither(img: "Image.Image", levels: int = 4) -> "Image.Image":
     quantized = np.clip(np.floor(gray / step + thresholds) * step, 0.0, 1.0)
     out = Image.fromarray((quantized * 255).astype("uint8"), "L")
     # Palette mode compresses better as PNG; no dither, it is already applied.
-    return out.convert("P", palette=1, colors=levels, dither=0)
+    return out.convert("P", palette=Image.Palette.ADAPTIVE, colors=levels, dither=Image.Dither.NONE)
 
 
 def _grayscale_palette_dither(img: "Image.Image", palette_colors: int = 4) -> "Image.Image":
@@ -862,8 +877,12 @@ def _grayscale_palette_dither(img: "Image.Image", palette_colors: int = 4) -> "I
         PIL Image in P (palette) mode with a grayscale palette.
     """
     palette_colors = max(MIN_PALETTE_SIZE, min(MAX_PALETTE_SIZE, int(palette_colors)))
-    # palette=1 is Image.Palette.ADAPTIVE, dither=1 is Floyd-Steinberg
-    return img.convert("L").convert("P", palette=1, colors=palette_colors, dither=1)
+    return img.convert("L").convert(
+        "P",
+        palette=Image.Palette.ADAPTIVE,
+        colors=palette_colors,
+        dither=Image.Dither.FLOYDSTEINBERG,
+    )
 
 
 def _lab_kmeans_dither(img: "Image.Image", k: int = 4) -> "Image.Image":

@@ -29,7 +29,8 @@ class TestRss:
         from email.utils import parsedate_to_datetime
 
         tree = ET.parse(rss_out)
-        dates = [d.text for d in tree.getroot().iter("pubDate")]
+        # An empty <pubDate> becomes "", which parsedate_to_datetime rejects
+        dates = [d.text or "" for d in tree.getroot().iter("pubDate")]
         assert dates
         for d in dates:
             parsed = parsedate_to_datetime(d)
