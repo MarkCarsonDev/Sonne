@@ -9,7 +9,7 @@
     {% if categories %}
     <div class="category-cloud">
         {% for category_name, category_data in categories.items() %}
-        <a href="/blog/categories/{{ category_data.slug }}/" class="category">
+        <a href="{{ category_url(category_data.name) }}" class="category">
             {{ category_name }} ({{ category_data.posts|length }})
         </a>
         {% endfor %}
@@ -20,7 +20,7 @@
         <ul>
             {% for category_name, category_data in categories.items()|sort %}
             <li>
-                <a href="/blog/categories/{{ category_data.slug }}/">{{ category_name }}</a> 
+                <a href="{{ category_url(category_data.name) }}">{{ category_name }}</a> 
                 ({{ category_data.posts|length }} post{% if category_data.posts|length > 1 %}s{% endif %})
             </li>
             {% endfor %}
@@ -31,7 +31,7 @@
     {% endif %}
     
     <div class="category-nav">
-        <a href="/blog/" class="btn">Back to Blog</a>
+        <a href="{{ blog_url() }}" class="btn">Back to Blog</a>
     </div>
 </div>
 {% endblock %}

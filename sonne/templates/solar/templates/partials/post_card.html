@@ -18,7 +18,7 @@
         {% if post[taxonomy] %}
         <div class="blog-tags">
             {% for term in post[taxonomy] %}
-            <a href="/blog/{{ taxonomy }}/{{ term | slugify }}/" class="tag{% if term in (page.tag, page.category) %} active{% endif %}">{{ term }}</a>
+            <a href="{{ tag_url(term) if taxonomy == 'tags' else category_url(term) }}" class="tag{% if term in (page.tag, page.category) %} active{% endif %}">{{ term }}</a>
             {% endfor %}
         </div>
         {% endif %}
