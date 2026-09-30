@@ -1,5 +1,6 @@
 """The bundled solar template builds into working pages."""
 
+import logging
 import urllib.request
 from urllib.error import URLError
 
@@ -58,3 +59,8 @@ class TestSolarTemplate:
         page = read_page(output, "blog", "energy-efficient-web-design-principles")
         assert '<img alt="Energy-Efficient Web Design Principles" src="/images/vogel.jpg"' in page
         assert (output / "images" / "vogel.jpg").exists()
+
+    def test_scripts_do_not_replace_site_config_values(self, solar_site, builder, caplog):
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            builder(solar_site)
+        assert "replaces the site variable" not in caplog.text

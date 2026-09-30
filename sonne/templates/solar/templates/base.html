@@ -219,7 +219,7 @@
     </header>
     
     <div class="container">
-        {% if battery or weather %}
+        {% if battery or current_weather %}
         <div class="status-bar">
             {% if battery %}
             <div class="battery-status">
@@ -231,10 +231,10 @@
             </div>
             {% endif %}
             
-            {% if weather %}
+            {% if current_weather %}
             <div class="weather-status">
-                <span class="weather-icon">{{ weather.icon_text }}</span>
-                <span>{{ weather.temperature }}°{{ weather.unit_symbol }} | {{ weather.location }}</span>
+                <span class="weather-icon">{{ current_weather.icon_text }}</span>
+                <span>{{ current_weather.temperature }}°{{ current_weather.unit_symbol }} | {{ current_weather.location }}</span>
             </div>
             {% endif %}
         </div>
