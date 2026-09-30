@@ -217,6 +217,7 @@ Any other key under `site` is passed through to templates unchanged.
 | `content.render_jinja` | `false` | Render content files through Jinja before Markdown. Per-file front matter `jinja: true` or `false` overrides it. See [Variables in Content](#variables-in-content-jinja). |
 | `variables.file` | `sonne_variables.json` | File used by `variables.preserve_prior`. |
 | `variables.preserve_prior` | `false` | Keep script-produced variables between builds. By default every build starts fresh. |
+| `variables.flatten_data` | `true` | Also expose data files and script variables flat, next to site config (legacy). They are always available as `data.<name>`; set `false` so they can never replace site config. The default will become `false`. |
 | `serve.host` | `localhost` | `sonne serve` host (the `--host` option overrides it). |
 | `serve.port` | `8000` | `sonne serve` port (the `--port` option overrides it). |
 | `environment` | `prod` | Selects the `url_style` entry. `sonne build --dev` sets `dev`, and custom names work when `url_style` has an entry for them. |
@@ -439,7 +440,27 @@ Available across all templates:
 - `page`: Current page information
 - `all_blog_posts`: List of all blog posts (when blog is enabled)
 - `all_pages`: List of every content page (see below)
-- Custom global variables set in data files or scripts
+- `data`: every data file and script variable, by name (see below)
+- Custom global variables set in data files or scripts (legacy flat access)
+
+### The `data` Namespace
+
+Each file in `data/` is available as `data.<file name>`, and each script
+variable (`sonne_var("name", ...)`) as `data.<name>`, in every template as
+`data.*` and `site.data.*`:
+
+```html
+<!-- data/authors.yaml:  alice: Alice A. -->
+By {{ data.authors.alice }}
+{% for book in data.books %}{{ book.title }}{% endfor %}  {# data/books.csv #}
+```
+
+For backward compatibility they are also exposed the old flat way: the keys
+of a mapping data file merged into `site`, script variables at the top level.
+Flat names can clash with site config (a script variable `weather` replaces
+`site.weather`; Sonne warns when that happens). Set
+`variables.flatten_data: false` to use only `data.*`, which can never
+clash. That will become the default in a future release.
 
 ### Listing Pages (`all_pages`)
 
