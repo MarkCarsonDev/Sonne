@@ -1,8 +1,10 @@
 """
 Page-size labels for generated HTML (``build.show_page_size``).
 
-Each page gets a small fixed-position label with its HTML weight; hovering
-reveals the total including locally served images it references.
+Each page gets a short note after its content with its HTML weight and,
+when it references local images, the total including them. The note is plain
+text in the page flow: always visible (no hover), in the page's own colours
+(WCAG 1.4.3, 1.4.13) and never covering content (1.4.10).
 """
 
 import logging
@@ -14,33 +16,11 @@ logger = logging.getLogger("sonne")
 
 LABEL_ID = "page-size-label"
 
-# Rough byte count of the injected <span>, so the label includes itself.
-LABEL_OVERHEAD_BYTES = 150
+# Rough byte count of the injected note, so the size includes it.
+LABEL_OVERHEAD_BYTES = 200
 
-LABEL_CSS = (
-    '<style id="page-size-css">'
-    "#page-size-label{"
-    "position:fixed;bottom:0.4rem;right:0.6rem;"
-    "font-size:0.7rem;font-family:monospace;"
-    "opacity:0.35;cursor:default;z-index:9999;"
-    "}"
-    "#page-size-label:hover{opacity:0.85}"
-    "#page-size-label[data-full]::after{"
-    "content:attr(data-full);"
-    "display:none;"
-    "position:absolute;bottom:1.4rem;right:0;"
-    "background:var(--bg,#141514);"
-    "border:0.1px solid #ffffff33;"
-    "padding:0.2rem 0.5rem;"
-    "border-radius:0.2em;"
-    "white-space:nowrap;"
-    "font-size:0.65rem;"
-    "opacity:1;"
-    "}"
-    "#page-size-label[data-full]:hover::after{display:block}"
-    "</style>"
-)
-LABEL_CSS_BYTES = len(LABEL_CSS.encode("utf-8"))
+# Inline, so the note needs no stylesheet; it inherits the page's colours.
+LABEL_STYLE = "font-size: 0.8em; margin: 1em;"
 
 # Group 1 is the image path, without any ?query or #fragment.
 IMAGE_SRC_PATTERN = re.compile(
@@ -77,7 +57,7 @@ def _label_file(html_path: str, output_dir: str) -> None:
         before_body_end, body_end, after_body_end = html.rpartition("</body>")
         if not body_end:
             return
-        label = LABEL_CSS + _label_html(html, html_path, output_dir)
+        label = _label_html(html, html_path, output_dir)
         labelled = before_body_end + label + body_end + after_body_end
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(labelled)
@@ -86,13 +66,15 @@ def _label_file(html_path: str, output_dir: str) -> None:
 
 
 def _label_html(html: str, html_path: str, output_dir: str) -> str:
-    page_bytes = len(html.encode("utf-8")) + LABEL_CSS_BYTES + LABEL_OVERHEAD_BYTES
-    label_text = f"~{page_bytes / BYTES_PER_KB:.1f} KB*"
+    """The note: a labelled <aside> ("Page size: ~12.3 KB (~45 KB with images)")."""
+    page_bytes = len(html.encode("utf-8")) + LABEL_OVERHEAD_BYTES
+    text = f"Page size: ~{page_bytes / BYTES_PER_KB:.1f} KB"
     image_bytes = _local_image_bytes(html, os.path.dirname(html_path), output_dir)
-    if not image_bytes:
-        return f'<span id="{LABEL_ID}">{label_text}</span>'
-    full_text = f"~{(page_bytes + image_bytes) / BYTES_PER_KB:.0f} KB with images"
-    return f'<span id="{LABEL_ID}" data-full="{full_text}">{label_text}</span>'
+    if image_bytes:
+        text += f" (~{(page_bytes + image_bytes) / BYTES_PER_KB:.0f} KB with images)"
+    return (
+        f'<aside id="{LABEL_ID}" aria-label="Page size" style="{LABEL_STYLE}"><p>{text}</p></aside>'
+    )
 
 
 def _local_image_bytes(html: str, html_dir: str, output_dir: str) -> int:

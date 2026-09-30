@@ -29,6 +29,8 @@
     <p>No posts in this period.</p>
     {% endif %}
 
-    <p class="tag-nav"><a href="{{ blog_url() }}">Back to Blog</a></p>
+    <nav class="tag-nav" aria-label="Blog">
+        <p><a href="{{ blog_url() }}">Back to Blog</a></p>
+    </nav>
 </div>
 {% endblock %}

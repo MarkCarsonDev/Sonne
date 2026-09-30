@@ -7,19 +7,21 @@
     <header class="page-header">
         <h1>All Tags</h1>
     </header>
-    
+
     {% if tags %}
-    <div class="tag-cloud">
+    <ul class="tag-cloud" role="list" style="list-style: none; padding: 0;">
         {% for tag_name, tag_data in tags.items() %}
-        <a href="{{ tag_url(tag_data.name) }}" class="tag tag-{{ tag_data.posts|length }}">
-            {{ tag_name }} ({{ tag_data.posts|length }})
-        </a>
+        <li style="display: inline;"><a href="{{ tag_url(tag_data.name) }}" class="tag tag-{{ tag_data.posts|length }}">
+            {{ tag_name }} ({{ tag_data.posts|length }}<span style="position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0;"> posts</span>)
+        </a></li>
         {% endfor %}
-    </div>
+    </ul>
     {% else %}
     <p>No tags found.</p>
     {% endif %}
-    
-    <p class="tag-nav"><a href="{{ blog_url() }}">Back to Blog</a></p>
+
+    <nav class="tag-nav" aria-label="Blog">
+        <p><a href="{{ blog_url() }}">Back to Blog</a></p>
+    </nav>
 </div>
 {% endblock %}

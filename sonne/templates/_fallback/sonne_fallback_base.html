@@ -1,13 +1,25 @@
-{# Minimal page used by Sonne's fallback templates when a site has no base.html. #}
+{# Minimal page used by Sonne's fallback templates when a site has no base.html.
+   Same skip-link approach as the starter templates: "#main", focusable main. #}
 <!DOCTYPE html>
 <html lang="{{ site.language | default('en') }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ page.title }}{% if site.title %} | {{ site.title }}{% endif %}</title>
+    <style>
+        /* Off-screen until focused, then shown in place (WCAG 2.4.1). */
+        .skip-link { position: absolute; left: -10000px; }
+        .skip-link:focus { position: static; }
+        /* The skip link's target: focused programmatically, needs no ring. */
+        main:focus { outline: none; }
+    </style>
 </head>
 <body>
-    <main>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header>
+        <p><a href="/">{{ site.title | default('Home') }}</a></p>
+    </header>
+    <main id="main" tabindex="-1">
         {% block content %}{% endblock %}
     </main>
 </body>
