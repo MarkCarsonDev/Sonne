@@ -42,7 +42,6 @@ class TestDefaults:
             builder(jinja_site)
         assert any("removed Sonne/Mond markers" in r.message for r in caplog.records)
 
-    @pytest.mark.xfail(strict=True, reason="B21: legacy-marker warnings are once per process")
     def test_legacy_markers_warn_on_every_build(self, jinja_site, builder, caplog):
         write(
             jinja_site / "content" / "old.md",

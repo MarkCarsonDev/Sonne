@@ -77,6 +77,11 @@ DITHER_ICON_CELLS = [
 ]
 DITHER_ICON_CELL_SIZE = "24.28"
 
+# Legacy substitution/embedded-python markers. These syntaxes were removed
+# (they were never wired into the build); markers found in content now
+# render literally, so the author is warned once per file.
+LEGACY_MARKER_RE = re.compile(r"\{\+\}\{|\{-\}\{|\{p\}\{#")
+
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 
 # Markers identify Sonne's injected assets so they are never added twice.
@@ -223,6 +228,9 @@ class TemplateProcessor:
         self.dithering_enabled = self.config.get("images", "dither", default=True)
         logger.info(f"Dithering enabled: {self.dithering_enabled}")
         self.jinja_env = self._create_jinja_env()
+        # Per instance, so every build (including `sonne serve` rebuilds)
+        # warns once per file.
+        self._legacy_marker_warned = set()
 
     def _create_jinja_env(self) -> jinja2.Environment:
         """Create the Jinja environment: site templates first, then built-ins."""
@@ -340,17 +348,11 @@ class TemplateProcessor:
                 logger.error(f"Error parsing {syntax} front matter: {e}")
         return {}, content
 
-    # Legacy substitution/embedded-python markers. These syntaxes were
-    # removed (they were never wired into the build); markers found in
-    # content now render literally, so warn the author once per file.
-    _LEGACY_MARKER_RE = re.compile(r"\{\+\}\{|\{-\}\{|\{p\}\{#")
-    _legacy_marker_warned = set()
-
     def _warn_legacy_markers(self, content: str, source: str) -> None:
         """Warn once per source file about removed {+}{}/{-}{}/{p}{# syntax."""
         if source in self._legacy_marker_warned:
             return
-        if self._LEGACY_MARKER_RE.search(content):
+        if LEGACY_MARKER_RE.search(content):
             self._legacy_marker_warned.add(source)
             logger.warning(
                 f"{source} contains removed Sonne/Mond markers ({{+}}{{...}}, "
