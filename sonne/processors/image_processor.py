@@ -86,6 +86,17 @@ IMAGE_REF_PATTERN = re.compile(
 
 
 @dataclass(frozen=True)
+class ImageWorkload:
+    """Source images one process_all() run handles, in processing order."""
+
+    content: List[str]
+    static: List[str]
+
+    def __len__(self) -> int:
+        return len(self.content) + len(self.static)
+
+
+@dataclass(frozen=True)
 class VariantSettings:
     """Every setting that affects the variants written for a content image."""
 
@@ -193,20 +204,39 @@ class ImageProcessor:
             content_dir: Directory containing content to scan for images.
             skip_cache: Whether to skip cache and reprocess all images.
         """
-        used_paths = self._used_image_paths(content_dir)
-
-        if content_dir and os.path.exists(content_dir):
+        images = self.images_to_process(content_dir)
+        if images.content:
             logger.info(f"Processing images in content directory: {content_dir}")
-            self._process_directory_images(content_dir, skip_cache, used_paths=used_paths)
-
-        static_images_dir = self._static_images_dir()
-        if static_images_dir:
-            logger.info(f"Processing images in static/images directory: {static_images_dir}")
-            self._process_directory_images(
-                static_images_dir, skip_cache, is_static=True, used_paths=used_paths
+            self._run_for_each(
+                lambda path: self.process_image(path, skip_cache=skip_cache), images.content
             )
-
+        if images.static:
+            logger.info(
+                f"Processing images in static/images directory: {self._static_images_dir()}"
+            )
+            self._run_for_each(
+                lambda path: self._process_static_image(path, skip_cache=skip_cache), images.static
+            )
         self._save_cache()
+
+    def images_to_process(self, content_dir: str) -> "ImageWorkload":
+        """The images process_all() processes: content images, then static/images.
+
+        Raster images only, skipping hidden files and directories (below the
+        scanned directory), and unreferenced images when images.only_used is on.
+
+        Args:
+            content_dir: Directory containing content to scan for images.
+        """
+        used_paths = self._used_image_paths(content_dir)
+        content_images = (
+            _find_images(content_dir, used_paths)
+            if content_dir and os.path.exists(content_dir)
+            else []
+        )
+        static_images_dir = self._static_images_dir()
+        static_images = _find_images(static_images_dir, used_paths) if static_images_dir else []
+        return ImageWorkload(content=content_images, static=static_images)
 
     def owns_static_file(self, source_path: str) -> bool:
         """Whether image processing writes this static file's output itself.
@@ -295,27 +325,6 @@ class ImageProcessor:
         except OSError as e:
             logger.debug(f"Could not resolve image reference {ref}: {e}")
             return None
-
-    def _process_directory_images(
-        self,
-        directory: str,
-        skip_cache: bool = False,
-        is_static: bool = False,
-        used_paths: Optional[Set[str]] = None,
-    ) -> None:
-        """Process all images in a directory, optionally in parallel.
-
-        Args:
-            directory: Directory to scan for images.
-            skip_cache: Whether to skip cache and reprocess.
-            is_static: Whether this is the static/images directory.
-            used_paths: If set, only process images whose absolute path is in this set.
-        """
-        image_paths = _find_images(directory, used_paths)
-        if not image_paths:
-            return
-        process = self._process_static_image if is_static else self.process_image
-        self._run_for_each(lambda path: process(path, skip_cache=skip_cache), image_paths)
 
     def _run_for_each(self, process: Callable[[str], Any], image_paths: List[str]) -> None:
         """Run ``process`` on every path, in a thread pool when enabled; log failures."""

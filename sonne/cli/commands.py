@@ -21,6 +21,8 @@ from typing import List
 import yaml
 from rich.console import Console
 from rich.panel import Panel
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 from sonne.core.config import Config
 from sonne.core.site_generator import SiteGenerator
@@ -577,20 +579,12 @@ def _paths_touched_by(event) -> List[str]:
     return [] if event.is_directory else [event.src_path]
 
 
-def _start_watching(path: str, config: Config):
+def _start_watching(path: str, config: Config) -> Observer:
     """Start a watchdog observer that feeds a SiteRebuilder.
 
     Returns:
-        The running observer, or None when watchdog is not installed.
+        The running observer.
     """
-    try:
-        from watchdog.observers import Observer
-        from watchdog.events import FileSystemEventHandler
-    except ImportError:
-        click.echo("watchdog not installed — file watching disabled")
-        click.echo("Install with: pip install watchdog")
-        return None
-
     rebuilder = SiteRebuilder(path, config)
 
     class _WatchdogAdapter(FileSystemEventHandler):
