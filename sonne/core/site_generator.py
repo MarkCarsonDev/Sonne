@@ -3,32 +3,44 @@ Core site generation functionality for Sonne.
 Coordinates the various processing steps to generate a complete static site.
 """
 
+import logging
 import os
 import shutil
-import logging
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Optional
 
-from sonne.core.config import Config
+from sonne.core.config import DEFAULT_CONFIG, Config
 from sonne.core.variable_manager import VariableManager
 from sonne.processors.blog_processor import BlogProcessor
-from sonne.processors.template_processor import TemplateProcessor
 from sonne.processors.image_processor import ImageProcessor
-from sonne.utils.file_utils import (
-    copy_static_files,
-    ensure_dir,
-    copy_template_static_files,
-    copy_core_static_files,
-)
+from sonne.processors.template_processor import TemplateProcessor
 from sonne.utils.build_stats import BuildStatistics
+from sonne.utils.constants import MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
+from sonne.utils.file_utils import (
+    copy_core_static_files,
+    copy_static_files,
+    copy_template_static_files,
+    ensure_dir,
+)
+from sonne.utils.page_location import page_output_path, page_url
+from sonne.utils.page_size import inject_page_size_labels
+from sonne.utils.path_utils import sorted_paths, validate_path_within_root
 
 logger = logging.getLogger("sonne")
+
+# Steps every build runs: data scripts, static copy, pages, finalize.
+ALWAYS_RUN_STEP_COUNT = 5
+BLOG_STEP_COUNT = 2  # collect metadata + render posts
+IMAGE_STEP_COUNT = 1
 
 
 class SiteGenerator:
     """Main site generation coordinator."""
 
-    def __init__(self, config: Config, base_dir: str = None):
+    def __init__(self, config: Config, base_dir: Optional[str] = None):
         """Initialize site generator with configuration.
 
         Args:
@@ -38,44 +50,12 @@ class SiteGenerator:
         self.config = config
         self.base_dir = os.path.abspath(base_dir or os.getcwd())
 
-        # Set default paths if not in config
-        if "paths" not in self.config.config:
-            self.config.config["paths"] = {}
-
-        # Ensure required path keys exist with defaults
-        default_paths = {
-            "content": "content",
-            "output": "output",
-            "static": "static",
-            "templates": "templates",
-            "data": "data",
-            "cache": ".cache",
-            "scripts": "scripts",
-        }
-
-        for key, default in default_paths.items():
-            if key not in self.config.config["paths"] or not self.config.config["paths"][key]:
-                self.config.config["paths"][key] = default
-
-        # Normalize paths
-        self.paths = {}
-        for key, value in self.config.config["paths"].items():
-            if value:  # Only add paths that have a value
-                if not os.path.isabs(value):
-                    full_path = os.path.abspath(os.path.join(self.base_dir, value))
-                else:
-                    full_path = value
-
-                # Ensure the directory exists for output paths
-                if key in ["output", "cache"]:
-                    os.makedirs(full_path, exist_ok=True)
-
-                self.paths[key] = full_path
+        self._fill_missing_paths()
+        self.paths = self.config.normalize_paths(self.base_dir)
 
         logger.debug(f"URL style: {self.config.get_url_style()}")
         logger.debug(f"Paths: {self.paths}")
 
-        # Initialize processors
         self.variable_manager = VariableManager(config, self.base_dir)
         self.template_processor = TemplateProcessor(config, self.paths)
         self.image_processor = ImageProcessor(config, self.paths)
@@ -85,6 +65,18 @@ class SiteGenerator:
 
         # Build statistics (shared across all processors)
         self.stats = BuildStatistics()
+        # Per-build state, reset by each generate().
+        self._progress = _StepProgress(0)
+        # Which source file produced each output file, so collisions
+        # (about.md vs about/index.md) warn instead of silently
+        # last-writer-winning.
+        self._written_outputs: dict[str, str] = {}
+
+    def _fill_missing_paths(self) -> None:
+        """Give every standard path key its default when unset or empty."""
+        for key, default in DEFAULT_CONFIG["paths"].items():
+            if not self.config.get("paths", key):
+                self.config.set("paths", key, value=default)
 
     def clean_output(self) -> None:
         """Clean the output directory by removing all files."""
@@ -97,20 +89,9 @@ class SiteGenerator:
         for item in os.listdir(output_dir):
             item_path = os.path.join(output_dir, item)
             try:
-                if os.path.isfile(item_path) or os.path.islink(item_path):
-                    os.unlink(item_path)
-                    logger.debug(f"Deleted file: {item_path}")
-                elif os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-                    logger.debug(f"Deleted directory: {item_path}")
-            except PermissionError as e:
-                logger.error(f"Permission denied when cleaning {item_path}: {e}")
-                failed_items.append(item)
-            except OSError as e:
-                logger.error(f"OS error when cleaning {item_path}: {e}")
-                failed_items.append(item)
+                _remove_path(item_path)
             except Exception as e:
-                logger.error(f"Unexpected error cleaning {item_path}: {e}")
+                logger.error(f"Could not clean {item_path}: {type(e).__name__}: {e}")
                 failed_items.append(item)
 
         if failed_items:
@@ -118,87 +99,135 @@ class SiteGenerator:
         else:
             logger.info(f"Successfully cleaned output directory: {output_dir}")
 
-    def generate(self, skip_images: bool = False, skip_cache: bool = False) -> BuildStatistics:
+    def generate(
+        self, skip_images: bool = False, skip_cache: bool = False, show_progress: bool = True
+    ) -> BuildStatistics:
         """Generate the complete static site.
 
         Args:
             skip_images: Whether to skip image processing.
             skip_cache: Whether to ignore cache and rebuild everything.
+            show_progress: Log the "[n/N] step" lines at INFO; when False they
+                are logged at DEBUG only (``sonne build --no-progress``).
 
         Returns:
             BuildStatistics with timing and metrics for this build.
-        """
-        self.stats = BuildStatistics()
 
-        # Share the stats object with processors so they can record timings
+        Raises:
+            Exception: Whatever a build phase raised, after logging it.
+        """
+        self._start_statistics()
+        try:
+            self._run_build(skip_images, skip_cache, show_progress)
+        except Exception as e:
+            self.stats.finish()
+            logger.error(f"Error generating site: {e}", exc_info=logger.isEnabledFor(logging.DEBUG))
+            raise
+        self.stats.finish()
+        logger.info("Site generation complete")
+        return self.stats
+
+    def _start_statistics(self) -> None:
+        """Start a fresh BuildStatistics and share it with the processors."""
+        self.stats = BuildStatistics()
         self.image_processor.stats = self.stats
+        self.template_processor.stats = self.stats
         self.blog_processor.stats = self.stats
         self.variable_manager.stats = self.stats
 
+    def _run_build(self, skip_images: bool, skip_cache: bool, show_progress: bool) -> None:
+        ensure_dir(self.paths["output"])
+        blog_enabled = self.config.get("blog", "enabled", default=True)
+        self._progress = _StepProgress(
+            _count_build_steps(blog_enabled, skip_images), visible=show_progress
+        )
+
+        self._written_outputs = {}
+
+        # Post and page metadata come first so data scripts can reference them.
+        if blog_enabled:
+            self._collect_post_metadata()
+        page_files = self._page_files()
+        self._collect_page_metadata(page_files)
+        self._run_data_scripts()
+        self._copy_static_files(skip_images)
+        if not skip_images:
+            self._process_images(skip_cache)
+        if blog_enabled:
+            self._render_posts()
+        self._render_pages(page_files)
+        self._finalize()
+
+    @contextmanager
+    def _timed_phase(self, name: str) -> Iterator[None]:
+        started = time.perf_counter()
         try:
-            # Ensure output directory exists
-            ensure_dir(self.paths["output"])
+            yield
+        finally:
+            # A failed phase still reports how long it ran.
+            self.stats.record_phase(name, time.perf_counter() - started)
 
-            blog_enabled = self.config.get("blog", "enabled", default=True)
-            step = 0
-            # Always-run steps: scripts, static, pages, finalize (4).
-            # Blog adds two (metadata + render); images add one.
-            total_steps = 4 + (2 if blog_enabled else 0) + (0 if skip_images else 1)
+    def _collect_post_metadata(self) -> None:
+        self._progress.step("Collecting post metadata")
+        self.blog_processor.collect_post_metadata()
+        self._progress.detail(f"{_count(len(self.blog_processor.posts), 'post')} found")
 
-            # Track which source file produced each output file so
-            # collisions (about.md vs about/index.md) warn instead of
-            # silently last-writer-winning.
-            self._written_outputs = {}
+    def _collect_page_metadata(self, page_files: list[Path]) -> None:
+        """Expose every content page to templates and scripts as ``all_pages``."""
+        self._progress.step("Collecting page metadata")
+        pages = [page for page in map(self._page_entry, page_files) if page is not None]
+        pages.sort(key=lambda page: page["url"])
+        self.variable_manager.set("all_pages", pages, "global")
+        self._progress.detail(f"{_count(len(pages), 'page')} found")
 
-            def step_log(msg):
-                nonlocal step
-                step += 1
-                logger.info(f"[{step}/{total_steps}] {msg}")
+    def _page_entry(self, file_path: Path) -> Optional[dict[str, Any]]:
+        """A page's front matter plus its title, url, section and source path.
 
-            # Step: Collect blog post metadata early so data scripts can reference posts
-            if blog_enabled:
-                step_log("Collecting post metadata")
-                self.blog_processor.collect_post_metadata()
-                post_count = len(self.blog_processor.posts)
-                logger.info(f"         {post_count} post{'s' if post_count != 1 else ''} found")
+        The title defaults to the file name, or the folder name for an index
+        page. The section is the page's top-level folder under content/
+        ("" for pages at the root). None if the page can't be read.
+        """
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                front_matter, _body = self.template_processor.extract_front_matter(f.read())
+        except (OSError, UnicodeDecodeError) as e:
+            logger.error(f"Error reading page metadata from {file_path}: {e}")
+            return None
+        rel_source = file_path.relative_to(self.paths["content"])
+        output_path = page_output_path(rel_source, self.config.get_url_style())
+        default_title = rel_source.parent.name if rel_source.stem == "index" else rel_source.stem
+        return {
+            **front_matter,
+            "title": front_matter.get("title") or default_title,
+            "url": self.config.format_url(page_url(output_path)),
+            "section": rel_source.parts[0] if len(rel_source.parts) > 1 else "",
+            "source_path": str(file_path),
+        }
 
-            # Step: Run data scripts
-            scripts_dir = getattr(self.variable_manager, "scripts_dir", None)
-            script_count = 0
-            if scripts_dir and os.path.exists(scripts_dir):
-                script_count = len(
-                    [
-                        f
-                        for f in os.listdir(scripts_dir)
-                        if f.endswith(".py") and not f.startswith("_")
-                    ]
-                )
-            step_log(
-                f"Running data scripts  ({script_count} script{'s' if script_count != 1 else ''})"
-            )
-            _t = time.perf_counter()
+    def _run_data_scripts(self) -> None:
+        script_count = len(self.variable_manager.data_script_paths())
+        self._progress.step(f"Running data scripts  ({_count(script_count, 'script')})")
+        with self._timed_phase("scripts"):
             self.variable_manager.load_variables()
             # Hand script-registered Jinja filters/globals to the renderer
             self.template_processor.register_extensions(
                 self.variable_manager.custom_filters,
                 self.variable_manager.custom_globals,
             )
-            self.stats.record_phase("scripts", time.perf_counter() - _t)
-            logger.debug(
-                "Global variables: "
-                + str(list(self.variable_manager.variables.get("global", {}).keys()))
-            )
-            logger.debug(
-                "Site variables: "
-                + str(list(self.variable_manager.variables.get("site", {}).keys()))
-            )
+        variables = self.variable_manager.variables
+        logger.debug(f"Global variables: {list(variables.get('global', {}).keys())}")
+        logger.debug(f"Site variables: {list(variables.get('site', {}).keys())}")
 
-            # Step: Copy static files
-            static_dir = self.paths.get("static")
-            output_dir = self.paths["output"]
-            step_log("Copying static files")
-            _t = time.perf_counter()
-            copy_static_files(static_dir, output_dir)
+    def _copy_static_files(self, skip_images: bool) -> None:
+        static_dir = self.paths.get("static")
+        output_dir = self.paths["output"]
+        # Files the image step will write (dithered static/images) must not
+        # be overwritten with their raw sources first; with --skip-images
+        # nothing writes them, so they are copied raw.
+        skip = None if skip_images else self.image_processor.owns_static_file
+        self._progress.step("Copying static files")
+        with self._timed_phase("static_copy"):
+            copy_static_files(static_dir, output_dir, skip=skip)
             # Dithering CSS/JS ship with the package (single source of
             # truth) and are only emitted — always refreshed — when
             # dithering is enabled.
@@ -206,295 +235,158 @@ class SiteGenerator:
                 copy_core_static_files(output_dir)
             if not static_dir or not os.path.exists(static_dir):
                 copy_template_static_files(self.base_dir, output_dir)
-            self.stats.record_phase("static_copy", time.perf_counter() - _t)
 
-            # Step: Process images
-            if not skip_images:
-                content_dir = self.paths.get("content", "")
-                img_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-                img_count = (
-                    sum(
-                        1
-                        for r, _, fs in os.walk(content_dir)
-                        for f in fs
-                        if os.path.splitext(f)[1].lower() in img_exts
-                    )
-                    if content_dir and os.path.exists(content_dir)
-                    else 0
-                )
-                workers = self.image_processor.config.get(
-                    "images", "parallel_workers", default=None
-                )
-                max_w = int(workers) if workers else min(4, (os.cpu_count() or 1))
-                step_log(
-                    f"Processing images  ({img_count} image{'s' if img_count != 1 else ''}, {max_w} workers)"
-                )
-                _t = time.perf_counter()
-                self.image_processor.process_all(content_dir, skip_cache=skip_cache)
-                self.stats.record_phase("images", time.perf_counter() - _t)
+    def _process_images(self, skip_cache: bool) -> None:
+        content_dir = self.paths.get("content", "")
+        image_count = _count(len(self.image_processor.images_to_process(content_dir)), "image")
+        self._progress.step(
+            f"Processing images  ({image_count}, {self.image_processor.worker_count()} workers)"
+        )
+        with self._timed_phase("images"):
+            self.image_processor.process_all(content_dir, skip_cache=skip_cache)
 
-            # Step: Render blog posts
-            if blog_enabled:
-                step_log(
-                    f"Rendering blog posts  ({post_count} post{'s' if post_count != 1 else ''})"
-                )
-                _t = time.perf_counter()
-                self.blog_processor.process_all_posts()
-                self.stats.record_phase("blog", time.perf_counter() - _t)
+    def _render_posts(self) -> None:
+        post_count = _count(len(self.blog_processor.posts), "post")
+        self._progress.step(f"Rendering blog posts  ({post_count})")
+        with self._timed_phase("blog"):
+            self.blog_processor.process_all_posts()
 
-            # Step: Render pages
-            content_dir = self.paths.get("content", "")
-            blog_dir_name = self.config.get("blog", "directory", default="blog")
-            page_exts = {".html", ".htm", ".md", ".markdown"}
-            page_count = 0
-            if content_dir and os.path.exists(content_dir):
-                blog_sub = Path(content_dir, blog_dir_name).resolve() if blog_dir_name else None
-                for r, _, fs in os.walk(content_dir):
-                    if blog_sub and self._is_within(r, blog_sub):
-                        continue
-                    page_count += sum(1 for f in fs if os.path.splitext(f)[1].lower() in page_exts)
-            step_log(f"Rendering pages  ({page_count} page{'s' if page_count != 1 else ''})")
-            _t = time.perf_counter()
-            self._process_pages()
-            self.stats.record_phase("pages", time.perf_counter() - _t)
+    def _render_pages(self, page_files: list[Path]) -> None:
+        self._progress.step(f"Rendering pages  ({_count(len(page_files), 'page')})")
+        with self._timed_phase("pages"):
+            for file_path in page_files:
+                self._process_page_logging_errors(file_path)
 
-            # Step: Finalize
-            step_log("Finalizing output")
-            _t = time.perf_counter()
+    def _finalize(self) -> None:
+        self._progress.step("Finalizing output")
+        with self._timed_phase("finalize"):
             self.variable_manager.save()
             if self.config.get("build", "show_page_size", default=False):
-                self._inject_page_sizes(output_dir)
-            self.stats.record_phase("finalize", time.perf_counter() - _t)
+                inject_page_size_labels(self.paths["output"])
 
-            self.stats.finish()
-            logger.info("Site generation complete")
-            return self.stats
+    def _page_files(self) -> list[Path]:
+        """Content pages to render: page-type files outside the blog directory.
 
-        except Exception as e:
-            self.stats.finish()
-            logger.error(f"Error generating site: {e}")
-            if logger.level <= logging.DEBUG:
-                import traceback
-
-                traceback.print_exc()
-            raise
-
-    def _inject_page_sizes(self, output_dir: str) -> None:
-        """Walk all generated HTML files and inject a page-size label.
-
-        Shows base HTML size with an asterisk; hovering reveals total weight
-        including all locally-served images referenced on the page.
+        Hidden files and anything in hidden folders (.obsidian/, .git/) are
+        skipped, as are directories whose names end in a page extension.
         """
-        import re as _re
-
-        LABEL_OVERHEAD = 150  # rough bytes for injected markup
-
-        CSS = (
-            '<style id="page-size-css">'
-            "#page-size-label{"
-            "position:fixed;bottom:0.4rem;right:0.6rem;"
-            "font-size:0.7rem;font-family:monospace;"
-            "opacity:0.35;cursor:default;z-index:9999;"
-            "}"
-            "#page-size-label:hover{opacity:0.85}"
-            "#page-size-label[data-full]::after{"
-            "content:attr(data-full);"
-            "display:none;"
-            "position:absolute;bottom:1.4rem;right:0;"
-            "background:var(--bg,#141514);"
-            "border:0.1px solid #ffffff33;"
-            "padding:0.2rem 0.5rem;"
-            "border-radius:0.2em;"
-            "white-space:nowrap;"
-            "font-size:0.65rem;"
-            "opacity:1;"
-            "}"
-            "#page-size-label[data-full]:hover::after{display:block}"
-            "</style>"
-        )
-        CSS_BYTES = len(CSS.encode("utf-8"))
-
-        img_src_re = _re.compile(r'src=["\']([^"\']+\.(?:webp|png|jpg|jpeg|gif|svg))["\']', _re.I)
-
-        for root, _dirs, files in os.walk(output_dir):
-            for fname in files:
-                if not fname.endswith(".html"):
-                    continue
-                fpath = os.path.join(root, fname)
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        html = f.read()
-
-                    # Skip if already labelled (e.g. incremental rebuild)
-                    if "page-size-label" in html:
-                        continue
-
-                    base_bytes = len(html.encode("utf-8"))
-                    total_bytes = base_bytes + CSS_BYTES + LABEL_OVERHEAD
-
-                    # Sum sizes of all locally-referenced images
-                    img_bytes = 0
-                    for m in img_src_re.finditer(html):
-                        src = m.group(1)
-                        if src.startswith(("http://", "https://", "data:")):
-                            continue
-                        img_path = (
-                            os.path.join(output_dir, src.lstrip("/"))
-                            if src.startswith("/")
-                            else os.path.join(root, src)
-                        )
-                        try:
-                            img_bytes += os.path.getsize(img_path)
-                        except OSError:
-                            pass
-
-                    label_text = f"~{total_bytes / 1024:.1f} KB*"
-                    if img_bytes:
-                        full_text = f"~{(total_bytes + img_bytes) / 1024:.0f} KB with images"
-                        label_html = f'<span id="page-size-label" data-full="{full_text}">{label_text}</span>'
-                    else:
-                        label_html = f'<span id="page-size-label">{label_text}</span>'
-
-                    new_html = html.replace("</body>", CSS + label_html + "</body>", 1)
-                    with open(fpath, "w", encoding="utf-8") as f:
-                        f.write(new_html)
-                except Exception as e:
-                    logger.warning(f"Could not inject page size into {fpath}: {e}")
-
-    @staticmethod
-    def _is_within(path, ancestor) -> bool:
-        """Whether path is ancestor or inside it, by path components.
-
-        String-prefix comparison is never acceptable here: it treated
-        'content/blog-archive' as part of the 'content/blog' directory.
-        """
-        try:
-            Path(path).resolve().relative_to(Path(ancestor).resolve())
-            return True
-        except (ValueError, OSError):
-            return False
-
-    def _process_pages(self) -> None:
-        """Process all pages in the content directory."""
         content_dir = self.paths.get("content")
-
-        # Skip if content directory doesn't exist
         if not content_dir or not os.path.exists(content_dir):
             logger.warning(f"Content directory does not exist: {content_dir}")
-            return
+            return []
 
-        # Process pages in the content directory, excluding blog directory
-        blog_dir_name = self.config.get("blog", "directory", default="blog")
-        blog_dir = os.path.join(content_dir, blog_dir_name) if blog_dir_name else None
+        content_root = Path(content_dir)
+        # With the blog off, its folder holds ordinary pages.
+        blog_dir = None
+        if self.config.get("blog", "enabled", default=True):
+            blog_dir = Path(content_dir, self.config.blog_directory()).resolve()
+        return [
+            file_path
+            for file_path in sorted_paths(content_root.glob("**/*.*"))
+            if file_path.suffix.lower() in PAGE_EXTENSIONS
+            and file_path.is_file()
+            and not _is_hidden_within(file_path, content_root)
+            and not (blog_dir and validate_path_within_root(file_path, blog_dir))
+        ]
 
-        for file_path in Path(content_dir).glob("**/*.*"):
-            # Skip blog directory (by path components), it's handled separately
-            if blog_dir and self._is_within(file_path, blog_dir):
-                continue
-
-            # Process HTML and Markdown files
-            if file_path.suffix.lower() in [".html", ".htm", ".md", ".markdown"]:
-                try:
-                    self._process_page(file_path)
-                except Exception as e:
-                    logger.error(f"Error processing page {file_path}: {e}")
-                    if logger.level <= logging.DEBUG:
-                        import traceback
-
-                        traceback.print_exc()
+    def _process_page_logging_errors(self, file_path: Path) -> None:
+        try:
+            self._process_page(file_path)
+        except Exception as e:
+            logger.error(
+                f"Error processing page {file_path}: {e}",
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
 
     def _process_page(self, file_path: Path) -> None:
-        """Process an individual page file.
+        """Render one content page and write it to its output path.
 
         Args:
             file_path: Path to the page file.
         """
-        # Determine relative path from content directory
-        rel_path = file_path.relative_to(self.paths["content"])
-
-        # For Markdown files, change extension to .html
-        if file_path.suffix.lower() in [".md", ".markdown"]:
-            output_rel_path = rel_path.with_suffix(".html")
-        else:
-            output_rel_path = rel_path
-
-        # Get the URL style
-        url_style = self.config.get_url_style()
-
-        # Format output path based on URL style
-        if url_style == "directory":
-            # For directory style, use path/to/file/index.html
-            if output_rel_path.stem == "index":
-                # If it's already index.html, keep it as is
-                output_path = Path(self.paths["output"]) / output_rel_path.parent / "index.html"
-            else:
-                # Otherwise, create a directory with index.html
-                output_path = (
-                    Path(self.paths["output"])
-                    / output_rel_path.parent
-                    / output_rel_path.stem
-                    / "index.html"
-                )
-        elif url_style == "html":
-            # For HTML style, use path/to/file.html
-            output_path = Path(self.paths["output"]) / output_rel_path
-        else:  # 'clean' style - same as directory for file system
-            if output_rel_path.stem == "index":
-                # If it's already index.html, keep it as is
-                output_path = Path(self.paths["output"]) / output_rel_path.parent / "index.html"
-            else:
-                # Otherwise, create a directory with index.html
-                output_path = (
-                    Path(self.paths["output"])
-                    / output_rel_path.parent
-                    / output_rel_path.stem
-                    / "index.html"
-                )
-
-        logger.debug(f"Output path for {file_path}: {output_path} (URL style: {url_style})")
-
-        # Ensure output directory exists
+        output_path = self._output_path_for(file_path)
         ensure_dir(output_path.parent)
 
-        # Read the file
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             content = f.read()
-
-        # Process the page
-        is_markdown = file_path.suffix.lower() in [".md", ".markdown"]
-
-        # Ensure all global variables are also in the site scope
-        for key, value in self.variable_manager.variables.get("global", {}).items():
-            if key not in self.variable_manager.variables.get("site", {}):
-                self.variable_manager.variables["site"][key] = value
-
-        # Get variables with proper structure
-        variables = {
-            "global": self.variable_manager.variables.get("global", {}),
-            "site": self.variable_manager.variables.get("site", {}),
-            "page": {},
-        }
-
-        # Process the page
-        front_matter, processed_content = self.template_processor.process_page(
-            content, is_markdown, str(file_path), variables
+        is_markdown = file_path.suffix.lower() in MARKDOWN_EXTENSIONS
+        _front_matter, processed_content = self.template_processor.process_page(
+            content, is_markdown, str(file_path), self.variable_manager.render_scopes()
         )
 
-        # Warn when two source files collide on the same output path
-        # (e.g. about.md and about/index.md) — the later one wins.
-        out_key = str(output_path)
-        written = getattr(self, "_written_outputs", None)
-        if written is not None:
-            prior_source = written.get(out_key)
-            if prior_source and prior_source != str(file_path):
-                logger.warning(
-                    f"Page outputs collide: '{file_path}' and '{prior_source}' "
-                    f"both write to {output_path} — the later file wins"
-                )
-            written[out_key] = str(file_path)
-
-        # Write the processed content to output
+        self._record_output(output_path, file_path)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(processed_content)
 
+        self.stats.pages_processed += 1
         logger.debug(f"Processed page: {file_path} -> {output_path}")
+
+    def _output_path_for(self, file_path: Path) -> Path:
+        """Where a content page is written, according to the URL style."""
+        rel_source = file_path.relative_to(self.paths["content"])
+        output_path = Path(self.paths["output"]) / page_output_path(
+            rel_source, self.config.get_url_style()
+        )
+        logger.debug(f"Output path for {file_path}: {output_path}")
+        return output_path
+
+    def _record_output(self, output_path: Path, file_path: Path) -> None:
+        """Remember which source wrote output_path; warn when two collide (the later wins)."""
+        written = self._written_outputs
+        out_key = str(output_path)
+        prior_source = written.get(out_key)
+        if prior_source and prior_source != str(file_path):
+            logger.warning(
+                f"Page outputs collide: '{file_path}' and '{prior_source}' "
+                f"both write to {output_path} — the later file wins"
+            )
+        written[out_key] = str(file_path)
+
+
+class _StepProgress:
+    """Numbered "[step/total] message" progress lines for one build.
+
+    Hidden progress (--no-progress) is still logged, at DEBUG, so -v shows it.
+    """
+
+    def __init__(self, total_steps: int, visible: bool = True):
+        self.total_steps = total_steps
+        self.current_step = 0
+        self.level = logging.INFO if visible else logging.DEBUG
+
+    def step(self, message: str) -> None:
+        self.current_step += 1
+        logger.log(self.level, f"[{self.current_step}/{self.total_steps}] {message}")
+
+    def detail(self, message: str) -> None:
+        """An indented line under the current step."""
+        logger.log(self.level, f"         {message}")
+
+
+def _count_build_steps(blog_enabled: bool, skip_images: bool) -> int:
+    total = ALWAYS_RUN_STEP_COUNT
+    if blog_enabled:
+        total += BLOG_STEP_COUNT
+    if not skip_images:
+        total += IMAGE_STEP_COUNT
+    return total
+
+
+def _is_hidden_within(path: Path, root: Path) -> bool:
+    """Whether path, or any folder between root and it, starts with a dot."""
+    return any(part.startswith(".") for part in path.relative_to(root).parts)
+
+
+def _count(amount: int, noun: str) -> str:
+    """'1 post', '3 posts'."""
+    return f"{amount} {noun}{'s' if amount != 1 else ''}"
+
+
+def _remove_path(path: str) -> None:
+    """Delete a file, link or directory tree (nothing if it is none of those)."""
+    if os.path.isfile(path) or os.path.islink(path):
+        os.unlink(path)
+        logger.debug(f"Deleted file: {path}")
+    elif os.path.isdir(path):
+        shutil.rmtree(path)
+        logger.debug(f"Deleted directory: {path}")

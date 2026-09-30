@@ -40,7 +40,7 @@ classifiers = [
 ]
 dependencies = [
     "markdown>=3.4.0",
-    "Pillow>=9.0.0",
+    "Pillow>=9.1.0",
     "click>=8.0.0",
     "PyYAML>=6.0",
     "Jinja2>=3.0.0",
@@ -56,6 +56,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
     "ruff>=0.4.0",
+    "pyright>=1.1.400",
     "build>=1.0.0",
 ]
 
@@ -74,6 +75,7 @@ include = ["sonne*"]
 
 [tool.setuptools.package-data]
 sonne = [
+    "py.typed",
     "templates/**/*",
     "schemas/*.json",
     "static/**/*",
@@ -86,8 +88,21 @@ addopts = "-ra"
 [tool.ruff]
 line-length = 100
 target-version = "py39"
-extend-exclude = ["sonne/templates", "sonne/examples"]
 
 [tool.ruff.lint]
-# Default rule set (pyflakes + core pycodestyle errors); expand deliberately.
-select = ["E4", "E7", "E9", "F"]
+# pyflakes + core pycodestyle errors, import sorting, bugbear, pyupgrade (to the
+# py39 floor), simplifications, return hygiene and ruff's own checks.
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "SIM", "RET", "RUF"]
+ignore = [
+    # Typographic characters (·, −, ×, …) in user-facing strings and docs are intentional.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.pyright]
+# Same checker VS Code/Pylance uses. Third-party stubs (PyYAML, Markdown)
+# come bundled with pyright; Pillow, numpy, Jinja2, click and bs4 ship types.
+include = ["sonne", "tests"]
+pythonVersion = "3.9"
+typeCheckingMode = "standard"

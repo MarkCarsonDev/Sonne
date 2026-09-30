@@ -3,12 +3,16 @@ Path utility functions for Sonne.
 Provides secure path handling, validation, and sanitization.
 """
 
-import re
-from pathlib import Path
-from typing import Optional, Union
 import logging
+import re
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Union
 
 logger = logging.getLogger("sonne")
+
+# "scheme:" at the start of a URL (RFC 3986), e.g. https:, data:, mailto:.
+URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
 # Config filenames Sonne recognizes, in discovery order. Single source of
 # truth for config discovery, project detection, AND the serve watcher —
@@ -22,6 +26,20 @@ CONFIG_FILENAMES = [
     ".sonne.yaml",
     ".sonne.json",
 ]
+
+# How many directories config discovery examines: the base directory and
+# its ancestors.
+CONFIG_SEARCH_DEPTH = 3
+
+# Device names Windows reserves regardless of extension.
+WINDOWS_RESERVED_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"COM{number}" for number in range(1, 10)]
+    + [f"LPT{number}" for number in range(1, 10)]
+)
+
+# Characters Windows forbids in filenames (< > : " | ? *) plus control characters.
+DANGEROUS_FILENAME_CHARS = r'[<>:"|?*\x00-\x1f\x7f]'
 
 
 def sanitize_filename(filename: str, replace_char: str = "_") -> str:
@@ -37,54 +55,20 @@ def sanitize_filename(filename: str, replace_char: str = "_") -> str:
     # Remove null bytes
     filename = filename.replace("\x00", "")
 
-    # Remove path separators and parent directory references
-    filename = filename.replace("..", "")
+    # Replacing separators leaves a single name, so ".." inside it cannot
+    # traverse; the strip below turns "." and ".." themselves into "".
     filename = filename.replace("/", replace_char)
     filename = filename.replace("\\", replace_char)
 
-    # Remove other dangerous characters
-    # Windows reserved: < > : " | ? *
-    # Also remove control characters
-    dangerous_chars = r'[<>:"|?*\x00-\x1f\x7f]'
-    filename = re.sub(dangerous_chars, replace_char, filename)
+    filename = re.sub(DANGEROUS_FILENAME_CHARS, replace_char, filename)
 
     # Remove leading/trailing spaces and dots (problematic on Windows)
     filename = filename.strip(". ")
 
-    # Handle Windows reserved names
-    reserved_names = {
-        "CON",
-        "PRN",
-        "AUX",
-        "NUL",
-        "COM1",
-        "COM2",
-        "COM3",
-        "COM4",
-        "COM5",
-        "COM6",
-        "COM7",
-        "COM8",
-        "COM9",
-        "LPT1",
-        "LPT2",
-        "LPT3",
-        "LPT4",
-        "LPT5",
-        "LPT6",
-        "LPT7",
-        "LPT8",
-        "LPT9",
-    }
-    name_without_ext = Path(filename).stem.upper()
-    if name_without_ext in reserved_names:
+    if Path(filename).stem.upper() in WINDOWS_RESERVED_NAMES:
         filename = f"{replace_char}{filename}"
 
-    # Ensure filename isn't empty
-    if not filename:
-        filename = "unnamed"
-
-    return filename
+    return filename or "unnamed"
 
 
 def validate_path_within_root(path: Union[str, Path], root: Union[str, Path]) -> bool:
@@ -104,35 +88,43 @@ def validate_path_within_root(path: Union[str, Path], root: Union[str, Path]) ->
         # Check if path is relative to root
         path.relative_to(root)
         return True
-    except (ValueError, RuntimeError):
-        # ValueError: path is not relative to root
+    except (ValueError, RuntimeError, OSError):
+        # ValueError: path is not relative to root (or has a NUL byte)
         # RuntimeError: infinite loop in resolution (symlink loops)
+        # OSError: the path cannot be resolved (e.g. unavailable drive)
         return False
 
 
-def safe_join(base: Union[str, Path], *paths: Union[str, Path]) -> Optional[Path]:
-    """Safely join paths, ensuring result is within base directory.
+def sorted_paths(paths: Iterable[Union[str, Path]]) -> list[Path]:
+    """Paths in a platform-independent order (case-sensitive, by '/'-joined text).
+
+    Directory listings and globs come back in filesystem order, which
+    differs between OSes (and Path ordering itself is case-insensitive on
+    Windows only), so anything whose result depends on order sorts first.
+    """
+    return sorted((Path(path) for path in paths), key=lambda path: path.as_posix())
+
+
+def is_post_local_raster_image(src: str) -> bool:
+    """Whether an image reference is a raster file relative to its page or post.
+
+    Only these get the blog pipeline's resized and dithered copies. The
+    template processor (which rewrites <img> markup to the dithered copy)
+    and the blog processor (which writes that copy) must agree exactly,
+    so both call this.
 
     Args:
-        base: Base directory path.
-        *paths: Path components to join.
+        src: Image reference as written (URL, path, or data: URI).
 
     Returns:
-        Joined path if valid, None if path traversal detected.
+        False for anything with a URL scheme (http:, https:, data:, ...),
+        root-absolute and protocol-relative paths (served from static/), and
+        SVGs (checked case-insensitively, ignoring any query or fragment).
     """
-    try:
-        base = Path(base).resolve()
-        joined = base.joinpath(*paths).resolve()
-
-        # Verify the joined path is within base
-        if validate_path_within_root(joined, base):
-            return joined
-        else:
-            logger.error(f"Path traversal detected: {paths} escapes {base}")
-            return None
-    except (ValueError, RuntimeError) as e:
-        logger.error(f"Error joining paths {base} + {paths}: {e}")
-        return None
+    if not src or src.startswith("/") or URL_SCHEME.match(src):
+        return False
+    path = re.split(r"[?#]", src, maxsplit=1)[0]
+    return not path.lower().endswith(".svg")
 
 
 def strip_relative_prefix(path: str) -> str:
@@ -173,25 +165,6 @@ def is_sonne_directory(directory: Union[str, Path]) -> bool:
     return has_config or has_typical_structure
 
 
-def get_relative_path_safe(path: Union[str, Path], start: Union[str, Path]) -> Optional[Path]:
-    """Get relative path safely, handling edge cases.
-
-    Args:
-        path: The path to make relative.
-        start: The starting path.
-
-    Returns:
-        Relative path, or None if paths are on different drives/not relatable.
-    """
-    try:
-        path = Path(path)
-        start = Path(start)
-        return path.relative_to(start)
-    except (ValueError, TypeError):
-        logger.warning(f"Cannot make {path} relative to {start}")
-        return None
-
-
 def normalize_web_path(path: Union[str, Path]) -> str:
     """Normalize a filesystem path to a web path (forward slashes).
 
@@ -201,9 +174,4 @@ def normalize_web_path(path: Union[str, Path]) -> str:
     Returns:
         Web-compatible path string.
     """
-    path_str = str(path)
-    # Replace backslashes with forward slashes
-    web_path = path_str.replace("\\", "/")
-    # Remove double slashes
-    web_path = re.sub(r"/+", "/", web_path)
-    return web_path
+    return re.sub(r"/+", "/", str(path).replace("\\", "/"))

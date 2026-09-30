@@ -90,7 +90,7 @@ class TestKnownBugs:
         )
         snapshot = copy.deepcopy(config_module.DEFAULT_CONFIG)
         Config(base_dir=str(tmp_path))
-        assert config_module.DEFAULT_CONFIG == snapshot
+        assert snapshot == config_module.DEFAULT_CONFIG
 
     def test_user_formats_list_replaces_default(self, tmp_path):
         write_yaml(tmp_path / "sonne.yaml", {"images": {"formats": ["png"]}})
@@ -114,3 +114,116 @@ class TestKnownBugs:
         cfg = Config(base_dir=str(tmp_path))
         assert cfg.get("images", "parallel") is False
         assert cfg.get("images", "parallel_workers") == 2
+
+
+def config_with(tmp_path, *settings):
+    """A default Config with each (keys..., value) setting applied."""
+    cfg = Config(base_dir=str(tmp_path))
+    for *keys, value in settings:
+        cfg.set(*keys, value=value)
+    return cfg
+
+
+class TestValidate:
+    def test_defaults_are_valid(self, tmp_path):
+        assert Config(base_dir=str(tmp_path)).validate() == []
+
+    @pytest.mark.parametrize(
+        "setting, expected",
+        [
+            (("site", {}), "Missing 'site' configuration section"),
+            (("site", "title", ""), "Site title is not set"),
+            (("site", "base_url", ""), "Site base_url is not set"),
+            (("paths", {}), "Missing 'paths' configuration section"),
+            (("paths", "templates", ""), "Required path 'templates' is not set"),
+            (("images", "formats", "webp"), "images.formats should be a list"),
+            (("images", "sizes", 800), "images.sizes should be a list"),
+            (("images", "sizes", [800, -1]), "images.sizes should contain only positive integers"),
+            (("blog", "directory", ""), "blog.directory is empty; using 'blog'"),
+            (("blog", "template", ""), "Blog is enabled but template is not set"),
+            (("blog", "posts_per_page", True), "blog.posts_per_page must be a positive integer"),
+            (("serve", "port", 70000), "serve.port must be an integer between 0 and 65535"),
+            (("serve", "port", "80"), "serve.port must be an integer between 0 and 65535"),
+            (
+                ("environment", "staging"),
+                "environment 'staging' has no url_style entry; the 'clean' URL style will be used",
+            ),
+        ],
+    )
+    def test_each_problem_is_reported(self, tmp_path, setting, expected):
+        assert config_with(tmp_path, setting).validate() == [expected]
+
+    def test_disabled_blog_is_not_validated(self, tmp_path):
+        cfg = config_with(tmp_path, ("blog", "enabled", False), ("blog", "directory", ""))
+
+        assert cfg.validate() == []
+
+
+class TestContentSecurityPolicy:
+    def test_disabled_by_default(self, tmp_path):
+        assert Config(base_dir=str(tmp_path)).get_csp_meta_tag() is None
+
+    def test_enabled_without_directives_gives_nothing(self, tmp_path):
+        cfg = config_with(tmp_path, ("security", "csp", "enabled", True))
+
+        assert cfg.generate_csp_header() is None
+
+    def test_list_directives_are_joined_and_invalid_ones_skipped(self, tmp_path):
+        directives = {"default-src": ["'self'"], "img-src": ["'self'", "data:"], "bad": "x"}
+        cfg = config_with(
+            tmp_path,
+            ("security", "csp", "enabled", True),
+            ("security", "csp", "directives", directives),
+        )
+
+        assert cfg.get_csp_meta_tag() == (
+            '<meta http-equiv="Content-Security-Policy" '
+            "content=\"default-src 'self'; img-src 'self' data:\">"
+        )
+
+
+class TestSave:
+    def test_unsupported_extension_leaves_existing_file_intact(self, tmp_path):
+        target = tmp_path / "settings.toml"
+        target.write_text("keep = true\n", encoding="utf-8")
+        cfg = Config(base_dir=str(tmp_path))
+
+        cfg.save(str(target))
+
+        assert target.read_text(encoding="utf-8") == "keep = true\n"
+
+    def test_yaml_round_trip(self, tmp_path):
+        cfg = config_with(tmp_path, ("site", "title", "Saved"))
+        target = tmp_path / "out" / "sonne.yaml"
+
+        cfg.save(str(target))
+
+        assert Config(str(target), base_dir=str(tmp_path)).get("site", "title") == "Saved"
+
+
+class TestBlogDirectory:
+    @pytest.mark.parametrize("configured", [None, "", "blog", "posts", "posts/"])
+    def test_one_resolution_of_the_blog_directory(self, tmp_path, configured):
+        cfg = config_with(tmp_path, ("blog", "directory", configured))
+
+        expected = "posts" if configured and configured.startswith("posts") else "blog"
+        assert cfg.blog_directory() == expected
+
+    def test_validate_says_empty_directory_falls_back(self, tmp_path):
+        cfg = config_with(tmp_path, ("blog", "directory", ""))
+
+        assert cfg.validate() == ["blog.directory is empty; using 'blog'"]
+
+
+class TestSectionShapes:
+    @pytest.mark.parametrize("keys", [("images",), ("blog", "taxonomies"), ("serve",)])
+    def test_scalar_for_a_mapping_section_warns(self, tmp_path, keys):
+        cfg = config_with(tmp_path, (*keys, "yes"))
+
+        assert f"{'.'.join(keys)} should be a mapping (got 'yes')" in cfg.validate()
+
+    @pytest.mark.parametrize("value", [False, True])
+    def test_rss_accepts_a_boolean(self, tmp_path, value):
+        cfg = config_with(tmp_path, ("blog", "rss", value))
+
+        assert cfg.validate() == []

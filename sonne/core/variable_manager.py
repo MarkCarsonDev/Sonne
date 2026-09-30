@@ -3,53 +3,80 @@ Variable management for Sonne.
 Handles loading, processing, and substituting variables in templates.
 """
 
-import os
-import json
-import yaml
+import copy
 import csv
+import importlib.machinery
 import importlib.util
+import json
+import logging
+import os
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
-import logging
-import importlib
-from typing import Dict, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
+
+import yaml
+from markupsafe import Markup
+
+from sonne.script_api import ScriptHooks, running_script
+from sonne.utils.build_stats import BuildStatistics
+from sonne.utils.path_utils import sorted_paths
+
+if TYPE_CHECKING:
+    from PIL import Image
+
+    from sonne.processors.image_processor import ImageProcessor
 
 logger = logging.getLogger("sonne")
 
-# Try to import Markup from the correct location
-try:
-    from markupsafe import Markup
-except ImportError:
-    try:
-        from jinja2 import Markup
-    except ImportError:
-        # Fallback if Markup is not available
-        class Markup(str):
-            pass
+
+DEFAULT_VARIABLE_FILE = "sonne_variables.json"
+DATA_FILE_PATTERNS = ["*.json", "*.yaml", "*.yml", "*.csv"]
+
+# Blog variables collected before load_variables() runs; they are carried
+# over each reload so data scripts can see posts.
+# Collected from content before data scripts run; carried into fresh scopes.
+CONTENT_VARIABLE_NAMES = ["all_blog_posts", "tags", "categories", "all_pages"]
+
+FALLBACK_SITE_TITLE = "My Sonne Site"
+
+# Distinguishes "not configured" from a configured None in sonne_config.
+_NOT_CONFIGURED = object()
+
+# Returned by _parse_data_file for extensions it cannot read.
+_UNSUPPORTED_FORMAT = object()
 
 
 class VariableManager:
     """Manages variables and their substitution in templates."""
+
+    # Derived state must never persist across builds: it is recomputed from
+    # content every build, and stale copies were previously served when the
+    # blog was later disabled or posts changed.
+    _NEVER_PERSIST = frozenset({*CONTENT_VARIABLE_NAMES, "build_time"})
 
     def __init__(self, config, base_dir: str):
         """Initialize variable manager.
 
         Args:
             config: Site configuration.
-            base_dir: Base directory of the site.
+            base_dir: Base directory of the site. Defaults to the current directory.
         """
         self.config = config
-        self.base_dir = base_dir or os.getcwd()  # Use current directory if base_dir is None
+        self.base_dir = base_dir or os.getcwd()
         self.variables = {"global": {}, "site": {}, "page": {}}
-        self.stats = None  # Injected by SiteGenerator
+        self.stats: Optional[BuildStatistics] = None  # Injected by SiteGenerator
 
         # Provenance tracking: names set by data scripts (the only variables
         # that persist across builds when variables.preserve_prior is on),
         # and script paths already executed this load (prevents double runs).
         self._script_vars = set()
         self._executed_scripts = set()
+        self._shadow_warned = set()
+        # Dithers images for data scripts (script_api.dither_image); one per
+        # build, created on first use.
+        self._image_processor: Optional[ImageProcessor] = None
 
         # Jinja extensions registered by data scripts via sonne_filter /
         # sonne_global. SiteGenerator hands these to the TemplateProcessor
@@ -57,24 +84,64 @@ class VariableManager:
         self.custom_filters = {}
         self.custom_globals = {}
 
-        # Prepare variable file path
-        var_file = config.get("variables", "file", default="sonne_variables.json")
+        var_file = config.get("variables", "file", default=DEFAULT_VARIABLE_FILE)
+        self.variable_file = os.path.join(self.base_dir, var_file or DEFAULT_VARIABLE_FILE)
+        self.data_dir = self._existing_dir(config.get("paths", "data", default="data"))
+        self.scripts_dir = self._existing_dir(config.get("paths", "scripts", default="scripts"))
 
-        # Ensure both parts are strings before joining
-        if var_file:
-            self.variable_file = os.path.join(self.base_dir, var_file)
-        else:
-            self.variable_file = os.path.join(self.base_dir, "sonne_variables.json")
+    def _existing_dir(self, configured_path: Optional[str]) -> Optional[str]:
+        """configured_path joined to base_dir if that directory exists, else None."""
+        if not configured_path:
+            return None
+        directory = os.path.join(self.base_dir, configured_path)
+        return directory if os.path.exists(directory) else None
 
-        # Prepare data directory path
-        data_path = config.get("paths", "data", default="data")
-        data_dir = os.path.join(self.base_dir, data_path) if data_path else None
-        self.data_dir = data_dir if data_dir and os.path.exists(data_dir) else None
+    def load_variables(self) -> None:
+        """Load all variables from configured sources.
 
-        # Prepare scripts directory path
-        scripts_path = config.get("paths", "scripts", default="scripts")
-        scripts_dir = os.path.join(self.base_dir, scripts_path) if scripts_path else None
-        self.scripts_dir = scripts_dir if scripts_dir and os.path.exists(scripts_dir) else None
+        In order: fresh defaults plus carried-over blog variables, site
+        config, the prior variable file (when variables.preserve_prior),
+        data files, data scripts, then the footer script.
+        """
+        self._reset_script_state()
+        content_variables = self._current_content_variables()
+        self.variables = self._fresh_scopes(content_variables)
+        self._add_site_config()
+        self._load_prior_variables()
+        # Saved variables may hold stale content data (old dates, old URLs).
+        self._restore_content_variables(content_variables)
+        self._load_data_directory()
+        self._run_data_scripts_logging_errors()
+        self._run_footer_script()
+        self._mirror_globals_into_site()
+
+    def _reset_script_state(self) -> None:
+        self._script_vars = set()
+        self._executed_scripts = set()
+        self._shadow_warned = set()
+        self._image_processor = None
+        self.custom_filters = {}
+        self.custom_globals = {}
+
+    def _current_content_variables(self) -> dict[str, Any]:
+        """Content variables already collected (posts, taxonomies, pages)."""
+        global_scope = self.variables.get("global", {})
+        return {name: global_scope[name] for name in CONTENT_VARIABLE_NAMES if name in global_scope}
+
+    def _fresh_scopes(self, content_variables: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        now = datetime.now()
+        site_scope = {
+            "generator": "Sonne",
+            "generator_version": self._get_version(),
+            "build_time": now.isoformat(),
+            "year": now.year,
+            # Defaults templates rely on
+            "footer": {"custom": None},
+            "nav": [],
+            "language": "en",
+        }
+        site_scope.update(content_variables)
+        return {"global": dict(content_variables), "site": site_scope, "page": {}}
 
     def _get_version(self) -> str:
         """Get the current version of Sonne (single-sourced in sonne/__init__.py)."""
@@ -82,328 +149,298 @@ class VariableManager:
 
         return getattr(sonne, "__version__", "unknown")
 
-    def _load_from_file(self, file_path: str, scope: str, legacy_unwrap: bool = False) -> None:
-        """Load variables from a file based on its extension.
+    def _add_site_config(self) -> None:
+        """Expose the site config section in site scope.
 
-        Args:
-            file_path: Path to the data file.
-            scope: Variable scope ('global', 'site', or 'page').
-            legacy_unwrap: Unwrap the legacy ``{"var": {"data": value}}``
-                format. Only valid for Sonne's own variable file — user data
-                files may legitimately contain a "data" key and must never
-                be unwrapped.
+        A dict-valued title contributes its 'text' (or a fallback title);
+        a footer mapping is merged into the default footer structure.
         """
-        ext = Path(file_path).suffix.lower()
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            if ext in [".json"]:
-                data = json.load(f)
-            elif ext in [".yaml", ".yml"]:
-                data = yaml.safe_load(f)
-            elif ext == ".csv":
-                reader = csv.DictReader(f)
-                data = list(reader)
+        site_config = self.config.get("site", default={})
+        if not isinstance(site_config, dict):
+            return
+        site_scope = self.variables["site"]
+        for key, value in site_config.items():
+            if key == "title" and isinstance(value, dict):
+                site_scope[key] = value.get("text", FALLBACK_SITE_TITLE)
+            elif key == "footer" and isinstance(value, dict):
+                site_scope["footer"].update(value)
             else:
-                # Unsupported format
-                logger.warning(f"Unsupported data file format: {ext}")
-                return
+                site_scope[key] = value
 
-        # Update the appropriate scope
-        if isinstance(data, dict):
-            if (
-                legacy_unwrap
-                and data
-                and all(isinstance(v, dict) and "data" in v for v in data.values())
-            ):
-                for key, value_dict in data.items():
-                    self.variables[scope][key] = value_dict.get("data")
-            else:
-                self.variables[scope].update(data)
+    def _load_prior_variables(self) -> None:
+        """Load the variable file, only when persistence is explicitly enabled.
+
+        By default every build starts fresh — the variable file otherwise
+        becomes a self-perpetuating stale cache.
+        """
+        preserve_prior = self.config.get("variables", "preserve_prior", default=False)
+        if not preserve_prior or not os.path.exists(self.variable_file):
+            return
+        try:
+            self._load_variable_file()
+            logger.debug(f"Loaded variables from {self.variable_file}")
+        except Exception as e:
+            logger.error(f"Error loading variables from {self.variable_file}: {e}")
+
+    def _load_variable_file(self) -> None:
+        """Load Sonne's own variable file into global scope.
+
+        Unwraps the legacy ``{"var": {"data": value}}`` format that save()
+        writes. Only valid for this file — user data files may legitimately
+        contain a "data" key and must never be unwrapped.
+        """
+        data = _parse_data_file(self.variable_file)
+        if data is _UNSUPPORTED_FORMAT:
+            return
+        if _is_legacy_wrapped(data):
+            for key, wrapped in data.items():
+                self.variables["global"][key] = wrapped.get("data")
         else:
-            # For non-dict data (like CSV), store under the file's basename
-            name = Path(file_path).stem
-            self.variables[scope][name] = data
+            self._store_data(data, Path(self.variable_file).stem, "global")
 
-    def _load_from_directory(self, directory: str, scope: str) -> None:
-        """Load all data files from a directory.
+    def _restore_content_variables(self, content_variables: dict[str, Any]) -> None:
+        self.variables["global"].update(content_variables)
+        self.variables["site"].update(content_variables)
 
-        Args:
-            directory: Path to the data directory.
-            scope: Variable scope ('global', 'site', or 'page').
-        """
-        for ext in ["*.json", "*.yaml", "*.yml", "*.csv"]:
-            for file_path in Path(directory).glob(f"**/{ext}"):
+    def _load_data_directory(self) -> None:
+        if not self.data_dir:
+            return
+        for pattern in DATA_FILE_PATTERNS:
+            for file_path in sorted_paths(Path(self.data_dir).glob(f"**/{pattern}")):
                 try:
-                    self._load_from_file(str(file_path), scope)
+                    self._load_data_file(str(file_path), "site")
                 except Exception as e:
                     logger.error(f"Error loading data from {file_path}: {e}")
+        logger.debug(f"Loaded data from {self.data_dir}")
 
-    def _run_data_scripts(self, scripts_dir: str) -> None:
-        """Run data scripts to populate variables."""
-        for script_path in Path(scripts_dir).glob("*.py"):
-            # Skip files starting with underscore
-            if script_path.name.startswith("_"):
-                continue
+    def _load_data_file(self, file_path: str, scope: str) -> None:
+        """Load one user data file into scope.
 
-            self._executed_scripts.add(str(script_path.resolve()))
+        Args:
+            file_path: Path to a JSON, YAML or CSV file.
+            scope: Variable scope ('global', 'site', or 'page').
+        """
+        data = _parse_data_file(file_path)
+        if data is not _UNSUPPORTED_FORMAT:
+            self._store_data(data, Path(file_path).stem, scope)
 
-            try:
-                logger.info(f"  Script: {script_path.name}")
+    def _store_data(self, data: Any, name: str, scope: str) -> None:
+        """Merge a mapping into scope; store anything else (e.g. CSV rows) under name."""
+        if isinstance(data, dict):
+            self.variables[scope].update(data)
+        else:
+            self.variables[scope][name] = data
 
-                # Create a module spec and load the module
-                spec = importlib.util.spec_from_file_location(
-                    f"sonne_script_{script_path.stem}", script_path
-                )
-                module = importlib.util.module_from_spec(spec)
+    def data_script_paths(self) -> list[Path]:
+        """Data scripts that load_variables() runs, in run order.
 
-                # Create a proper closure for sonne_var that captures the manager instance
-                # This is critical for maintaining the reference to self
-                def create_sonne_var(manager):
-                    def sonne_var(k, v):
-                        manager.variables["global"][k] = v
-                        manager.variables["site"][k] = v
-                        manager._script_vars.add(k)
-                        logger.debug(f"Variable set: {k}")
-
-                    return sonne_var
-
-                # Create helper function to get blog posts
-                def create_get_post(manager):
-                    def get_post(slug=None, tag=None):
-                        """Get a blog post by slug or tag.
-
-                        Args:
-                            slug: The slug of the post to retrieve
-                            tag: Return the first post with this tag
-
-                        Returns:
-                            Dictionary containing post data, or None if not found
-                        """
-                        posts = manager.variables.get("global", {}).get("all_blog_posts", [])
-                        if not posts:
-                            posts = manager.variables.get("site", {}).get("all_blog_posts", [])
-
-                        if slug:
-                            for post in posts:
-                                if post.get("slug") == slug:
-                                    return post
-                        elif tag:
-                            for post in posts:
-                                if tag in post.get("tags", []):
-                                    return post
-                        return None
-
-                    return get_post
-
-                # Jinja extension hooks: scripts can register real Python
-                # callables usable from every template and (with
-                # content.render_jinja) every content file.
-                def create_sonne_filter(manager):
-                    def sonne_filter(name, fn):
-                        manager.custom_filters[name] = fn
-                        logger.debug(f"Jinja filter registered by script: {name}")
-
-                    return sonne_filter
-
-                def create_sonne_global(manager):
-                    def sonne_global(name, value):
-                        manager.custom_globals[name] = value
-                        logger.debug(f"Jinja global registered by script: {name}")
-
-                    return sonne_global
-
-                # Assign the closures
-                module.sonne_var = create_sonne_var(self)
-                module.get_post = create_get_post(self)
-                module.sonne_filter = create_sonne_filter(self)
-                module.sonne_global = create_sonne_global(self)
-
-                # Add the module to sys.modules to ensure it's properly loaded
-                sys.modules[f"sonne_script_{script_path.stem}"] = module
-
-                # Execute the module
-                _t0 = time.perf_counter()
-                spec.loader.exec_module(module)
-                if self.stats:
-                    self.stats.record_script(script_path.name, time.perf_counter() - _t0)
-
-                logger.debug(
-                    f"After {script_path.name}: globals={list(self.variables['global'].keys())}"
-                )
-
-            except Exception as e:
-                logger.error(f"Error running script {script_path}: {e}")
-                if logger.level <= logging.DEBUG:
-                    import traceback
-
-                    traceback.print_exc()
-
-    def paths_get(self, key, default=None):
-        """Helper to get path from config.paths."""
-        paths = self.config.get("paths", default={})
-        if isinstance(paths, dict):
-            return paths.get(key, default)
-        return default
-
-    def load_variables(self) -> None:
-        """Load all variables from configured sources."""
-        # Reset per-load bookkeeping
-        self._script_vars = set()
-        self._executed_scripts = set()
-        self.custom_filters = {}
-        self.custom_globals = {}
-
-        # Preserve blog post variables if they were already set by collect_post_metadata()
-        existing_blog_vars = {}
-        if hasattr(self, "variables"):
-            for var_name in ["all_blog_posts", "tags", "categories"]:
-                if var_name in self.variables.get("global", {}):
-                    existing_blog_vars[var_name] = self.variables["global"][var_name]
-
-        # Initialize with empty variables
-        self.variables = {
-            "global": existing_blog_vars.copy(),  # Preserve blog post variables
-            "site": {
-                "generator": "Sonne",
-                "generator_version": self._get_version(),
-                "build_time": datetime.now().isoformat(),
-                "year": datetime.now().year,
-                # Add default footer structure
-                "footer": {"custom": None},
-                # Add other defaults needed by templates
-                "nav": [],
-                "language": "en",
-            },
-            "page": {},
-        }
-
-        # Also add blog post variables to site scope for template access
-        self.variables["site"].update(existing_blog_vars)
-
-        # Add configuration to site variables - safely get site config
-        try:
-            # Get site configuration safely
-            if hasattr(self.config, "config") and isinstance(self.config.config, dict):
-                site_config = self.config.config.get("site", {})
-                if isinstance(site_config, dict):
-                    # Process site configuration
-                    for key, value in site_config.items():
-                        # Safely handle the title field which might be a nested dict
-                        if key == "title" and isinstance(value, dict):
-                            # If title is a dictionary, try to extract a usable title or use a default
-                            if "text" in value:
-                                self.variables["site"][key] = value["text"]
-                            else:
-                                self.variables["site"][key] = "My Sonne Site"
-                        elif key == "footer" and isinstance(value, dict):
-                            # Merge with existing footer structure
-                            self.variables["site"]["footer"].update(value)
-                        else:
-                            self.variables["site"][key] = value
-        except Exception as e:
-            logger.error(f"Error processing site configuration: {e}")
-
-        # Load prior variables only when persistence is explicitly enabled.
-        # By default every build starts fresh — the variable file otherwise
-        # becomes a self-perpetuating stale cache.
-        preserve_prior = self.config.get("variables", "preserve_prior", default=False)
-        if preserve_prior and os.path.exists(self.variable_file):
-            try:
-                self._load_from_file(self.variable_file, "global", legacy_unwrap=True)
-                logger.debug(f"Loaded variables from {self.variable_file}")
-            except Exception as e:
-                logger.error(f"Error loading variables from {self.variable_file}: {e}")
-
-        # Restore fresh blog post variables after loading from variable file,
-        # since the saved JSON may have stale post data (old dates, old URLs).
-        if existing_blog_vars:
-            self.variables["global"].update(existing_blog_vars)
-            self.variables["site"].update(existing_blog_vars)
-
-        # Load from data directory
-        if self.data_dir:
-            try:
-                self._load_from_directory(self.data_dir, "site")
-                logger.debug(f"Loaded data from {self.data_dir}")
-            except Exception as e:
-                logger.error(f"Error loading data from {self.data_dir}: {e}")
-
-        # Run data scripts
-        if self.scripts_dir:
-            try:
-                self._run_data_scripts(self.scripts_dir)
-                logger.debug(f"Scripts complete. Globals: {list(self.variables['global'].keys())}")
-            except Exception as e:
-                logger.error(f"Error running data scripts from {self.scripts_dir}: {e}")
-
-        # Look for the footer.py script specifically in various locations
-        footer_py_paths = [
-            os.path.join(self.base_dir, "data", "footer.py"),
-            os.path.join(self.paths_get("data"), "footer.py") if self.paths_get("data") else None,
-            os.path.join(self.base_dir, "scripts", "footer.py"),
+        Every ``*.py`` directly in the scripts directory except names
+        starting with an underscore.
+        """
+        if not self.scripts_dir:
+            return []
+        return [
+            script_path
+            for script_path in sorted_paths(Path(self.scripts_dir).glob("*.py"))
+            if not script_path.name.startswith("_")
         ]
 
-        footer_found = False
-        for footer_path in footer_py_paths:
-            if footer_path and os.path.exists(footer_path):
-                # Skip scripts already executed by _run_data_scripts
-                # (scripts/footer.py would otherwise run twice)
-                if str(Path(footer_path).resolve()) in self._executed_scripts:
-                    footer_found = True
-                    # Apply the footer_custom Markup handling the dedicated
-                    # loader would normally do below.
-                    if "footer_custom" in self.variables.get("global", {}):
-                        footer_content = Markup(self.variables["global"]["footer_custom"])
-                        self.variables["global"]["footer_custom"] = footer_content
-                        self.variables["site"]["footer_custom"] = footer_content
-                        self.variables["site"]["footer"]["custom"] = footer_content
-                    break
-                try:
-                    # Create a module spec and load the module
-                    spec = importlib.util.spec_from_file_location(
-                        "sonne_script_footer", footer_path
-                    )
-                    module = importlib.util.module_from_spec(spec)
-                    sys.modules["sonne_script_footer"] = module
+    def _run_data_scripts_logging_errors(self) -> None:
+        if not self.scripts_dir:
+            return
+        try:
+            self._run_data_scripts()
+            logger.debug(f"Scripts complete. Globals: {list(self.variables['global'].keys())}")
+        except Exception as e:
+            logger.error(f"Error running data scripts from {self.scripts_dir}: {e}")
 
-                    # Add the script hooks to the module's namespace
-                    def create_sonne_var(manager):
-                        def sonne_var(k, v):
-                            manager.set(k, v, "global")
-                            manager.set(k, v, "site")
-                            manager._script_vars.add(k)
+    def _run_data_scripts(self) -> None:
+        """Run each data script; a failing script is logged and skipped."""
+        for script_path in self.data_script_paths():
+            logger.info(f"  Script: {script_path.name}")
+            try:
+                self._run_timed_script(script_path)
+            except Exception as e:
+                logger.error(
+                    f"Error running script {script_path}: {e}",
+                    exc_info=logger.isEnabledFor(logging.DEBUG),
+                )
 
-                        return sonne_var
+    def _run_timed_script(self, script_path: Path) -> None:
+        started = time.perf_counter()
+        self._execute_script(script_path, f"sonne_script_{script_path.stem}")
+        if self.stats:
+            self.stats.record_script(script_path.name, time.perf_counter() - started)
+        logger.debug(f"After {script_path.name}: globals={list(self.variables['global'].keys())}")
 
-                    module.sonne_var = create_sonne_var(self)
-                    module.sonne_filter = lambda name, fn: self.custom_filters.__setitem__(name, fn)
-                    module.sonne_global = lambda name, value: self.custom_globals.__setitem__(
-                        name, value
-                    )
+    def _execute_script(self, script_path: Path, module_name: str) -> None:
+        """Run a trusted site script as a module, with the script API active.
 
-                    # Execute the module
-                    spec.loader.exec_module(module)
+        The script can import the API from sonne.script_api (preferred) or
+        use the same functions injected as module globals (legacy). The
+        hooks are active only while this script runs.
 
-                    # Check if footer_custom was set
-                    if "footer_custom" in self.variables.get("global", {}):
-                        # Mark the HTML content as safe
-                        footer_content = self.variables["global"]["footer_custom"]
-                        self.variables["global"]["footer_custom"] = Markup(footer_content)
-                        self.variables["site"]["footer"]["custom"] = Markup(footer_content)
+        Scripts are trusted by design: they run with full process privileges.
+        """
+        self._executed_scripts.add(str(script_path.resolve()))
+        spec = importlib.util.spec_from_file_location(module_name, script_path)
+        # Python source files always get a SourceFileLoader.
+        if spec is None or not isinstance(spec.loader, importlib.machinery.SourceFileLoader):
+            raise ImportError(f"Cannot load script {script_path}")
+        module = importlib.util.module_from_spec(spec)
+        hooks = self._script_hooks()
+        for hook_name, hook in hooks.as_globals().items():
+            setattr(module, hook_name, hook)
+        sys.modules[module_name] = module
+        with running_script(hooks):
+            spec.loader.exec_module(module)
 
-                    logger.debug(f"Loaded footer script: {footer_path}")
-                    footer_found = True
-                    break
-                except Exception as e:
-                    logger.error(f"Error running footer script at {footer_path}: {e}")
+    def _script_hooks(self) -> ScriptHooks:
+        """This build's implementation of the script API (see sonne.script_api)."""
 
-        if not footer_found:
-            logger.debug("No footer.py script found")
+        def sonne_var(name: str, value: Any) -> None:
+            self._warn_if_shadowing_site_variable(name)
+            self.variables["global"][name] = value
+            self.variables["site"][name] = value
+            self._script_vars.add(name)
+            logger.debug(f"Variable set: {name}")
 
-        # Make sure all global variables are also available in site scope
+        def get_post(
+            slug: Optional[str] = None, tag: Optional[str] = None
+        ) -> Optional[dict[str, Any]]:
+            """Get a blog post by slug, or the first post with a tag; None if not found."""
+            posts = self.variables.get("global", {}).get("all_blog_posts", [])
+            if not posts:
+                posts = self.variables.get("site", {}).get("all_blog_posts", [])
+            return _find_post(posts, slug, tag)
+
+        # Jinja extension hooks: scripts can register real Python callables
+        # usable from every template and (with content.render_jinja) every
+        # content file.
+        def sonne_filter(name: str, fn: Callable[..., Any]) -> None:
+            self.custom_filters[name] = fn
+            logger.debug(f"Jinja filter registered by script: {name}")
+
+        def sonne_global(name: str, value: Any) -> None:
+            self.custom_globals[name] = value
+            logger.debug(f"Jinja global registered by script: {name}")
+
+        def sonne_config(*keys: str, default: Any = None) -> Any:
+            # Read-only for scripts: they get a copy, never the build's objects.
+            value = self.config.get(*keys, default=_NOT_CONFIGURED)
+            return default if value is _NOT_CONFIGURED else copy.deepcopy(value)
+
+        def get_variable(name: str, default: Any = None) -> Any:
+            # Read-only for scripts, like sonne_config: global scope first
+            # (collected content, script variables), then site scope.
+            for scope in ("global", "site"):
+                if name in self.variables.get(scope, {}):
+                    return copy.deepcopy(self.variables[scope][name])
+            return default
+
+        def dither_image(image: "Image.Image") -> "Image.Image":
+            return self._script_image_processor().dither(image)
+
+        return ScriptHooks(
+            sonne_var=sonne_var,
+            get_post=get_post,
+            sonne_filter=sonne_filter,
+            sonne_global=sonne_global,
+            sonne_config=sonne_config,
+            get_variable=get_variable,
+            dither_image=dither_image,
+        )
+
+    def _script_image_processor(self) -> "ImageProcessor":
+        """The ImageProcessor scripts dither with: one per build, made on first use."""
+        if self._image_processor is None:
+            # Imported here so loading core does not load the image pipeline.
+            from sonne.processors.image_processor import ImageProcessor
+
+            self._image_processor = ImageProcessor(self.config, {})
+        return self._image_processor
+
+    def _warn_if_shadowing_site_variable(self, name: str) -> None:
+        """Warn (once per load) when a script replaces a site config/data variable.
+
+        sonne_var writes into site scope, so a script variable named like a
+        site config key or data file key silently replaced it (B18).
+        Variables that scripts themselves set earlier are not reported.
+        """
+        if name in self._script_vars or name not in self.variables["site"]:
+            return
+        if name in self._shadow_warned:
+            return
+        self._shadow_warned.add(name)
+        logger.warning(
+            f"Data script variable '{name}' replaces the site variable of the same name "
+            "(from site config, data files or Sonne defaults); rename one to keep both"
+        )
+
+    def _run_footer_script(self) -> None:
+        """Run the first footer.py that works, and mark its footer_custom HTML-safe.
+
+        Candidates in order: <site>/data/footer.py, <paths.data>/footer.py,
+        <site>/scripts/footer.py. One already run as a data script counts as
+        found without running again; one that fails falls through to the next.
+
+        Note that this executes Python from the data folder, which otherwise
+        holds only JSON/YAML/CSV. Like data scripts it is trusted site code
+        (documented in README "Security"); never extend this to other files.
+        """
+        for footer_path in self._footer_script_candidates():
+            if not os.path.exists(footer_path):
+                continue
+            if str(Path(footer_path).resolve()) in self._executed_scripts:
+                self._mark_footer_html_safe()
+                return
+            try:
+                self._execute_script(Path(footer_path), "sonne_script_footer")
+                self._mark_footer_html_safe()
+                logger.debug(f"Loaded footer script: {footer_path}")
+                return
+            except Exception as e:
+                logger.error(f"Error running footer script at {footer_path}: {e}")
+        logger.debug("No footer.py script found")
+
+    def _footer_script_candidates(self) -> list[str]:
+        candidates = [os.path.join(self.base_dir, "data", "footer.py")]
+        data_path = self.config.get("paths", "data")
+        if data_path:
+            candidates.append(os.path.join(self.base_dir, data_path, "footer.py"))
+        candidates.append(os.path.join(self.base_dir, "scripts", "footer.py"))
+        return candidates
+
+    def _mark_footer_html_safe(self) -> None:
+        """footer_custom is trusted script HTML: wrap it in Markup everywhere it lives."""
+        if "footer_custom" not in self.variables.get("global", {}):
+            return
+        footer_content = Markup(self.variables["global"]["footer_custom"])
+        self.variables["global"]["footer_custom"] = footer_content
+        self.variables["site"]["footer_custom"] = footer_content
+        self.variables["site"]["footer"]["custom"] = footer_content
+
+    def _mirror_globals_into_site(self) -> None:
+        """Copy every global variable into site scope unless site already has it."""
         for key, value in self.variables.get("global", {}).items():
             if key not in self.variables.get("site", {}):
                 self.variables["site"][key] = value
+
+    def render_scopes(self) -> dict[str, dict[str, Any]]:
+        """Variable scopes for rendering one content page.
+
+        Globals set since load_variables() (e.g. by the blog processor) are
+        mirrored into site scope first; the page scope starts empty.
+
+        Returns:
+            Mapping with 'global', 'site' and 'page' scopes.
+        """
+        self._mirror_globals_into_site()
+        return {
+            "global": self.variables.get("global", {}),
+            "site": self.variables.get("site", {}),
+            "page": {},
+        }
 
     def get(self, key: str, default: Any = None, scope: Optional[str] = None) -> Any:
         """Get a variable value, optionally from a specific scope.
@@ -419,21 +456,19 @@ class VariableManager:
         if scope:
             return self.variables.get(scope, {}).get(key, default)
 
-        # Search all scopes in order: page, site, global
         for current_scope in ["page", "site", "global"]:
             if key in self.variables.get(current_scope, {}):
                 return self.variables[current_scope][key]
 
         return default
 
-    def get_all(self) -> Dict[str, Any]:
+    def get_all(self) -> dict[str, Any]:
         """Get all variables merged into a single dictionary.
 
         Returns:
-            Dictionary containing all variables from all scopes.
+            Dictionary containing all variables; page beats site beats global.
         """
         result = {}
-        # Merge in order of precedence: global, site, page
         result.update(self.variables.get("global", {}))
         result.update(self.variables.get("site", {}))
         result.update(self.variables.get("page", {}))
@@ -441,6 +476,9 @@ class VariableManager:
 
     def set(self, key: str, value: Any, scope: str = "site") -> None:
         """Set a variable value in the specified scope.
+
+        ``footer_custom`` containing HTML is marked safe, and a global
+        ``footer_custom`` is also mirrored to ``site.footer.custom``.
 
         Args:
             key: Variable name.
@@ -450,35 +488,22 @@ class VariableManager:
         if scope not in self.variables:
             self.variables[scope] = {}
 
-        # Special handling for HTML content in certain variables
-        if key in ["footer_custom"] and isinstance(value, str) and ("<" in value and ">" in value):
-            # Likely HTML content, mark it as safe
+        if key == "footer_custom" and _looks_like_html(value):
             value = Markup(value)
 
         logger.debug(f"Setting variable {key} in scope {scope}")
         self.variables[scope][key] = value
 
-        # Special handling for footer_custom
         if key == "footer_custom" and scope == "global":
-            # Also set in site.footer.custom
-            if "site" not in self.variables:
-                self.variables["site"] = {}
-            if "footer" not in self.variables["site"]:
-                self.variables["site"]["footer"] = {}
-            self.variables["site"]["footer"]["custom"] = value
+            self.variables.setdefault("site", {}).setdefault("footer", {})["custom"] = value
 
-    def set_page_variables(self, variables: Dict[str, Any]) -> None:
+    def set_page_variables(self, variables: dict[str, Any]) -> None:
         """Set page-level variables.
 
         Args:
             variables: Dictionary of page variables.
         """
         self.variables["page"] = variables
-
-    # Derived state must never persist across builds: it is recomputed from
-    # content every build, and stale copies were previously served when the
-    # blog was later disabled or posts changed.
-    _NEVER_PERSIST = {"all_blog_posts", "tags", "categories", "build_time"}
 
     def save(self) -> None:
         """Persist script-produced variables to the variable file.
@@ -492,27 +517,67 @@ class VariableManager:
             return
 
         try:
-            # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(os.path.abspath(self.variable_file)), exist_ok=True)
-
-            # Keep the {"var": {"data": ...}} format for backward compatibility
-            old_format = {}
-            for key, value in self.variables.get("global", {}).items():
-                if (
-                    key not in self._script_vars
-                    or key in self._NEVER_PERSIST
-                    or key.startswith("generator")
-                ):
-                    continue
-                # Convert Markup to string
-                if hasattr(value, "__html__"):
-                    value = str(value)
-
-                old_format[key] = {"data": value, "datetime": datetime.now().isoformat()}
-
-            with open(self.variable_file, "w", encoding="utf-8") as f:
-                json.dump(old_format, f, indent=2, default=str)
-
+            self._write_variable_file()
             logger.debug(f"Saved variables to {self.variable_file}")
         except Exception as e:
             logger.error(f"Error saving variables: {e}")
+
+    def _write_variable_file(self) -> None:
+        os.makedirs(os.path.dirname(os.path.abspath(self.variable_file)), exist_ok=True)
+        # Keep the {"var": {"data": ...}} format for backward compatibility
+        saved_at = datetime.now().isoformat()
+        wrapped = {
+            key: {"data": str(value) if hasattr(value, "__html__") else value, "datetime": saved_at}
+            for key, value in self.variables.get("global", {}).items()
+            if self._is_persistable(key)
+        }
+        with open(self.variable_file, "w", encoding="utf-8") as f:
+            json.dump(wrapped, f, indent=2, default=str)
+
+    def _is_persistable(self, key: str) -> bool:
+        return (
+            key in self._script_vars
+            and key not in self._NEVER_PERSIST
+            and not key.startswith("generator")
+        )
+
+
+def _parse_data_file(file_path: str) -> Any:
+    """Parse a JSON, YAML or CSV file (CSV as a list of row dicts).
+
+    Returns:
+        The parsed data, or _UNSUPPORTED_FORMAT (after a warning) for any
+        other extension.
+    """
+    ext = Path(file_path).suffix.lower()
+    with open(file_path, encoding="utf-8") as f:
+        if ext == ".json":
+            return json.load(f)
+        if ext in (".yaml", ".yml"):
+            return yaml.safe_load(f)
+        if ext == ".csv":
+            return list(csv.DictReader(f))
+    logger.warning(f"Unsupported data file format: {ext}")
+    return _UNSUPPORTED_FORMAT
+
+
+def _is_legacy_wrapped(data: Any) -> bool:
+    """Whether data is the non-empty {"var": {"data": value, ...}} save format."""
+    return (
+        isinstance(data, dict)
+        and bool(data)
+        and all(isinstance(value, dict) and "data" in value for value in data.values())
+    )
+
+
+def _find_post(posts: list[dict], slug: Optional[str], tag: Optional[str]) -> Optional[dict]:
+    """The post with this slug, else (when no slug is given) the first with this tag."""
+    if slug:
+        return next((post for post in posts if post.get("slug") == slug), None)
+    if tag:
+        return next((post for post in posts if tag in post.get("tags", [])), None)
+    return None
+
+
+def _looks_like_html(value: Any) -> bool:
+    return isinstance(value, str) and "<" in value and ">" in value

@@ -25,15 +25,7 @@
     
     {% if page.image %}
     <div class="project-featured-image">
-        <picture>
-            {% if site.images.dither | default(true) %}
-            <source srcset="{{ page.image | replace('.jpg', '_800_dithered.webp') | replace('.png', '_800_dithered.webp') }}" type="image/webp">
-            <img src="{{ page.image | replace('.jpg', '_800_dithered.png') | replace('.png', '_800_dithered.png') }}" alt="{{ page.title }}" class="dithered" loading="lazy">
-            {% else %}
-            <source srcset="{{ page.image | replace('.jpg', '_800.webp') | replace('.png', '_800.webp') }}" type="image/webp">
-            <img src="{{ page.image | replace('.jpg', '_800.png') | replace('.png', '_800.png') }}" alt="{{ page.title }}" loading="lazy">
-            {% endif %}
-        </picture>
+        <img src="{{ page.image }}" alt="{{ page.title }}" loading="lazy">
     </div>
     {% endif %}
     
@@ -58,15 +50,7 @@
         <div class="gallery-grid">
             {% for image in page.gallery %}
             <figure class="gallery-item">
-                <picture>
-                    {% if site.images.dither | default(true) %}
-                    <source srcset="{{ image.url | replace('.jpg', '_400_dithered.webp') | replace('.png', '_400_dithered.webp') }}" type="image/webp">
-                    <img src="{{ image.url | replace('.jpg', '_400_dithered.png') | replace('.png', '_400_dithered.png') }}" alt="{{ image.alt|default(page.title) }}" class="dithered" loading="lazy">
-                    {% else %}
-                    <source srcset="{{ image.url | replace('.jpg', '_400.webp') | replace('.png', '_400.webp') }}" type="image/webp">
-                    <img src="{{ image.url | replace('.jpg', '_400.png') | replace('.png', '_400.png') }}" alt="{{ image.alt|default(page.title) }}" loading="lazy">
-                    {% endif %}
-                </picture>
+                <img src="{{ image.url }}" alt="{{ image.alt|default(page.title) }}" loading="lazy">
                 {% if image.caption %}
                 <figcaption>{{ image.caption }}</figcaption>
                 {% endif %}

@@ -1,14 +1,12 @@
-"""Slug generation: pins for the blog slugifier, xfails for unification (B10)."""
+"""Slug generation: the blog slugifier is the canonical one (B10)."""
 
 import pytest
 
-from sonne.processors.blog_processor import BlogProcessor
+from sonne.processors import blog_processor
 
 
 def blog_slugify(text):
-    # _slugify does not use self, so it can be exercised without constructing
-    # the (heavy) BlogProcessor.
-    return BlogProcessor._slugify(None, text)
+    return blog_processor.slugify(text)
 
 
 class TestBlogSlugify:
@@ -34,6 +32,7 @@ class TestCanonicalSlugify:
     def test_canonical_module_exists_and_matches_blog_semantics(self):
         from sonne.utils.text import slugify
 
+        assert blog_processor.slugify is slugify
         assert slugify("Hello World!") == "hello-world"
         assert slugify("snake_case_tag") == "snake_case_tag"
         assert slugify("Hello World!") == blog_slugify("Hello World!")

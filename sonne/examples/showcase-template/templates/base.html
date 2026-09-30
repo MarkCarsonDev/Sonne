@@ -79,9 +79,9 @@
                 </div>
             </div>
             
-            {% if site.footer.custom %}
+            {% if footer_custom %}
             <div class="footer-custom">
-                {{ site.footer.custom }}
+                {{ footer_custom | safe }}
             </div>
             {% endif %}
         </div>

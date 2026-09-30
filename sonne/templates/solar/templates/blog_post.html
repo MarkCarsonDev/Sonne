@@ -12,24 +12,16 @@
             {% if page.categories %}
             • In 
             {% for category in page.categories %}
-            <a href="/blog/categories/{{ category | lower | replace(' ', '-') }}/">{{ category }}</a>{% if not loop.last %}, {% endif %}
+            <a href="/blog/categories/{{ category | slugify }}/">{{ category }}</a>{% if not loop.last %}, {% endif %}
             {% endfor %}
             {% endif %}
         </div>
     </header>
     
-    {% if page.cover_img %}
+    {% set cover = page.cover_img_dithered or page.cover_img %}
+    {% if cover %}
     <div class="post-cover">
-        <!-- Use dithered image if dithering is enabled -->
-        <picture>
-            {% if site.images.dither | default(true) %}
-            <source srcset="{{ page.cover_img | replace('.jpg', '_800_dithered.webp') | replace('.png', '_800_dithered.webp') }}" type="image/webp">
-            <img src="{{ page.cover_img | replace('.jpg', '_800_dithered.png') | replace('.png', '_800_dithered.png') }}" alt="{{ page.title }}" class="dithered" loading="lazy">
-            {% else %}
-            <source srcset="{{ page.cover_img | replace('.jpg', '_800.webp') | replace('.png', '_800.webp') }}" type="image/webp">
-            <img src="{{ page.cover_img | replace('.jpg', '_800.png') | replace('.png', '_800.png') }}" alt="{{ page.title }}" loading="lazy">
-            {% endif %}
-        </picture>
+        <img src="{{ cover }}" alt="{{ page.title }}"{% if page.cover_img_dithered %} class="dithered"{% endif %}>
     </div>
     {% endif %}
     
@@ -42,7 +34,7 @@
         <h3>Tags</h3>
         <div class="tags">
             {% for tag in page.tags %}
-            <a href="/blog/tags/{{ tag | lower | replace(' ', '-') }}/" class="tag">{{ tag }}</a>
+            <a href="/blog/tags/{{ tag | slugify }}/" class="tag">{{ tag }}</a>
             {% endfor %}
         </div>
     </footer>

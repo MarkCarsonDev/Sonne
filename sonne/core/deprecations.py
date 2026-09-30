@@ -8,9 +8,14 @@ the schema (mark the old key deprecated) plus README and CHANGELOG.
 
 import logging
 import warnings
-from typing import Any, Dict
+from typing import Any, Optional
 
 logger = logging.getLogger("sonne")
+
+KeyPath = tuple[str, ...]
+
+# Returned by _pop_key when the key is absent (None is a valid config value).
+_MISSING = object()
 
 # (old key path) -> (new key path). The code-facing names are canonical.
 DEPRECATED_CONFIG_KEYS = {
@@ -28,59 +33,74 @@ REMOVED_CONFIG_KEYS = {
     ),
 }
 
-# Keys we have warned about already (once per process, not per Config load).
+# Keys already warned about in this process. Deliberately per process, not
+# per Config load: `sonne serve --watch` reloads the config on every
+# rebuild, and repeating the same warning on each save would bury real
+# output. Tests reset this set (see tests/unit/test_deprecations.py).
 _warned = set()
 
 
-def apply_config_deprecations(user_config: Dict[str, Any]) -> None:
+def apply_config_deprecations(user_config: dict[str, Any]) -> None:
     """Rewrite deprecated keys in a user config dict, in place.
 
     Must run on the raw user config BEFORE it is merged over defaults, so
     "the user explicitly set the new key" can be detected. The old key's
     value moves to the new path only if the new key is not already set.
+    Removed keys are dropped. Each key warns once per process.
 
     Args:
         user_config: Parsed user configuration (mutated in place).
     """
     for old_path, new_path in DEPRECATED_CONFIG_KEYS.items():
-        section = user_config
-        for part in old_path[:-1]:
-            section = section.get(part) if isinstance(section, dict) else None
-            if section is None:
-                break
-        if not isinstance(section, dict) or old_path[-1] not in section:
+        value = _pop_key(user_config, old_path)
+        if value is _MISSING:
             continue
-
-        value = section.pop(old_path[-1])
-
-        target = user_config
-        for part in new_path[:-1]:
-            target = target.setdefault(part, {})
-        if new_path[-1] not in target:
-            target[new_path[-1]] = value
-
-        if old_path not in _warned:
-            _warned.add(old_path)
-            message = (
-                f"Config key '{'.'.join(old_path)}' is deprecated; "
-                f"use '{'.'.join(new_path)}' instead"
-            )
-            logger.warning(message)
-            warnings.warn(message, DeprecationWarning, stacklevel=2)
+        _set_key_unless_present(user_config, new_path, value)
+        _warn_once(
+            old_path,
+            f"Config key '{_dotted(old_path)}' is deprecated; use '{_dotted(new_path)}' instead",
+        )
 
     for removed_path, guidance in REMOVED_CONFIG_KEYS.items():
-        section = user_config
-        for part in removed_path[:-1]:
-            section = section.get(part) if isinstance(section, dict) else None
-            if section is None:
-                break
-        if not isinstance(section, dict) or removed_path[-1] not in section:
-            continue
+        if _pop_key(user_config, removed_path) is not _MISSING:
+            _warn_once(
+                removed_path, f"Config key '{_dotted(removed_path)}' no longer exists: {guidance}"
+            )
 
-        section.pop(removed_path[-1])
 
-        if removed_path not in _warned:
-            _warned.add(removed_path)
-            message = f"Config key '{'.'.join(removed_path)}' no longer exists: {guidance}"
-            logger.warning(message)
-            warnings.warn(message, DeprecationWarning, stacklevel=2)
+def _pop_key(config: dict[str, Any], key_path: KeyPath) -> Any:
+    """Remove and return the value at key_path, or _MISSING if absent."""
+    section = _parent_section(config, key_path)
+    if section is None or key_path[-1] not in section:
+        return _MISSING
+    return section.pop(key_path[-1])
+
+
+def _parent_section(config: dict[str, Any], key_path: KeyPath) -> Optional[dict[str, Any]]:
+    """The mapping that would hold key_path's last key, or None if there is none."""
+    section = config
+    for part in key_path[:-1]:
+        section = section.get(part) if isinstance(section, dict) else None
+        if section is None:
+            return None
+    return section if isinstance(section, dict) else None
+
+
+def _set_key_unless_present(config: dict[str, Any], key_path: KeyPath, value: Any) -> None:
+    section = config
+    for part in key_path[:-1]:
+        section = section.setdefault(part, {})
+    section.setdefault(key_path[-1], value)
+
+
+def _warn_once(key_path: KeyPath, message: str) -> None:
+    if key_path in _warned:
+        return
+    _warned.add(key_path)
+    logger.warning(message)
+    # stacklevel 3: attribute the warning to apply_config_deprecations' caller
+    warnings.warn(message, DeprecationWarning, stacklevel=3)
+
+
+def _dotted(key_path: KeyPath) -> str:
+    return ".".join(key_path)

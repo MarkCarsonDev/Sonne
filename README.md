@@ -73,7 +73,7 @@ This will start a local development server at http://localhost:8000 with live re
 
 ## Site Configuration
 
-Sonne uses a configuration file to customize your site. The configuration file can be in YAML or JSON format and should be named `sonne.yaml` or `sonne.json`.
+Sonne uses a configuration file to customize your site. The configuration file can be in YAML or JSON format. Sonne looks for, in order, `sonne.yaml`, `sonne.yml`, `sonne.json`, `.sonne/config.yaml`, `sonne.config` (JSON), `.sonne.yaml` and `.sonne.json`, first in the site directory and then up to two parent directories (with a warning when a parent's config is used). Every key is optional; anything you leave out takes the default listed in the [Configuration Reference](#configuration-reference). Editors can validate and complete the file with the JSON schema in `sonne/schemas/sonne.schema.json`.
 
 ### Example Configuration (sonne.yaml)
 
@@ -126,8 +126,110 @@ images:
     - 1200
     - 800
     - 400
-  lazy_loading: true
 ```
+
+### Configuration Reference
+
+Every key Sonne understands, with its default. Nested keys are written with dots: `blog.rss.path` means `path` under `rss` under `blog`.
+
+#### `site`: site metadata (all exposed to templates as `site.*`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `site.title` | `My Sonne Site` | Site title. A mapping with a `text` key is also accepted. |
+| `site.base_url` | `http://localhost` | Absolute base URL of the deployed site (used for RSS feed links). |
+| `site.description` | `A site built with Sonne` | Site description for meta tags and the feed. |
+| `site.author` | `Sonne User` | Default author. |
+| `site.keywords` | `[]` | SEO keywords. |
+| `site.language` | `en` | Language tag (BCP 47, e.g. `en-US`, `zh-Hans`). |
+| `site.nav` | none | Navigation entries (`text`, `url`) rendered by the bundled templates. |
+| `site.footer.text` | none | Footer text used by some templates. A `footer.py` data script can set custom footer HTML. |
+| `site.footer.links` | none | Footer links (`text`, `url`) used by some templates. |
+| `site.weather` | none | Template-specific: location settings read by the solar template's scripts. |
+
+Any other key under `site` is passed through to templates unchanged.
+
+#### `paths`: directories, relative to the site directory unless absolute
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `paths.content` | `content` | Pages, posts and content images. |
+| `paths.output` | `output` | Where the built site is written. |
+| `paths.static` | `static` | Copied verbatim into the output. |
+| `paths.templates` | `templates` | Jinja templates. |
+| `paths.data` | `data` | JSON, YAML and CSV data files. |
+| `paths.cache` | `.cache` | Image processing cache. |
+| `paths.scripts` | `scripts` | Python data scripts (trusted code; see [Python Data Sources](#python-data-sources)). |
+
+#### `blog`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `blog.enabled` | `true` | Build the blog. |
+| `blog.directory` | `blog` | Posts directory inside `paths.content`. |
+| `blog.template` | `blog_post.html` | Template for a post. |
+| `blog.list_template` | `blog_list.html` | Template for the post listing. |
+| `blog.posts_per_page` | `10` | Posts per listing page (a positive integer). |
+| `blog.excerpt_length` | `200` | Length of auto-generated excerpts, in characters. |
+| `blog.url_pattern` | `{year}/{month}/{day}/{slug}` | Post URL pattern. |
+| `blog.include_drafts` | `false` | Include posts marked as drafts. |
+| `blog.taxonomies.tags.enabled` | `true` | Generate tag pages. |
+| `blog.taxonomies.tags.template` | `tag.html` | Template for one tag's page. |
+| `blog.taxonomies.tags.list_template` | `tags.html` | Template for the list of all tags. |
+| `blog.taxonomies.categories.enabled` | `true` | Generate category pages. |
+| `blog.taxonomies.categories.template` | `category.html` | Template for one category's page. |
+| `blog.taxonomies.categories.list_template` | `categories.html` | Template for the list of all categories. |
+| `blog.rss.enabled` | `true` | Write an RSS feed. `blog.rss: false` (or `true`) is shorthand for this. |
+| `blog.rss.path` | `feed.xml` | Feed path inside the output directory. |
+| `blog.rss.max_items` | `20` | Maximum number of posts in the feed. |
+| `blog.date_archives` | `true` | Generate year and month archive pages. |
+| `blog.archive_template` | `archive.html` | Template for the archive pages. |
+
+#### `images`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `images.dither` | `true` | Create dithered variants and emit the dithering CSS/JS. |
+| `images.optimize` | `true` | Optimize saved images. |
+| `images.formats` | `[webp, png]` | Output formats (`webp`, `png`, `jpg`, `jpeg`). |
+| `images.sizes` | `[1200, 800, 400]` | Widths to generate (positive integers). |
+| `images.only_used` | `false` | Only process images referenced from content or templates. |
+| `images.dither_method` | `bayer` | One of `bayer`, `grayscale`, `palette`, `1bit`, `halftone`, `floyd_steinberg`, `threshold`, `color_median`, `color_octree`, `color_lab`. |
+| `images.dither_colors` | `4` | Colors or levels used by the dither (2–256). |
+| `images.dither_formats` | `[webp]` | Formats for dithered variants. |
+| `images.dither_sizes` | smallest of `images.sizes` | Widths for dithered variants. |
+| `images.dither_cover_images` | `true` | Dither blog cover images. |
+| `images.blog_original_max_width` | `1600` | Maximum width of a blog post's original image. |
+| `images.blog_dithered_max_width` | `400` | Maximum width of a blog post's dithered image. |
+| `images.webp_method` | `0` | WebP encoder effort for dithered images (0 = fastest … 6 = smallest). |
+| `images.webp_method_original` | `4` | WebP encoder effort for originals. |
+| `images.parallel` | `true` | Process images in parallel. |
+| `images.parallel_workers` | `0` | Worker threads; `0` means automatic (up to 4). |
+| `images.lazy_loading` | `true` | No effect: generated `<img>` tags always use `loading="lazy"`. |
+| `images.grayscale_before_dither` | `false` | No effect: grayscale is chosen with `dither_method: grayscale`. |
+| `images.parallel_processing` | none | Deprecated name for `images.parallel` (still accepted, with a warning). |
+| `images.max_workers` | none | Deprecated name for `images.parallel_workers` (still accepted, with a warning). |
+
+#### Other sections
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `content.render_jinja` | `false` | Render content files through Jinja before Markdown. Per-file front matter `jinja: true` or `false` overrides it. See [Variables in Content](#variables-in-content-jinja). |
+| `variables.file` | `sonne_variables.json` | File used by `variables.preserve_prior`. |
+| `variables.preserve_prior` | `false` | Keep script-produced variables between builds. By default every build starts fresh. |
+| `serve.host` | `localhost` | `sonne serve` host (the `--host` option overrides it). |
+| `serve.port` | `8000` | `sonne serve` port (the `--port` option overrides it). |
+| `environment` | `prod` | Selects the `url_style` entry. `sonne build --dev` sets `dev`, and custom names work when `url_style` has an entry for them. |
+| `url_style.prod` | `clean` | URL style in `prod`: `clean`, `html` or `directory` (see [URL Configuration](#url-configuration)). `url_style` may also be a single style for every environment. |
+| `url_style.dev` | `directory` | URL style in `dev`. |
+| `build.show_page_size` | `false` | Add a small page-weight label to every generated page. |
+| `build.incremental` | `true` | No effect (every build is a full build). |
+| `build.show_progress` | `true` | No effect; use `sonne build --no-progress`. |
+| `build.statistics` | `true` | No effect; use `sonne build --perf` for the build report. |
+| `security.csp.enabled` | `false` | No effect yet: the policy is computed but not added to generated pages. |
+| `security.csp.directives` | `{}` | CSP directives, each a list of sources (no effect yet; see above). |
+| `security.allow_embedded_python` | none | Removed (warns and is ignored). Use data scripts with `sonne_global()`/`sonne_filter()` plus `content.render_jinja`. |
+| `solar` | none | Template-specific: settings for the solar template's scripts. |
 
 ## Content Creation
 
@@ -336,7 +438,30 @@ Available across all templates:
 - `site`: Site-wide configuration and data
 - `page`: Current page information
 - `all_blog_posts`: List of all blog posts (when blog is enabled)
+- `all_pages`: List of every content page (see below)
 - Custom global variables set in data files or scripts
+
+### Listing Pages (`all_pages`)
+
+`all_pages` holds every page Sonne renders from `content/`, sorted by URL.
+Blog posts are left out while the blog is enabled; they are in
+`all_blog_posts`. Each entry is the page's front matter plus:
+
+- `title`: the front matter title, or the file name (the folder name for an
+  `index` page)
+- `url`: the URL the page is written at, in the site's URL style
+  (`content/index.md` is `/`, `content/projects/index.md` is `/projects/`)
+- `section`: the page's top-level folder under `content/` (`""` at the root)
+- `source_path`: the page's file
+
+A section index can list its pages without a data script:
+
+```html
+<!-- templates/projects.html, used by content/projects/index.md -->
+{% for p in all_pages if p.section == 'projects' and p.url != page.url %}
+  <a href="{{ p.url }}">{{ p.title }}</a>
+{% endfor %}
+```
 
 ### Variable Files
 
@@ -395,9 +520,7 @@ You can create Python scripts to generate dynamic data:
 
 ```python
 # scripts/team.py
-
-# The sonne_var function will be injected by Sonne at runtime
-# Ignore any linting warnings
+from sonne.script_api import sonne_var
 
 # Generate team data
 team_members = [
@@ -423,6 +546,51 @@ Then access in templates:
 </div>
 ```
 
+Every `*.py` directly in `scripts/` runs on each build, in alphabetical order; files whose names start with `_` are skipped (use them for shared helpers). Scripts are trusted code: see [Security](#security).
+
+A script named `footer.py`, placed in `data/`, your `paths.data` folder, or `scripts/`, can set custom footer HTML with `sonne_var('footer_custom', '<p>...</p>')`. The first one found runs (once), and its value is marked HTML-safe and exposed as `site.footer.custom`.
+
+### Script API
+
+Scripts talk to Sonne through seven functions in `sonne.script_api`. Import them, so your editor, Pylance/pyright and ruff know where they come from (Sonne ships type hints):
+
+```python
+from sonne.script_api import (
+    dither_image, get_post, get_variable, sonne_config, sonne_filter, sonne_global, sonne_var,
+)
+```
+
+| Function | What it does |
+|----------|--------------|
+| `sonne_var(name, value)` | Publishes a variable to every template and to content Jinja, as `{{ name }}` and `{{ site.name }}`. A name that matches a site config or data-file key replaces it, with a warning. |
+| `get_post(slug=None, tag=None)` | Returns a blog post of this build (a dict with title, url, date, tags, excerpt, ...) by slug, or the newest one with a tag; `None` if there is none. |
+| `sonne_filter(name, fn)` | Registers a Jinja filter: `{{ value \| name }}`. |
+| `sonne_global(name, value)` | Registers a Jinja global value or function: `{{ name }}`, `{{ name(...) }}`. |
+| `sonne_config(*keys, default=None)` | Reads the site's configuration (your config file merged over the defaults), e.g. `sonne_config("site", "base_url")`; one key returns a whole section. Returns `default` when the key is not set. The result is a copy, so changing it does not affect the build. |
+| `get_variable(name, default=None)` | Reads anything templates can see: `all_pages`, `all_blog_posts`, `tags`, data files, site config values, and variables set by scripts that ran earlier (scripts run in file-name order). Returns `default` when there is no such variable. The result is a copy; large values such as `all_blog_posts` (which includes rendered content) are copied on every call, so call it once and keep the result. |
+| `dither_image(image)` | Dithers a Pillow image with the site's `images.dither_*` settings and returns the result, ready to save as PNG. For images a script fetches or generates itself; resize first if needed. |
+
+Use `sonne_config` rather than opening `sonne.yaml` yourself: it is the configuration of the build that is running (the right file even with `sonne build -p other-site`, with defaults and deprecated-key renames applied).
+
+```python
+# scripts/weather.py
+from sonne.script_api import sonne_config, sonne_var
+
+city = sonne_config("site", "weather", "city", default="Berlin")
+sonne_var("weather_city", city)
+```
+
+```python
+# scripts/projects.py: the three newest pages under content/projects/
+from sonne.script_api import get_variable, sonne_var
+
+pages = get_variable("all_pages", [])
+projects = [p for p in pages if p["section"] == "projects" and p["url"] != "/projects/"]
+sonne_var("recent_projects", sorted(projects, key=lambda p: p.get("date", ""), reverse=True)[:3])
+```
+
+The functions work only while Sonne runs the script during `sonne build` or `sonne serve` (including from helper modules the script calls). Anywhere else, for example when you run the script with plain `python`, they raise `RuntimeError`. Older scripts that call them without importing keep working: Sonne still provides the same names as globals, but the import is the recommended form.
+
 ## Image Processing
 
 ### Automatic Image Optimization
@@ -447,8 +615,26 @@ images:
     - 1200  # Large
     - 800   # Medium
     - 400   # Small
-  lazy_loading: true
+  dither_method: bayer
 ```
+
+All image settings are listed in the [Configuration Reference](#images).
+
+### Dithered/Original Toggle
+
+With `images.dither: true`, readers can switch each dithered image back to its original:
+
+- **Blog post images** get this automatically. Each one is wrapped in a `<figure>` with a "view original" button, and the styles and script are added to the page.
+- **Other images** (pages, and anything under `static/images/`) are handled by the core assets Sonne writes to `/css/dithering.css` and `/js/dithering.js`. The bundled templates don't include them, so add them to your base template:
+
+  ```html
+  {% if dithering_enabled %}
+  <link rel="stylesheet" href="/css/dithering.css">
+  <script src="/js/dithering.js" defer></script>
+  {% endif %}
+  ```
+
+  The script adds a toggle to every same-origin, non-SVG image outside blog figures. The dithered image is the one at the image's URL, and its original is expected next to it with an `_original` suffix (`images/logo.png` → `images/logo_original.png`, `photo_800.webp` → `photo_800_original.webp`). Sonne writes those originals for images under `static/images/` and for resized content images. To render the same markup on the server instead, use the `process_image` filter: `{{ "/images/logo.png" | process_image("Logo") }}`.
 
 ### Usage in Templates
 
@@ -531,6 +717,8 @@ No need to touch Sonne's source:
 ```python
 # scripts/tools.py
 from datetime import datetime
+
+from sonne.script_api import sonne_filter, sonne_global
 
 def read_time(html):
     words = len(html.split())
@@ -629,6 +817,10 @@ Building a Sonne site executes code:
 - **Data scripts** (`scripts/*.py`) run with full process privileges on every
   build — the same trust model as Jekyll plugins or a Makefile. Only build
   sites you trust, and never point CI at untrusted site content.
+- **Footer scripts**: a `footer.py` in `data/`, in your `paths.data` folder or
+  in `scripts/` is executed the same way, even though the data folder
+  otherwise holds only JSON, YAML and CSV. The `footer_custom` it sets is
+  inserted into pages as raw HTML.
 - **Content Jinja** (`content.render_jinja`) makes content files templates.
   Jinja is not a security boundary — treat content authors as trusted, the
   same as script authors. There is no embedded-Python-in-content feature

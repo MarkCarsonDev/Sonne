@@ -1,6 +1,12 @@
 """Image pipeline: resizing, dithering, only_used, cache keys."""
 
+import logging
+from pathlib import Path
+
 from PIL import Image
+
+from sonne.core.config import Config
+from sonne.processors.image_processor import ImageProcessor
 
 
 class TestContentImages:
@@ -136,3 +142,178 @@ class TestPostImageFormats:
         _, out = builder(site)
         with Image.open(_post_copy(out, "photo.jpg")) as saved:
             assert saved.format == "JPEG"
+
+
+class TestStaticImages:
+    def test_static_jpeg_is_dithered_in_place(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        source = image_factory(site / "static" / "images" / "vogel.jpg", size=(32, 32), fmt="JPEG")
+        _, out = builder(site, config_overrides={("images", "dither"): True})
+        dithered = out / "images" / "vogel.jpg"
+        with Image.open(dithered) as saved:
+            assert saved.format == "JPEG"
+        # A failed dither falls back to copying the source unchanged
+        assert dithered.read_bytes() != source.read_bytes()
+
+    def test_skip_cache_reprocesses_static_images(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        generator, out = builder(site, config_overrides={("images", "dither"): True})
+        target = out / "images" / "logo.png"
+        target.write_bytes(b"stale")
+        generator.image_processor.process_all(generator.paths["content"], skip_cache=True)
+        assert target.read_bytes() != b"stale"
+
+    def test_rebuild_keeps_static_images_dithered(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        source = image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        overrides = {("images", "dither"): True}
+        builder(site, config_overrides=overrides)
+        _, out = builder(site, config_overrides=overrides)  # warm cache
+        assert (out / "images" / "logo.png").read_bytes() != source.read_bytes()
+
+
+class TestStaticFileOwnership:
+    """Which static files the image pipeline writes (so the static copy must skip them)."""
+
+    def processor(self, site_factory, builder, config_overrides=None):
+        site = site_factory("blog", overlay="blog_site")
+        for rel_path in ["images/a.png", "images/sub/b.jpg", "images/icon.svg", "css/c.png"]:
+            (site / "static" / rel_path).parent.mkdir(parents=True, exist_ok=True)
+            (site / "static" / rel_path).write_bytes(b"x")
+        (site / "static" / "images" / ".hidden").mkdir()
+        (site / "static" / "images" / ".hidden" / "d.png").write_bytes(b"x")
+        generator, _ = builder(site, config_overrides=config_overrides, skip_images=True)
+        return generator.image_processor, site / "static"
+
+    def test_raster_images_under_static_images_are_owned(self, site_factory, builder):
+        processor, static = self.processor(site_factory, builder)
+        assert processor.owns_static_file(str(static / "images" / "a.png"))
+        assert processor.owns_static_file(str(static / "images" / "sub" / "b.jpg"))
+
+    def test_other_static_files_are_not_owned(self, site_factory, builder):
+        processor, static = self.processor(site_factory, builder)
+        for rel_path in ["images/icon.svg", "css/c.png", "images/.hidden/d.png"]:
+            assert not processor.owns_static_file(str(static / rel_path)), rel_path
+
+    def test_unreferenced_images_are_not_owned_with_only_used(self, site_factory, builder):
+        processor, static = self.processor(site_factory, builder, {("images", "only_used"): True})
+        assert not processor.owns_static_file(str(static / "images" / "a.png"))
+
+
+class TestImageDiscovery:
+    def test_uppercase_extensions_are_processed(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "CAMERA.JPG", size=(64, 64), fmt="JPEG")
+        _, out = builder(site)
+        assert (out / "assets" / "images" / "CAMERA_400_original.webp").exists()
+
+
+class TestSiteLocation:
+    def test_site_inside_dot_directory_processes_images(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site", name=".sites/blog")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        _, out = builder(site)
+        assert (out / "assets" / "images" / "photo_400_original.webp").exists()
+
+
+class TestUnknownDitherMethod:
+    def processor(self):
+        config = Config()
+        config.set("images", "dither_method", value="bogus")
+        config.set("images", "dither_colors", value=2)
+        return ImageProcessor(config, {})
+
+    def test_fallback_uses_configured_colors(self):
+        processor = self.processor()
+        gradient = Image.linear_gradient("L").resize((32, 32))
+        expected = processor._apply_dither(gradient, "bayer", 2)
+        assert processor.dither(gradient).tobytes() == expected.tobytes()
+
+    def test_warns_once_naming_method_and_fallback(self, caplog):
+        processor = self.processor()
+        image = Image.new("RGB", (8, 8))
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            processor.dither(image)
+            processor.dither(image)
+        warnings = [r.message for r in caplog.records if "bogus" in r.message]
+        assert len(warnings) == 1 and "bayer" in warnings[0]
+
+
+class TestBuildStatistics:
+    def build(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        overrides = {("images", "dither"): True}
+        generator, _ = builder(site, config_overrides=overrides)
+        return site, overrides, generator.stats
+
+    def test_first_build_counts_processed_images_as_cache_misses(
+        self, site_factory, builder, image_factory
+    ):
+        _, _, stats = self.build(site_factory, builder, image_factory)
+        assert stats.images_processed >= 2
+        assert (stats.images_cached, stats.cache_misses) == (0, stats.images_processed)
+
+    def test_rebuild_counts_cached_images_as_cache_hits(self, site_factory, builder, image_factory):
+        site, overrides, _ = self.build(site_factory, builder, image_factory)
+        generator, _ = builder(site, config_overrides=overrides)
+        stats = generator.stats
+        assert stats.images_cached >= 2
+        assert (stats.images_processed, stats.cache_hits) == (0, stats.images_cached)
+
+    def test_static_image_sizes_are_recorded(self, site_factory, builder, image_factory):
+        _, _, stats = self.build(site_factory, builder, image_factory)
+        assert stats.original_image_size > 0
+        assert stats.processed_image_size > 0
+
+
+class TestImageWorkload:
+    """images_to_process() is exactly what process_all() handles."""
+
+    def site(self, site_factory, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        for hidden_name in ("hidden.jpg", "hidden2.jpg"):
+            image_factory(site / "content" / ".drafts" / hidden_name, size=(64, 64))
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        (site / "static" / "images" / "icon.svg").write_text("<svg/>", encoding="utf-8")
+        return site
+
+    def test_lists_content_then_static_images_skipping_hidden_and_non_raster(
+        self, site_factory, builder, image_factory
+    ):
+        site = self.site(site_factory, image_factory)
+        generator, _ = builder(site, skip_images=True)
+
+        images = generator.image_processor.images_to_process(generator.paths["content"])
+
+        assert [Path(p).name for p in images.content] == ["photo.jpg"]
+        assert [Path(p).name for p in images.static] == ["logo.png"]
+
+    def test_only_used_leaves_out_unreferenced_images(self, site_factory, builder, image_factory):
+        site = self.site(site_factory, image_factory)
+        generator, _ = builder(site, {("images", "only_used"): True}, skip_images=True)
+
+        images = generator.image_processor.images_to_process(generator.paths["content"])
+
+        assert len(images) == 0
+
+    def test_build_processes_exactly_the_listed_images(self, site_factory, builder, image_factory):
+        site = self.site(site_factory, image_factory)
+        generator, _ = builder(site, {("images", "dither"): True})
+
+        images = generator.image_processor.images_to_process(generator.paths["content"])
+
+        assert generator.stats.images_processed == len(images) == 2
+
+    def test_progress_line_counts_the_images_processed(
+        self, site_factory, builder, image_factory, caplog
+    ):
+        site = self.site(site_factory, image_factory)
+
+        with caplog.at_level(logging.INFO, logger="sonne"):
+            builder(site)
+
+        assert any("Processing images  (2 images," in r.message for r in caplog.records)

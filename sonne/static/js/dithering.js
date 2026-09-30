@@ -1,149 +1,159 @@
-// Toggle dithered/original images
-document.addEventListener("DOMContentLoaded", function () {
-	// Process all img tags on the page
-	processAllImages();
-});
+// Dithered/original toggle for static-pipeline images.
+//
+// Static pipeline convention: the dithered image is served at the image's
+// own URL and the untouched original beside it with an "_original" suffix
+// before the extension (images/a.png -> images/a_original.png, sized
+// variants b_800.webp -> b_800_original.webp). Every other same-origin
+// raster image is wrapped with a toggle between the two.
+//
+// Blog figures (<figure class="dithered-image-figure"> with
+// data-original-src/data-dithered-src) follow the blog convention and have
+// their own inline script; they are left alone here.
+(function () {
+	"use strict";
 
-function processAllImages() {
-	// First, process images that are already in dithered-image-containers
-	const containedImages = document.querySelectorAll(
-		".dithered-image-container img.dithered"
-	);
+	var CONTAINER_CLASS = "dithered-image-container";
+	var TOGGLE_CLASS = "dither-toggle";
+	var SHOW_ORIGINAL_CLASS = "show-original";
+	var BOUND_ATTRIBUTE = "data-has-listener";
+	var BLOG_FIGURE_SELECTOR = ".dithered-image-figure";
 
-	// Then find standalone images that need to be processed
-	const standaloneImages = document.querySelectorAll(
-		"img:not(.dithered):not(.original)"
-	);
+	// 3x3 grid forming an X: filled corners and centre.
+	var TOGGLE_DOT_IS_FILLED = [true, false, true, false, true, false, true, false, true];
 
-	standaloneImages.forEach(function (img) {
-		// Skip SVG images
-		if (img.src.endsWith(".svg")) {
+	function start() {
+		wrapImagesWithin(document.body);
+		watchForNewImages();
+	}
+
+	function wrapImagesWithin(root) {
+		imagesWithin(root).filter(isStandaloneImage).forEach(wrapWithToggle);
+		// Server-rendered containers (the process_image filter) arrive
+		// with a toggle that has no listener yet.
+		togglesWithin(root).forEach(bindToggle);
+	}
+
+	function imagesWithin(root) {
+		var images = Array.prototype.slice.call(root.querySelectorAll("img"));
+		return root.tagName === "IMG" ? [root].concat(images) : images;
+	}
+
+	function togglesWithin(root) {
+		var toggles = Array.prototype.slice.call(root.querySelectorAll("." + TOGGLE_CLASS));
+		return root.classList.contains(TOGGLE_CLASS) ? [root].concat(toggles) : toggles;
+	}
+
+	function isStandaloneImage(img) {
+		if (img.closest("." + CONTAINER_CLASS) || img.closest(BLOG_FIGURE_SELECTOR)) {
+			return false;
+		}
+		if (img.hasAttribute("data-original-src")) {
+			return false;
+		}
+		var url = sameOriginUrl(img.getAttribute("src"));
+		// SVGs are never dithered; other origins have no "_original" twin.
+		return url !== null && !/\.svg$/i.test(url.pathname);
+	}
+
+	function sameOriginUrl(src) {
+		if (!src) {
+			return null;
+		}
+		var url;
+		try {
+			url = new URL(src, document.baseURI);
+		} catch (e) {
+			return null;
+		}
+		if (url.protocol === "data:" || url.protocol === "blob:") {
+			return null;
+		}
+		return url.origin === window.location.origin ? url : null;
+	}
+
+	// Insert "_original" before the file name's extension, leaving any
+	// directories, query string and fragment untouched.
+	function originalSrcFor(src) {
+		var suffixStart = src.search(/[?#]/);
+		var path = suffixStart === -1 ? src : src.substring(0, suffixStart);
+		var suffix = suffixStart === -1 ? "" : src.substring(suffixStart);
+		var fileNameStart = path.lastIndexOf("/") + 1;
+		var extensionStart = path.lastIndexOf(".");
+		if (extensionStart < fileNameStart) {
+			return path + "_original" + suffix;
+		}
+		return (
+			path.substring(0, extensionStart) + "_original" + path.substring(extensionStart) + suffix
+		);
+	}
+
+	function wrapWithToggle(img) {
+		var container = document.createElement("div");
+		container.className = CONTAINER_CLASS;
+
+		var originalImg = document.createElement("img");
+		originalImg.src = originalSrcFor(img.getAttribute("src"));
+		originalImg.className = "original";
+		originalImg.alt = img.getAttribute("alt") || "Image";
+		originalImg.loading = img.getAttribute("loading") || "lazy";
+
+		img.classList.add("dithered");
+
+		img.parentNode.insertBefore(container, img);
+		container.appendChild(img);
+		container.appendChild(originalImg);
+		container.appendChild(createToggle());
+	}
+
+	function createToggle() {
+		var toggle = document.createElement("div");
+		toggle.className = TOGGLE_CLASS;
+		TOGGLE_DOT_IS_FILLED.forEach(function (isFilled) {
+			var dot = document.createElement("div");
+			dot.className = isFilled ? "dither-toggle-dot" : "dither-toggle-dot empty";
+			toggle.appendChild(dot);
+		});
+		bindToggle(toggle);
+		return toggle;
+	}
+
+	function bindToggle(toggle) {
+		if (toggle.hasAttribute(BOUND_ATTRIBUTE)) {
 			return;
 		}
-
-		// Create container and controls
-		wrapImageWithDitheringControls(img);
-	});
-
-	// Add click handlers to all toggle buttons
-	const toggleButtons = document.querySelectorAll(".dither-toggle");
-	toggleButtons.forEach(function (toggle) {
-		// Ensure we don't add multiple event listeners
-		if (!toggle.hasAttribute("data-has-listener")) {
-			toggle.addEventListener("click", function (e) {
-				const container = toggle.closest(".dithered-image-container");
-				container.classList.toggle("show-original");
-				e.stopPropagation();
-			});
-			toggle.setAttribute("data-has-listener", "true");
-		}
-	});
-}
-
-function wrapImageWithDitheringControls(img) {
-	// Skip if already processed
-	if (img.closest(".dithered-image-container")) {
-		return;
-	}
-
-	// Get image attributes
-	const src = img.getAttribute("src");
-	const alt = img.getAttribute("alt") || "Image";
-	const loading = img.getAttribute("loading") || "lazy";
-
-	// Create container
-	const container = document.createElement("div");
-	container.className = "dithered-image-container";
-
-	// Create original image path
-	let originalSrc = "";
-	if (src.includes("_")) {
-		// Format: path/filename_size.ext
-		const sizeMatch = src.match(/_(\d+)\./);
-		if (sizeMatch) {
-			const size = sizeMatch[1];
-			originalSrc = src.replace(`_${size}.`, `_${size}_original.`);
-		} else {
-			// No size indicator, just add _original before extension
-			const lastDotIndex = src.lastIndexOf(".");
-			if (lastDotIndex !== -1) {
-				originalSrc =
-					src.substring(0, lastDotIndex) +
-					"_original" +
-					src.substring(lastDotIndex);
-			} else {
-				// No extension, just append _original
-				originalSrc = src + "_original";
+		toggle.addEventListener("click", function (event) {
+			var container = toggle.closest("." + CONTAINER_CLASS);
+			if (container) {
+				container.classList.toggle(SHOW_ORIGINAL_CLASS);
 			}
-		}
-	} else {
-		// Format: path/filename.ext
-		const lastDotIndex = src.lastIndexOf(".");
-		if (lastDotIndex !== -1) {
-			originalSrc =
-				src.substring(0, lastDotIndex) +
-				"_original" +
-				src.substring(lastDotIndex);
-		} else {
-			// No extension, just append _original
-			originalSrc = src + "_original";
-		}
-	}
-
-	// Create original image element
-	const originalImg = document.createElement("img");
-	originalImg.src = originalSrc;
-	originalImg.className = "original";
-	originalImg.alt = alt;
-	originalImg.loading = loading;
-
-	// Add dithered class to original image
-	img.className = (img.className ? img.className + " " : "") + "dithered";
-
-	// Create toggle button
-	const toggle = document.createElement("div");
-	toggle.className = "dither-toggle";
-
-	// Create dots pattern (X pattern)
-	const dotClasses = ["", "empty", "", "empty", "", "empty", "", "empty", ""];
-	dotClasses.forEach(function (className) {
-		const dot = document.createElement("div");
-		dot.className =
-			"dither-toggle-dot" + (className ? " " + className : "");
-		toggle.appendChild(dot);
-	});
-
-	// Add event listener to toggle
-	toggle.addEventListener("click", function (e) {
-		container.classList.toggle("show-original");
-		e.stopPropagation();
-	});
-	toggle.setAttribute("data-has-listener", "true");
-
-	// Replace the image with the container
-	img.parentNode.insertBefore(container, img);
-	container.appendChild(img);
-	container.appendChild(originalImg);
-	container.appendChild(toggle);
-}
-
-// Watch for dynamic content changes
-if ("MutationObserver" in window) {
-	const observer = new MutationObserver(function (mutations) {
-		let needsProcessing = false;
-		mutations.forEach(function (mutation) {
-			if (mutation.addedNodes.length) {
-				needsProcessing = true;
-			}
+			// A toggle inside a link must not also follow the link, nor
+			// trigger click handlers (e.g. lightboxes) around the image.
+			event.preventDefault();
+			event.stopPropagation();
 		});
+		toggle.setAttribute(BOUND_ATTRIBUTE, "true");
+	}
 
-		if (needsProcessing) {
-			processAllImages();
+	// Only newly added subtrees are scanned, so a page that keeps changing
+	// does not re-walk the whole document each time.
+	function watchForNewImages() {
+		if (!("MutationObserver" in window)) {
+			return;
 		}
-	});
+		new MutationObserver(function (mutations) {
+			mutations.forEach(function (mutation) {
+				mutation.addedNodes.forEach(function (node) {
+					if (node.nodeType === Node.ELEMENT_NODE && node.isConnected) {
+						wrapImagesWithin(node);
+					}
+				});
+			});
+		}).observe(document.body, { childList: true, subtree: true });
+	}
 
-	observer.observe(document.body, {
-		childList: true,
-		subtree: true,
-	});
-}
+	if (document.readyState === "loading") {
+		document.addEventListener("DOMContentLoaded", start);
+	} else {
+		start();
+	}
+})();

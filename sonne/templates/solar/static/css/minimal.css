@@ -118,6 +118,11 @@ figcaption {
     margin-bottom: 0.5rem;
 }
 
+.tag.active {
+    border-color: var(--accent-color);
+    color: var(--heading-color);
+}
+
 .pagination {
     display: flex;
     justify-content: center;
@@ -162,6 +167,20 @@ figcaption {
 
 .project-description {
     margin-bottom: 1rem;
+}
+
+.project-technologies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+
+.project-tech {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.8rem;
 }
 
 .btn {
@@ -223,18 +242,9 @@ figcaption {
 
 /* Mobile styles */
 @media (max-width: 768px) {
-    .site-header .container {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-    
-    .site-title {
-        margin-bottom: 1rem;
-    }
-    
     .site-nav ul {
-        flex-direction: column;
-        gap: 0.5rem;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
     }
     
     .status-bar {

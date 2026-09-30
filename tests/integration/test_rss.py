@@ -29,8 +29,15 @@ class TestRss:
         from email.utils import parsedate_to_datetime
 
         tree = ET.parse(rss_out)
-        dates = [d.text for d in tree.getroot().iter("pubDate")]
+        # An empty <pubDate> becomes "", which parsedate_to_datetime rejects
+        dates = [d.text or "" for d in tree.getroot().iter("pubDate")]
         assert dates
         for d in dates:
             parsed = parsedate_to_datetime(d)
             assert parsed.tzinfo is not None
+
+
+def test_feed_path_may_point_into_a_subdirectory(site_factory, builder):
+    site = site_factory("blog", overlay="blog_site")
+    _, out = builder(site, config_overrides={("blog", "rss", "path"): "feeds/blog.xml"})
+    assert (out / "feeds" / "blog.xml").exists()
