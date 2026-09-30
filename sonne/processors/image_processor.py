@@ -287,7 +287,7 @@ class ImageProcessor:
     def _run_for_each(self, process: Callable[[str], Any], image_paths: List[str]) -> None:
         """Run ``process`` on every path, in a thread pool when enabled; log failures."""
         if self.config.get("images", "parallel", default=True) and len(image_paths) > 1:
-            with ThreadPoolExecutor(max_workers=self._worker_count()) as executor:
+            with ThreadPoolExecutor(max_workers=self.worker_count()) as executor:
                 futures = {executor.submit(process, p): p for p in image_paths}
                 for future in as_completed(futures):
                     try:
@@ -301,7 +301,8 @@ class ImageProcessor:
                 except Exception as e:
                     logger.error(f"Error processing image {image_path}: {e}")
 
-    def _worker_count(self) -> int:
+    def worker_count(self) -> int:
+        """Threads used for image processing: images.parallel_workers, else min(4, CPUs)."""
         workers = self.config.get("images", "parallel_workers", default=None)
         return int(workers) if workers else min(DEFAULT_MAX_WORKERS, (os.cpu_count() or 1))
 
