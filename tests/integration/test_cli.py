@@ -159,7 +159,7 @@ class TestWatchRebuilds:
         rebuilder = commands.SiteRebuilder(str(tmp_path), Config(base_dir=str(tmp_path)))
         builds = []
 
-        def rebuild_site(base_dir):
+        def rebuild_site(base_dir, dev=False):
             builds.append(base_dir)
             if len(builds) == 1:
                 rebuilder._rebuild()  # the debounce timer fires again mid-build
@@ -183,6 +183,53 @@ class TestWatchRebuilds:
         )
 
         assert str(tmp_path / "content" / "post.md") in _paths_touched_by(event)
+
+
+class TestServeDev:
+    @pytest.fixture
+    def split_style_site(self, site_factory):
+        site = site_factory("minimal")
+        config = site / "sonne.yaml"
+        text = config.read_text(encoding="utf-8").replace("prod: directory", "prod: html")
+        config.write_text(text, encoding="utf-8")
+        return site
+
+    @pytest.mark.parametrize(
+        "dev, expected, absent",
+        [(False, "about.html", "about/index.html"), (True, "about/index.html", "about.html")],
+        ids=["prod", "dev"],
+    )
+    def test_rebuild_uses_the_chosen_environment(self, split_style_site, dev, expected, absent):
+        from sonne.cli.commands import _rebuild_site
+
+        _rebuild_site(str(split_style_site), dev=dev)
+
+        output = split_style_site / "output"
+        assert (output / expected).exists()
+        assert not (output / absent).exists()
+
+    def test_watch_rebuilds_keep_the_dev_flag(self, tmp_path, monkeypatch):
+        import sonne.cli.commands as commands
+        from sonne.core.config import Config
+
+        calls = []
+        monkeypatch.setattr(commands, "_rebuild_site", lambda base, dev=False: calls.append(dev))
+        rebuilder = commands.SiteRebuilder(str(tmp_path), Config(base_dir=str(tmp_path)), dev=True)
+
+        rebuilder._rebuild()
+
+        assert calls == [True]
+
+    def test_serve_has_a_dev_flag(self, runner):
+        result = runner.invoke(cli, ["serve", "--help"])
+
+        assert "--dev" in result.output
+
+    def test_dev_site_config_selects_the_dev_environment(self, split_style_site):
+        from sonne.cli.commands import _load_site_config
+
+        assert _load_site_config(str(split_style_site), dev=True).get_url_style() == "directory"
+        assert _load_site_config(str(split_style_site)).get_url_style() == "html"
 
 
 class TestProgressOutput:

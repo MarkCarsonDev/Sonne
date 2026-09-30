@@ -652,31 +652,31 @@ After building your site, the generated static files in the `output` directory c
 
 ### URL Configuration
 
-By default, Sonne generates HTML files with the `.html` extension (e.g., `about.html`). If you prefer clean URLs without the extension (e.g., `/about/` instead of `/about.html`), you have two options:
+`url_style` decides how pages are written and linked:
 
-1. **Configure URL rewriting on your web server**:
+| Style | `about.md` is written to | and linked as |
+|-------|--------------------------|---------------|
+| `clean` | `about/index.html` | `/about` |
+| `directory` | `about/index.html` | `/about/` |
+| `html` | `about.html` | `/about.html` |
 
-   For Nginx:
+It can be one style for everything (`url_style: clean`), or one per environment:
 
-   ```
-   location / {
-       try_files $uri $uri.html $uri/ =404;
-   }
-   ```
+```yaml
+url_style:
+  prod: clean       # the default environment
+  dev: directory    # used with --dev
+```
 
-   For Apache (.htaccess):
+The `environment` setting picks the entry (default `prod`; custom names work when `url_style` has an entry for them). Both `sonne build` and `sonne serve` use the configured environment, so a plain `sonne serve` previews the production settings; add `--dev` to either command to use the `dev` settings instead.
 
-   ```
-   RewriteEngine On
-   RewriteCond %{REQUEST_FILENAME} !-f
-   RewriteCond %{REQUEST_FILENAME} !-d
-   RewriteCond %{REQUEST_FILENAME}.html -f
-   RewriteRule ^(.*)$ $1.html [L]
-   ```
-2. **Manually structure your output as directories with index.html files**:
+For `clean` links (`/about`) your web server must serve `about/index.html` for `/about`; most static hosts do this already. With Nginx, for example:
 
-   - `/about.md` → `/about/index.html` (accessible as `/about/`)
-   - This requires additional post-processing of the generated files
+```
+location / {
+    try_files $uri $uri/ $uri.html =404;
+}
+```
 
 ### Basic Hosting Options
 
@@ -772,6 +772,7 @@ Options:
 
 ```bash
 sonne serve [-p PATH] [--port PORT] [--host HOST] [--browser/--no-browser] [--watch/--no-watch]
+            [--dev]
 ```
 
 Options:
@@ -781,6 +782,7 @@ Options:
 - `--host`: Host to serve on (default: localhost)
 - `--browser/--no-browser`: Open in browser (default: open)
 - `--watch/--no-watch`: Watch for changes (default: watch)
+- `--dev`: Serve the development environment (the `dev` settings, e.g. `url_style.dev`), like `sonne build --dev`
 
 ### Update an old config file
 

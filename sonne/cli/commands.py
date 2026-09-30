@@ -230,9 +230,22 @@ def _load_build_config(path: str, config_path: str, dev: bool) -> Config:
     if validation_warnings:
         _report_problems("Configuration warnings", validation_warnings, logging.WARNING)
     if dev:
-        config.set("environment", value="dev")
+        _use_dev_environment(config)
         logger.info("Environment: development")
     return config
+
+
+def _load_site_config(base_dir: str, dev: bool = False) -> Config:
+    """The site's config, switched to the dev environment for --dev."""
+    config = Config(base_dir=base_dir)
+    if dev:
+        _use_dev_environment(config)
+    return config
+
+
+def _use_dev_environment(config: Config) -> None:
+    """--dev: use the dev entries of settings such as url_style."""
+    config.set("environment", value="dev")
 
 
 def _confirm_templates_or_exit(generator: SiteGenerator, assume_yes: bool) -> None:
@@ -443,7 +456,7 @@ class ReuseAddrTCPServer(socketserver.TCPServer):
     allow_reuse_address = True
 
 
-def _rebuild_site(base_dir: str) -> None:
+def _rebuild_site(base_dir: str, dev: bool = False) -> None:
     """Rebuild a site with a freshly loaded config.
 
     Used by serve --watch: the config file is in the watch set, so each
@@ -452,8 +465,9 @@ def _rebuild_site(base_dir: str) -> None:
 
     Args:
         base_dir: Absolute path to the site directory.
+        dev: Build for the dev environment (serve --dev).
     """
-    config = Config(base_dir=base_dir)
+    config = _load_site_config(base_dir, dev)
     generator = SiteGenerator(config, base_dir=base_dir)
     generator.generate(skip_cache=False)
 
@@ -470,7 +484,12 @@ def _rebuild_site(base_dir: str) -> None:
 @click.option("--host", default=None, help="Host to serve on.")
 @click.option("--browser/--no-browser", default=True, help="Open in browser.")
 @click.option("--watch/--no-watch", default=True, help="Watch for changes and rebuild.")
-def serve(path, port, host, browser, watch):
+@click.option(
+    "--dev",
+    is_flag=True,
+    help="Serve the development environment (dev url_style), like build --dev.",
+)
+def serve(path, port, host, browser, watch, dev):
     """Serve the site locally for development.
 
     Always builds the site first, then starts a local web server. With --watch
@@ -482,6 +501,7 @@ def serve(path, port, host, browser, watch):
         sonne serve --port 3000           # Use different port
         sonne serve --no-browser          # Don't open browser
         sonne serve --no-watch            # Disable auto-rebuild
+        sonne serve --dev                 # Use the dev environment settings
     """
     observer = None
     httpd = None
@@ -492,7 +512,9 @@ def serve(path, port, host, browser, watch):
         if not check_sonne_directory(path):
             sys.exit(1)
 
-        config = Config(base_dir=path)
+        config = _load_site_config(path, dev)
+        if dev:
+            click.echo("Environment: development")
         host = _configured_or_default(host, config.get("serve", "host"), DEFAULT_SERVE_HOST)
         port = _configured_or_default(port, config.get("serve", "port"), DEFAULT_SERVE_PORT)
         output_path = config.get("paths", "output", default="output")
@@ -506,7 +528,7 @@ def serve(path, port, host, browser, watch):
         httpd = ReuseAddrTCPServer((host, port), handler)
 
         if watch:
-            observer = _start_watching(path, config)
+            observer = _start_watching(path, config, dev)
 
         url = f"http://{host}:{port}"
         if browser:
@@ -561,8 +583,9 @@ class SiteRebuilder:
 
     DEBOUNCE_SECONDS = 0.4
 
-    def __init__(self, base_dir: str, config: Config):
+    def __init__(self, base_dir: str, config: Config, dev: bool = False):
         self.base_dir = base_dir
+        self.dev = dev
         self._lock = threading.Lock()
         self._pending = None  # pending debounce timer
         self._building = False
@@ -638,7 +661,7 @@ class SiteRebuilder:
         try:
             click.echo("\nChange detected — rebuilding...")
             # Fresh Config: the edit may have BEEN the config
-            _rebuild_site(self.base_dir)
+            _rebuild_site(self.base_dir, self.dev)
             click.echo("Rebuilt")
         except Exception as e:
             click.echo(f"Rebuild failed: {e}")
@@ -658,13 +681,13 @@ def _paths_touched_by(event) -> list[str]:
     return [] if event.is_directory else [event.src_path]
 
 
-def _start_watching(path: str, config: Config) -> Optional[BaseObserver]:
+def _start_watching(path: str, config: Config, dev: bool = False) -> Optional[BaseObserver]:
     """Start a watchdog observer that feeds a SiteRebuilder.
 
     Returns:
         The running observer.
     """
-    rebuilder = SiteRebuilder(path, config)
+    rebuilder = SiteRebuilder(path, config, dev)
 
     class _WatchdogAdapter(FileSystemEventHandler):
         def on_any_event(self, event):
