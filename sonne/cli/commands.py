@@ -147,8 +147,8 @@ def cli(ctx, verbose, quiet):
     "--path",
     "-p",
     type=click.Path(exists=True),
-    default=os.getcwd(),
-    help="Path to the site directory.",
+    default=None,
+    help="Path to the site directory (default: the current directory).",
 )
 @click.option(
     "--config", "-c", type=click.Path(exists=False), help="Path to the configuration file."
@@ -178,6 +178,7 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         sonne build --clean           # Clean build from scratch
         sonne build --dev             # Build for development
     """
+    path = path or os.getcwd()
     try:
         if not check_sonne_directory(path):
             sys.exit(1)
@@ -281,8 +282,8 @@ def _echo_degrading_unencodable(text: str) -> None:
     "--path",
     "-p",
     type=click.Path(),
-    default=os.getcwd(),
-    help="Path where the new site will be created.",
+    default=None,
+    help="Where to create the site (default: the current directory).",
 )
 @click.option(
     "--template",
@@ -296,7 +297,7 @@ def _echo_degrading_unencodable(text: str) -> None:
 def new(path, template, name, force):
     """Create a new Sonne site from a template."""
     try:
-        site_path = Path(path)
+        site_path = Path(path or os.getcwd())
         site_name = name or site_path.name
 
         if site_path.exists() and any(site_path.iterdir()) and not force:
@@ -381,8 +382,8 @@ def _rebuild_site(base_dir: str) -> None:
     "--path",
     "-p",
     type=click.Path(exists=True),
-    default=os.getcwd(),
-    help="Path to the site directory.",
+    default=None,
+    help="Path to the site directory (default: the current directory).",
 )
 @click.option("--port", default=None, type=int, help="Port to serve on.")
 @click.option("--host", default=None, help="Host to serve on.")
@@ -406,7 +407,7 @@ def serve(path, port, host, browser, watch):
     try:
         # Resolve up front: relative paths would otherwise break watch
         # rebuilds and observer scheduling.
-        path = os.path.abspath(path)
+        path = os.path.abspath(path or os.getcwd())
         if not check_sonne_directory(path):
             sys.exit(1)
 

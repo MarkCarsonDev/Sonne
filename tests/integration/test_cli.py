@@ -204,3 +204,14 @@ class TestProgressOutput:
             runner.invoke(cli, ["build", "-p", str(target)])
 
         assert any(record.getMessage().startswith("[1/") for record in caplog.records)
+
+
+def test_path_defaults_to_the_directory_at_invocation(runner, tmp_path, monkeypatch):
+    target = tmp_path / "here"
+    runner.invoke(cli, ["new", "-p", str(target), "-t", "minimal"])
+    monkeypatch.chdir(target)
+
+    result = runner.invoke(cli, ["build", "--no-progress"])
+
+    assert result.exit_code == 0, result.output
+    assert (target / "output" / "index.html").exists()
