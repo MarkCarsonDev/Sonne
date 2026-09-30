@@ -24,7 +24,6 @@ def labelled(output_dir, body):
 
 
 class TestLabelPlacement:
-    @pytest.mark.xfail(strict=True, reason="B49: label inserted before the first </body>")
     def test_label_goes_before_the_closing_body_tag(self, output_dir):
         script = "<script>var html = '</body>';</script>"
 
@@ -40,13 +39,11 @@ class TestImageWeight:
 
         assert 'KB with images"' in html
 
-    @pytest.mark.xfail(strict=True, reason="B49: image src with a query string is ignored")
     def test_query_string_is_ignored_when_locating_the_image(self, output_dir):
         html = labelled(output_dir, '<img src="/images/a.png?v=2">')
 
         assert 'KB with images"' in html
 
-    @pytest.mark.xfail(strict=True, reason="B49: percent-encoded image src not decoded")
     def test_percent_encoded_src_is_decoded(self, output_dir):
         html = labelled(output_dir, '<img src="/images/my%20pic.png">')
 

@@ -8,6 +8,7 @@ reveals the total including locally served images it references.
 import logging
 import os
 import re
+from urllib.parse import unquote
 
 logger = logging.getLogger("sonne")
 
@@ -41,7 +42,10 @@ LABEL_CSS = (
 )
 LABEL_CSS_BYTES = len(LABEL_CSS.encode("utf-8"))
 
-IMAGE_SRC_PATTERN = re.compile(r'src=["\']([^"\']+\.(?:webp|png|jpg|jpeg|gif|svg))["\']', re.I)
+# Group 1 is the image path, without any ?query or #fragment.
+IMAGE_SRC_PATTERN = re.compile(
+    r'src=["\']([^"\'?#]+\.(?:webp|png|jpg|jpeg|gif|svg))(?:[?#][^"\']*)?["\']', re.I
+)
 REMOTE_PREFIXES = ("http://", "https://", "data:")
 
 BYTES_PER_KB = 1024
@@ -50,8 +54,8 @@ BYTES_PER_KB = 1024
 def inject_page_size_labels(output_dir: str) -> None:
     """Add a page-size label to every generated HTML file under output_dir.
 
-    Files that already carry a label (e.g. from an incremental rebuild) are
-    left alone. A file that cannot be read or written is logged and skipped.
+    Files that already carry a label (e.g. untouched since an earlier
+    build) are left alone. A file that cannot be read or written is logged and skipped.
 
     Args:
         output_dir: Root of the generated site.
@@ -68,9 +72,13 @@ def _label_file(html_path: str, output_dir: str) -> None:
             html = f.read()
         if LABEL_ID in html:
             return
-        labelled = html.replace(
-            "</body>", LABEL_CSS + _label_html(html, html_path, output_dir) + "</body>", 1
-        )
+        # The last </body> is the real one; earlier ones can sit inside
+        # inline scripts or code samples.
+        before_body_end, body_end, after_body_end = html.rpartition("</body>")
+        if not body_end:
+            return
+        label = LABEL_CSS + _label_html(html, html_path, output_dir)
+        labelled = before_body_end + label + body_end + after_body_end
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(labelled)
     except Exception as e:
@@ -99,6 +107,8 @@ def _local_image_bytes(html: str, html_dir: str, output_dir: str) -> int:
 
 
 def _resolve_image_src(src: str, html_dir: str, output_dir: str) -> str:
+    """Filesystem path of an image URL path, percent-encoding decoded."""
+    src = unquote(src)
     if src.startswith("/"):
         return os.path.join(output_dir, src.lstrip("/"))
     return os.path.join(html_dir, src)
