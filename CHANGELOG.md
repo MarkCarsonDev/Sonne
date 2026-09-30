@@ -101,6 +101,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing file.
 - Sites without a `static/` directory no longer get `dithering.css`/`.js`
   when `images.dither` is false.
+- Static images (`static/images`) stay dithered on every build. From the
+  second build on (including every `sonne serve` rebuild) the undithered
+  original was served at the image's URL. The static-image cache now
+  verifies its output is still the dithered file (B39).
+- `.html`/`.htm` content pages get a `page.url` matching where they are
+  written: in the clean and directory URL styles `content/about.html` is
+  written to `about/index.html` but `page.url` was `/about.html` (a 404);
+  `dir/index.html` is now `/dir/`. The html style is unchanged (B40).
+- The `sonne build --perf` hint for slow images fires for
+  `images.dither_method: color_lab` (it checked a name never used) and
+  names the right setting (B47).
+- The page-size label (`build.show_page_size`) goes before the page's last
+  `</body>`, not one inside an inline script; images whose `src` has a
+  query, fragment or %-encoding now count toward the size (B49).
 - Static JPEG images (`static/images/*.jpg`) are dithered again; saving
   failed with "cannot write mode P as JPEG" and the undithered original
   was copied. They stay JPEGs at their original URL (B17).
