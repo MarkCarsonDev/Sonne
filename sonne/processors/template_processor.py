@@ -18,7 +18,8 @@ from jinja2 import TemplateSyntaxError, UndefinedError
 from markupsafe import Markup
 
 from sonne.utils.build_stats import BuildStatistics
-from sonne.utils.constants import MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
+from sonne.utils.constants import MARKDOWN_EXTENSIONS
+from sonne.utils.page_location import page_output_path, page_url
 from sonne.utils.path_utils import is_post_local_raster_image, validate_path_within_root
 from sonne.utils.text import slugify
 
@@ -107,8 +108,6 @@ DITHERED_IMAGE_MARKUP = Markup("""
                 </div>
             </div>
             """)
-
-HTML_PAGE_EXTENSIONS = PAGE_EXTENSIONS - MARKDOWN_EXTENSIONS
 
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 
@@ -551,7 +550,7 @@ class TemplateProcessor:
         """
         front_matter, html_content = self._render_body(content, is_markdown, source_path, variables)
         front_matter["source_path"] = source_path
-        front_matter["url"] = self._page_url(source_path, is_markdown, variables)
+        front_matter["url"] = self._page_url(source_path, variables)
         template_name = self._template_name(front_matter, variables, source_path)
         logger.debug(f"Template for {source_path}: {template_name}")
         if template_name:
@@ -588,17 +587,15 @@ class TemplateProcessor:
                 html_content = self.render_content_jinja(html_content, context, str(source_path))
         return front_matter, html_content
 
-    def _page_url(self, source_path: str, is_markdown: bool, variables: dict[str, Any]) -> str:
+    def _page_url(self, source_path: str, variables: dict[str, Any]) -> str:
         """Site-relative URL of a page; "/" if it cannot be computed."""
         try:
-            return self._compute_page_url(source_path, is_markdown, variables)
+            return self._compute_page_url(source_path, variables)
         except Exception as e:
             logger.warning(f"Error calculating relative URL for {source_path}: {e}")
             return "/"
 
-    def _compute_page_url(
-        self, source_path: str, is_markdown: bool, variables: dict[str, Any]
-    ) -> str:
+    def _compute_page_url(self, source_path: str, variables: dict[str, Any]) -> str:
         page_vars = variables.get("page", {}) if isinstance(variables, dict) else {}
         # Blog posts arrive with their permalink already computed; prefer it
         # over the content-relative path, which is never generated for them.
@@ -607,36 +604,13 @@ class TemplateProcessor:
         if isinstance(source_path, str) and not os.path.exists(source_path):
             # Generated pages (blog_index, tag_<slug>, ...) have no file.
             return page_vars.get("url", "/") if isinstance(page_vars, dict) else "/"
-        return self._content_file_url(source_path, is_markdown)
+        return self._content_file_url(source_path)
 
-    def _content_file_url(self, source_path: str, is_markdown: bool) -> str:
-        """URL for a file under the content directory, styled per ``url_style``.
-
-        Mirrors where SiteGenerator writes the page: Markdown pages, and HTML
-        pages outside the 'html' style, become ``<dir>/<name>/index.html``,
-        so their suffix is dropped and ``index`` pages are their directory's
-        URL. In the 'html' style HTML pages keep their own file name.
-        """
-        rel_path = PurePath(os.path.relpath(source_path, self.paths.get("content", "")))
-        if self._written_as_directory_index(rel_path, is_markdown):
-            rel_path = rel_path.with_suffix("")
-        url = (
-            _directory_url(rel_path.parent)
-            if rel_path.name == "index"
-            else "/" + rel_path.as_posix()
-        )
-        if hasattr(self.config, "format_url"):
-            formatted = self.config.format_url(url)
-            logger.debug(f"Formatted URL: {url} -> {formatted}")
-            url = formatted
-        return url
-
-    def _written_as_directory_index(self, rel_path: PurePath, is_markdown: bool) -> bool:
-        """Whether the page's output drops its source suffix (see _content_file_url)."""
-        suffix = rel_path.suffix.lower()
-        if is_markdown:
-            return suffix in MARKDOWN_EXTENSIONS
-        return suffix in HTML_PAGE_EXTENSIONS and self.config.get_url_style() != "html"
+    def _content_file_url(self, source_path: str) -> str:
+        """URL for a file under the content directory, styled per ``url_style``."""
+        rel_source = PurePath(os.path.relpath(source_path, self.paths.get("content", "")))
+        output_path = page_output_path(rel_source, self.config.get_url_style())
+        return self.config.format_url(page_url(output_path))
 
     def _template_name(
         self, front_matter: dict[str, Any], variables: dict[str, Any], source_path: str
@@ -846,12 +820,6 @@ def _is_generated_page(source_path) -> bool:
     return isinstance(source_path, str) and (
         source_path == "blog_index" or source_path.startswith(GENERATED_PAGE_PREFIXES)
     )
-
-
-def _directory_url(directory: PurePath) -> str:
-    """URL of a directory's index page: "/" for the content root, else "/dir/"."""
-    posix = directory.as_posix()
-    return "/" if posix == "." else f"/{posix}/"
 
 
 def _untemplated_page(front_matter: dict[str, Any], html_content: str) -> str:

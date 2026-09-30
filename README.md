@@ -438,7 +438,30 @@ Available across all templates:
 - `site`: Site-wide configuration and data
 - `page`: Current page information
 - `all_blog_posts`: List of all blog posts (when blog is enabled)
+- `all_pages`: List of every content page (see below)
 - Custom global variables set in data files or scripts
+
+### Listing Pages (`all_pages`)
+
+`all_pages` holds every page Sonne renders from `content/`, sorted by URL.
+Blog posts are left out while the blog is enabled; they are in
+`all_blog_posts`. Each entry is the page's front matter plus:
+
+- `title`: the front matter title, or the file name (the folder name for an
+  `index` page)
+- `url`: the URL the page is written at, in the site's URL style
+  (`content/index.md` is `/`, `content/projects/index.md` is `/projects/`)
+- `section`: the page's top-level folder under `content/` (`""` at the root)
+- `source_path`: the page's file
+
+A section index can list its pages without a data script:
+
+```html
+<!-- templates/projects.html, used by content/projects/index.md -->
+{% for p in all_pages if p.section == 'projects' and p.url != page.url %}
+  <a href="{{ p.url }}">{{ p.title }}</a>
+{% endfor %}
+```
 
 ### Variable Files
 
