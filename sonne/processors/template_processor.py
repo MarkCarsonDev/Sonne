@@ -669,9 +669,12 @@ class TemplateProcessor:
         return None
 
     def _is_blog_post(self, source_path: str) -> bool:
-        """Whether a source file lies under the configured blog content directory."""
+        """Whether a source file is a blog post: under the blog directory, blog enabled.
+
+        With the blog off, files in its folder are ordinary pages.
+        """
         content_dir = self.paths.get("content")
-        if not content_dir:
+        if not content_dir or not self.config.get("blog", "enabled", default=True):
             return False
         blog_dir = os.path.join(content_dir, self.config.blog_directory())
         return validate_path_within_root(source_path, blog_dir)

@@ -241,14 +241,17 @@ class SiteGenerator:
             return []
 
         content_root = Path(content_dir)
-        blog_dir = Path(content_dir, self.config.blog_directory()).resolve()
+        # With the blog off, its folder holds ordinary pages.
+        blog_dir = None
+        if self.config.get("blog", "enabled", default=True):
+            blog_dir = Path(content_dir, self.config.blog_directory()).resolve()
         return [
             file_path
             for file_path in sorted_paths(content_root.glob("**/*.*"))
             if file_path.suffix.lower() in PAGE_EXTENSIONS
             and file_path.is_file()
             and not _is_hidden_within(file_path, content_root)
-            and not validate_path_within_root(file_path, blog_dir)
+            and not (blog_dir and validate_path_within_root(file_path, blog_dir))
         ]
 
     def _process_page_logging_errors(self, file_path: Path) -> None:

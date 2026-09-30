@@ -3,8 +3,6 @@
 import logging
 import shutil
 
-import pytest
-
 
 class TestMinimalBuild:
     def test_build_produces_pages(self, site_factory, builder):
@@ -65,7 +63,7 @@ class TestPageRouting:
 
         assert (out / "about" / "index.html").exists()
 
-    def test_blog_directory_is_not_rendered_as_pages(self, site_factory, builder):
+    def test_enabled_blog_directory_is_not_rendered_as_pages(self, site_factory, builder):
         site = site_factory("minimal")
         page = "---\ntitle: T\n---\nBody\n"
         (site / "content" / "blog").mkdir()
@@ -73,7 +71,7 @@ class TestPageRouting:
         (site / "content" / "blog-archive").mkdir()
         (site / "content" / "blog-archive" / "old.md").write_text(page, encoding="utf-8")
 
-        _, out = builder(site)
+        _, out = builder(site, {("blog", "enabled"): True})
 
         assert not (out / "blog" / "post").exists()
         assert (out / "blog-archive" / "old" / "index.html").exists()
@@ -174,7 +172,6 @@ class TestPageDiscovery:
 
 
 class TestDisabledBlogDirectory:
-    @pytest.mark.xfail(strict=True, reason="B44: content/blog is skipped even with the blog off")
     def test_blog_folder_renders_as_pages_when_blog_disabled(self, site_factory, builder):
         site = site_factory("minimal")  # blog.enabled: false
         (site / "content" / "blog").mkdir()
@@ -182,4 +179,6 @@ class TestDisabledBlogDirectory:
 
         _, out = builder(site)
 
-        assert (out / "blog" / "note" / "index.html").exists()
+        html = (out / "blog" / "note" / "index.html").read_text(encoding="utf-8")
+        assert "My Minimal Site" in html  # rendered through the page template, not bare
+        assert "Hi" in html

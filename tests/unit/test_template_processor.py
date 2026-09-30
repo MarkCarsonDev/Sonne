@@ -73,7 +73,11 @@ class TestPostTemplate:
         source = write(site / "content" / "posts" / "hello.md", "# Hello\n")
         processor = make_processor(
             site,
-            {("blog", "directory"): "posts", ("blog", "template"): "custom_post.html"},
+            {
+                ("blog", "enabled"): True,  # the minimal template disables the blog
+                ("blog", "directory"): "posts",
+                ("blog", "template"): "custom_post.html",
+            },
         )
         _, html = processor.process_page("# Hello\n", True, str(source), EMPTY_SCOPES)
         assert "CUSTOM-POST" in html
@@ -81,10 +85,19 @@ class TestPostTemplate:
     def test_posts_in_default_blog_directory_use_post_template(self, site):
         write(site / "templates" / "custom_post.html", "CUSTOM-POST {{ content }}")
         source = write(site / "content" / "blog" / "hello.md", "# Hello\n")
-        processor = make_processor(site, {("blog", "template"): "custom_post.html"})
+        processor = make_processor(
+            site, {("blog", "enabled"): True, ("blog", "template"): "custom_post.html"}
+        )
         # str(Path) uses the OS separator: backslashes on Windows
         _, html = processor.process_page("# Hello\n", True, str(source), EMPTY_SCOPES)
         assert "CUSTOM-POST" in html
+
+    def test_blog_folder_uses_page_template_when_blog_disabled(self, site):
+        write(site / "templates" / "custom_post.html", "CUSTOM-POST {{ content }}")
+        source = write(site / "content" / "blog" / "hello.md", "# Hello\n")
+        processor = make_processor(site, {("blog", "template"): "custom_post.html"})
+        _, html = processor.process_page("# Hello\n", True, str(source), EMPTY_SCOPES)
+        assert "CUSTOM-POST" not in html
 
     def test_pages_outside_blog_directory_use_page_template(self, site):
         write(site / "templates" / "custom_post.html", "CUSTOM-POST {{ content }}")
@@ -106,7 +119,9 @@ class TestMarkdownSuffixes:
     def test_markdown_posts_use_post_template(self, site):
         write(site / "templates" / "custom_post.html", "CUSTOM-POST {{ content }}")
         source = write(site / "content" / "blog" / "hello.markdown", "# Hello\n")
-        processor = make_processor(site, {("blog", "template"): "custom_post.html"})
+        processor = make_processor(
+            site, {("blog", "enabled"): True, ("blog", "template"): "custom_post.html"}
+        )
         _, html = processor.process_page("# Hello\n", True, str(source), EMPTY_SCOPES)
         assert "CUSTOM-POST" in html
 
