@@ -126,6 +126,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `index.md` pages get their directory's URL (`/`, `/projects/`) instead of
   `/index`, so `og:url`, canonical links and active-nav checks point at
   real pages (B27).
+- Markdown pages with a `.markdown` or uppercase `.MD` extension and no
+  front-matter template use `page.html` (or the blog post template under
+  `blog.directory`); they rendered as a bare fallback page without the site
+  layout (B30).
 - The `process_image` filter inserts `_original` before the file extension,
   matching `dithering.js` (`/v_1.2/a.png` → `/v_1.2/a_original.png`) (B29).
 - `dithering.js` no longer adds a second, broken toggle to blog-post
