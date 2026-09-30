@@ -26,10 +26,9 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 def _isolate_default_config():
     """Snapshot/restore DEFAULT_CONFIG around every test.
 
-    Config._load_config currently mutates the module-global DEFAULT_CONFIG
-    (shallow copy bug, see test_config). Without this isolation, test results
-    would depend on execution order. The mutation bug itself is asserted
-    explicitly in its own test.
+    Config deep-copies DEFAULT_CONFIG (pinned in test_config), but a test
+    that mutated it directly would make results depend on execution order;
+    this guard keeps every test independent regardless.
     """
     snapshot = copy.deepcopy(config_module.DEFAULT_CONFIG)
     yield

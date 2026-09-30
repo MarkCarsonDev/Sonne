@@ -34,3 +34,9 @@ class TestRss:
         for d in dates:
             parsed = parsedate_to_datetime(d)
             assert parsed.tzinfo is not None
+
+
+def test_feed_path_may_point_into_a_subdirectory(site_factory, builder):
+    site = site_factory("blog", overlay="blog_site")
+    _, out = builder(site, config_overrides={("blog", "rss", "path"): "feeds/blog.xml"})
+    assert (out / "feeds" / "blog.xml").exists()
