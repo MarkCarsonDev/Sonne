@@ -75,3 +75,33 @@ def test_current_navigation_item_is_announced(built_pages):
     _, pages = built_pages
     home = pages["index.html"]
     assert home.select('nav[aria-label="Main"] a[aria-current="page"]')
+
+
+@pytest.fixture(scope="module")
+def portfolio(tmp_path_factory):
+    return build_scaffold("portfolio", tmp_path_factory)
+
+
+class TestPortfolioScaffold:
+    def test_blog_posts_render_at_blog_slug(self, portfolio):
+        post = portfolio / "blog" / "the-importance-of-user-centered-design" / "index.html"
+        assert "The Importance of User-Centered Design" in post.read_text(encoding="utf-8")
+
+    def test_blog_index_lists_posts(self, portfolio):
+        html = (portfolio / "blog" / "index.html").read_text(encoding="utf-8")
+        assert "post-summary" in html
+
+    def test_portfolio_offers_a_filter_per_category(self, portfolio):
+        soup = BeautifulSoup(
+            (portfolio / "portfolio" / "index.html").read_text(encoding="utf-8"), "html.parser"
+        )
+        filters = [button.get_text(strip=True) for button in soup.select(".filter-btn")]
+        assert filters == ["All", "Web Development", "Web Design"]
+
+    def test_every_project_link_leads_to_a_page(self, portfolio):
+        soup = BeautifulSoup(
+            (portfolio / "portfolio" / "index.html").read_text(encoding="utf-8"), "html.parser"
+        )
+        for link in soup.select(".portfolio-link"):
+            href = str(link["href"])
+            assert (portfolio / href.strip("/") / "index.html").exists(), href
