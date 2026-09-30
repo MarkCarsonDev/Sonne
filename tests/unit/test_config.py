@@ -180,3 +180,22 @@ class TestContentSecurityPolicy:
             '<meta http-equiv="Content-Security-Policy" '
             "content=\"default-src 'self'; img-src 'self' data:\">"
         )
+
+
+class TestSave:
+    def test_unsupported_extension_leaves_existing_file_intact(self, tmp_path):
+        target = tmp_path / "settings.toml"
+        target.write_text("keep = true\n", encoding="utf-8")
+        cfg = Config(base_dir=str(tmp_path))
+
+        cfg.save(str(target))
+
+        assert target.read_text(encoding="utf-8") == "keep = true\n"
+
+    def test_yaml_round_trip(self, tmp_path):
+        cfg = config_with(tmp_path, ("site", "title", "Saved"))
+        target = tmp_path / "out" / "sonne.yaml"
+
+        cfg.save(str(target))
+
+        assert Config(str(target), base_dir=str(tmp_path)).get("site", "title") == "Saved"

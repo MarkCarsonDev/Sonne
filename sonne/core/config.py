@@ -245,16 +245,16 @@ class Config:
 
     def _write(self, save_path: str) -> None:
         ext = Path(save_path).suffix.lower()
-        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+        if ext not in YAML_EXTENSIONS + JSON_EXTENSIONS:
+            logger.warning(f"Unsupported config format for saving: {ext}")
+            return
 
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
         with open(save_path, "w", encoding="utf-8") as f:
             if ext in YAML_EXTENSIONS:
                 yaml.dump(self.config, f, default_flow_style=False, sort_keys=False)
-            elif ext in JSON_EXTENSIONS:
-                json.dump(self.config, f, indent=2)
             else:
-                logger.warning(f"Unsupported config format for saving: {ext}")
-                return
+                json.dump(self.config, f, indent=2)
 
         logger.debug(f"Configuration saved to {save_path}")
 
