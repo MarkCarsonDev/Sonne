@@ -67,6 +67,7 @@ class VariableManager:
         # and script paths already executed this load (prevents double runs).
         self._script_vars = set()
         self._executed_scripts = set()
+        self._shadow_warned = set()
 
         # Jinja extensions registered by data scripts via sonne_filter /
         # sonne_global. SiteGenerator hands these to the TemplateProcessor
@@ -108,6 +109,7 @@ class VariableManager:
     def _reset_script_state(self) -> None:
         self._script_vars = set()
         self._executed_scripts = set()
+        self._shadow_warned = set()
         self.custom_filters = {}
         self.custom_globals = {}
 
@@ -278,6 +280,7 @@ class VariableManager:
         """The functions every site script can call without importing anything."""
 
         def sonne_var(name, value):
+            self._warn_if_shadowing_site_variable(name)
             self.variables["global"][name] = value
             self.variables["site"][name] = value
             self._script_vars.add(name)
@@ -307,6 +310,23 @@ class VariableManager:
             "sonne_filter": sonne_filter,
             "sonne_global": sonne_global,
         }
+
+    def _warn_if_shadowing_site_variable(self, name: str) -> None:
+        """Warn (once per load) when a script replaces a site config/data variable.
+
+        sonne_var writes into site scope, so a script variable named like a
+        site config key or data file key silently replaced it (B18).
+        Variables that scripts themselves set earlier are not reported.
+        """
+        if name in self._script_vars or name not in self.variables["site"]:
+            return
+        if name in self._shadow_warned:
+            return
+        self._shadow_warned.add(name)
+        logger.warning(
+            f"Data script variable '{name}' replaces the site variable of the same name "
+            "(from site config, data files or Sonne defaults); rename one to keep both"
+        )
 
     def _run_footer_script(self) -> None:
         """Run the first footer.py that works, and mark its footer_custom HTML-safe.

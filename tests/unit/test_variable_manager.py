@@ -1,6 +1,7 @@
 """VariableManager: scopes, scripts, data loading, persistence semantics."""
 
 import json
+import logging
 import textwrap
 
 
@@ -26,6 +27,60 @@ class TestScopes:
     def test_missing_returns_default(self, tmp_path):
         vm = make_vm(tmp_path)
         assert vm.get("nope", default="d") == "d"
+
+
+def write_script(site_dir, name, source):
+    scripts = site_dir / "scripts"
+    scripts.mkdir(exist_ok=True)
+    (scripts / name).write_text(source, encoding="utf-8")
+
+
+def shadow_warnings(caplog, name):
+    return [r for r in caplog.records if r.levelno == logging.WARNING and f"'{name}'" in r.message]
+
+
+class TestScriptVariableShadowing:
+    """B18: sonne_var replacing a site/config variable must not be silent."""
+
+    def test_shadowing_a_site_config_key_warns_once(self, tmp_path, caplog):
+        (tmp_path / "sonne.yaml").write_text("site:\n  weather: sunny\n", encoding="utf-8")
+        write_script(
+            tmp_path, "w.py", "sonne_var('weather', 'rain')\nsonne_var('weather', 'hail')\n"
+        )
+        vm = make_vm(tmp_path)
+
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            vm.load_variables()
+
+        assert len(shadow_warnings(caplog, "weather")) == 1
+
+    def test_shadowing_keeps_script_value(self, tmp_path):
+        (tmp_path / "sonne.yaml").write_text("site:\n  weather: sunny\n", encoding="utf-8")
+        write_script(tmp_path, "w.py", "sonne_var('weather', 'rain')\n")
+        vm = make_vm(tmp_path)
+
+        vm.load_variables()
+
+        assert vm.get("weather", scope="site") == "rain"
+
+    def test_new_script_variable_does_not_warn(self, tmp_path, caplog):
+        write_script(tmp_path, "w.py", "sonne_var('forecast', 'rain')\n")
+        vm = make_vm(tmp_path)
+
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            vm.load_variables()
+
+        assert shadow_warnings(caplog, "forecast") == []
+
+    def test_scripts_sharing_a_variable_do_not_warn(self, tmp_path, caplog):
+        write_script(tmp_path, "a.py", "sonne_var('shared', 1)\n")
+        write_script(tmp_path, "b.py", "sonne_var('shared', 2)\n")
+        vm = make_vm(tmp_path)
+
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            vm.load_variables()
+
+        assert shadow_warnings(caplog, "shared") == []
 
 
 class TestScriptExtensions:
