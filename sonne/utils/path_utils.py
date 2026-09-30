@@ -54,8 +54,8 @@ def sanitize_filename(filename: str, replace_char: str = "_") -> str:
     # Remove null bytes
     filename = filename.replace("\x00", "")
 
-    # Remove path separators and parent directory references
-    filename = filename.replace("..", "")
+    # Replacing separators leaves a single name, so ".." inside it cannot
+    # traverse; the strip below turns "." and ".." themselves into "".
     filename = filename.replace("/", replace_char)
     filename = filename.replace("\\", replace_char)
 
