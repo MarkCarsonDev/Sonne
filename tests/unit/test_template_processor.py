@@ -1,5 +1,7 @@
 """TemplateProcessor page URLs, template selection, and the process_image filter."""
 
+import re
+
 import pytest
 
 from sonne.core.config import Config
@@ -139,21 +141,6 @@ class TestProcessImageFilter:
         template = processor.jinja_env.get_template("image_filter.html")
         return template.render(src=src, alt=self.ALT_WITH_MARKUP)
 
-    @pytest.mark.parametrize(
-        "src, original_src",
-        [
-            ("/images/b_800.webp", "/images/b_800_original.webp"),
-            ("/images/a.png", "/images/a_original.png"),
-            ("/v_1.2/a.png", "/v_1.2/a_original.png"),
-            ("q.png?v=1.2", "q_original.png?v=1.2"),
-            ("/images/README", "/images/README_original"),
-        ],
-    )
-    def test_original_goes_before_the_file_extension(self, site, src, original_src):
-        html = self.render(site, dither=True, src=src)
-        assert f'src="{original_src}"' in html
-
-    @pytest.mark.xfail(strict=True, reason="B-solar: toggle rendered for an undithered image")
     def test_image_the_build_did_not_dither_gets_no_toggle(self, site):
         html = self.render(site, dither=True, src="/images/never-dithered.png")
         assert "dithered-image-container" not in html
@@ -168,6 +155,76 @@ class TestProcessImageFilter:
         html = self.render(site, dither=True)
         assert '<img src="pic.png"' in html
         assert self.ESCAPED_ALT in html
+
+
+class TestFinishPage:
+    """finish_page marks the <img> tags the build dithered, and only those."""
+
+    def processor(self, site):
+        processor = make_processor(site, {("images", "dither"): True})
+        processor.dithered_images.add("/images/a.png", "/images/dithered/a.png")
+        processor.dithered_images.add(
+            "/assets/images/b_400_original.webp", "/assets/images/b_400.webp"
+        )
+        return processor
+
+    def img(self, html, marker):
+        return next(tag for tag in re.findall(r"<img[^>]*>", html) if marker in tag)
+
+    def test_original_src_is_pointed_at_the_dithered_copy(self, site):
+        html = self.processor(site).finish_page('<p><img src="/images/a.png?v=2" alt="A"></p>')
+
+        tag = self.img(html, "alt=")
+        assert 'src="/images/dithered/a.png?v=2"' in tag
+        assert 'data-original-src="/images/a.png?v=2"' in tag
+
+    def test_dithered_variant_src_gets_its_original_recorded(self, site):
+        html = self.processor(site).finish_page('<img src="/assets/images/b_400.webp">')
+
+        tag = self.img(html, "b_400")
+        assert 'src="/assets/images/b_400.webp"' in tag
+        assert 'data-original-src="/assets/images/b_400_original.webp"' in tag
+
+    @pytest.mark.parametrize(
+        "src",
+        ["/images/other.png", "images/a.png", "//cdn.example.com/images/a.png", "https://x/a.png"],
+    )
+    def test_images_the_build_did_not_dither_are_left_alone(self, site, src):
+        html = self.processor(site).finish_page(f'<img src="{src}">')
+
+        assert "data-original-src" not in html
+        assert f'src="{src}"' in html
+
+    def test_already_marked_images_are_left_alone(self, site):
+        figure_img = '<img src="dithered/p.png" data-original-src="p.jpg">'
+
+        html = self.processor(site).finish_page(figure_img)
+
+        assert 'src="dithered/p.png"' in html
+
+    def test_shared_assets_are_linked_once(self, site):
+        page = (
+            '<html><head><link rel="stylesheet" href="/css/dithering.css"></head>'
+            '<body><script src="/js/dithering.js" defer></script></body></html>'
+        )
+
+        html = self.processor(site).finish_page(page)
+
+        assert html.count("/css/dithering.css") == 1
+        assert html.count("/js/dithering.js") == 1
+
+    def test_missing_assets_are_added(self, site):
+        html = self.processor(site).finish_page("<html><head></head><body></body></html>")
+
+        assert '<link href="/css/dithering.css" rel="stylesheet"/>' in html
+        assert '<script defer="" src="/js/dithering.js"></script>' in html
+
+    def test_nothing_changes_without_dithering(self, site):
+        processor = make_processor(site, {("images", "dither"): False})
+        processor.dithered_images.add("/images/a.png", "/images/dithered/a.png")
+        page = '<img src="/images/a.png">'
+
+        assert processor.finish_page(page) == page
 
 
 class TestTemplateStatistics:

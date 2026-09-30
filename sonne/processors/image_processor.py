@@ -20,6 +20,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 from PIL import Image, ImageOps
 
+from sonne.processors.dithered_images import DitheredImages
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import IMAGE_EXTENSIONS, PAGE_EXTENSIONS
 
@@ -93,37 +94,6 @@ IMAGE_REF_PATTERN = re.compile(
     r'|src=["\']([^"\']+)["\']'  # html src attribute
     r'|cover_img:\s*["\']?([^\s"\']+)'  # front matter cover, optionally quoted
 )
-
-
-class DitheredImages:
-    """Registry of the images a build dithered: original URL <-> dithered URL.
-
-    URLs are root-relative ("/images/a.png"). Filled by ImageProcessor
-    (possibly from worker threads) and read when pages are rendered.
-    """
-
-    def __init__(self) -> None:
-        self._dithered_by_original: dict[str, str] = {}
-        self._original_by_dithered: dict[str, str] = {}
-        self._lock = threading.Lock()
-
-    def add(self, original_url: str, dithered_url: str) -> None:
-        with self._lock:
-            self._dithered_by_original[original_url] = dithered_url
-            self._original_by_dithered[dithered_url] = original_url
-
-    def pair_for(self, url: str) -> Optional[tuple[str, str]]:
-        """(original, dithered) URLs for either URL of a pair, or None if not dithered."""
-        with self._lock:
-            if url in self._dithered_by_original:
-                return url, self._dithered_by_original[url]
-            if url in self._original_by_dithered:
-                return self._original_by_dithered[url], url
-        return None
-
-    def __len__(self) -> int:
-        with self._lock:
-            return len(self._dithered_by_original)
 
 
 @dataclass(frozen=True)

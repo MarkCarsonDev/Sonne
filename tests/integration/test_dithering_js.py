@@ -1,12 +1,13 @@
 """sonne/static/js/dithering.js in a real (headless) browser.
 
-The static pipeline serves the dithered image at the image URL and the
-original beside it as ``<name>_original<ext>``; the script wraps standalone
-images with a toggle between the two. Skipped when no Chromium-family
-browser is installed.
+The build points each image it dithered at the dithered copy and records
+the original in data-original-src; the script gives exactly those images a
+toggle, and wires up the blog figures' "view original" button. Skipped when
+no Chromium-family browser is installed.
 """
 
 import html
+import json
 import os
 import re
 import shutil
@@ -14,9 +15,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
-from sonne.core.config import Config
-from sonne.processors.template_processor import TemplateProcessor
 
 STATIC = Path(__file__).resolve().parents[2] / "sonne" / "static"
 DITHERING_JS = STATIC / "js" / "dithering.js"
@@ -34,38 +32,63 @@ BROWSER_CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 ]
 
+# A container as pages built by earlier Sonne versions rendered it
+# server-side (the process_image filter), toggle as a <button>.
+EARLIER_BUILD_CONTAINER = """
+<div class="dithered-image-container" id="server">
+  <img src="/x_400.png" alt="X" loading="lazy" class="dithered">
+  <img src="/x_400_original.png" alt="X" loading="lazy" class="original" aria-hidden="true">
+  <button type="button" class="dither-toggle" aria-pressed="false"
+          aria-label="Show original image" title="Show original image">
+    <span class="dither-toggle-dot" aria-hidden="true"></span>
+    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
+    <span class="dither-toggle-dot" aria-hidden="true"></span>
+    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
+    <span class="dither-toggle-dot" aria-hidden="true"></span>
+    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
+    <span class="dither-toggle-dot" aria-hidden="true"></span>
+    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
+    <span class="dither-toggle-dot" aria-hidden="true"></span>
+  </button>
+</div>
+"""
+
 HARNESS = """<!DOCTYPE html>
 <html><head><meta charset="utf-8"><link rel="stylesheet" href="dithering.css">
 <style>* { transition: none !important; }</style></head><body>
-<img id="plain" src="/images/a.png" alt="A">
-<img id="sized" src="/img/b_800.webp">
-<img id="underscore" src="/img/my_pic.jpg">
-<img id="query" src="/images/q.png?v=1.2">
-<img id="dotdir" src="/v_1.2/a.png">
+<img id="plain" src="/images/dithered/a.png" data-original-src="/images/a.png" alt="A">
+<img id="variant" src="/assets/images/b_800.webp"
+     data-original-src="/assets/images/b_800_original.webp">
+<img id="query" src="/images/dithered/q.png?v=1.2" data-original-src="/images/q.png?v=1.2">
+<img id="unmarked" src="/images/not-dithered.png" alt="never dithered">
 <img id="svg" src="/i/logo.svg?v=2">
-<img id="svgupper" src="/i/LOGO.SVG">
 <img id="external" src="https://example.com/x.png">
 <img id="datauri" src="data:image/png;base64,iVBORw0KGgo.AAAA">
 <figure class="dithered-image-figure"><div class="image-wrapper">
   <img id="blog" class="dithered-image active" src="post/dithered/p.png"
        data-dithered-src="post/dithered/p.png" data-original-src="post/p.jpg">
-</div></figure>
-<div id="server">{server_markup}</div>
+</div><figcaption><button class="request-original-btn" data-original-size="12KB">
+  <span class="btn-text">view original</span></button></figcaption></figure>
+{earlier_build_container}
 <div class="dithered-image-container" id="legacy">
   <img src="/y.png" class="dithered"><img src="/y_original.png" class="original">
   <div class="dither-toggle"></div>
 </div>
-<a href="#navigated"><img id="linked" src="/images/l.png"></a>
-<img id="unmarked" src="/images/not-dithered.png" alt="never dithered">
-<img id="marked" src="/images/dithered/m.png" data-original-src="/images/m.png" alt="M">
+<a href="#navigated"><img id="linked" src="/images/dithered/l.png"
+   data-original-src="/images/l.png"></a>
 <pre id="results"></pre>
 <script src="dithering.js"></script>
 <script>
   setTimeout(function () {
     var dynamic = document.createElement("img");
     dynamic.id = "dynamic";
-    dynamic.src = "/images/d_200.png";
+    dynamic.src = "/images/dithered/d.png";
+    dynamic.setAttribute("data-original-src", "/images/d.png");
     document.body.appendChild(dynamic);
+    var dynamicUnmarked = document.createElement("img");
+    dynamicUnmarked.id = "dynamicUnmarked";
+    dynamicUnmarked.src = "/images/e.png";
+    document.body.appendChild(dynamicUnmarked);
   }, 50);
   setTimeout(function () {
     var results = {};
@@ -88,7 +111,7 @@ HARNESS = """<!DOCTYPE html>
       var box = img.closest(".dithered-image-container");
       results[img.id] = box ? box.querySelector("img.original").getAttribute("src") : null;
     });
-    var server = document.querySelector("#server .dithered-image-container");
+    var server = document.getElementById("server");
     var serverToggle = server.querySelector(".dither-toggle");
     results.serverBefore = accessibility(server);
     serverToggle.click();
@@ -124,18 +147,26 @@ HARNESS = """<!DOCTYPE html>
     results.hash = location.hash;
     results.toggleCount = document.querySelectorAll(".dither-toggle").length;
     results.focusedOpacity = getComputedStyle(createdToggle).opacity;
+
+    var blogImg = document.getElementById("blog");
+    var blogButton = document.querySelector(".request-original-btn");
+    blogButton.click();
+    results.blogOriginal = {
+      src: blogImg.getAttribute("src"),
+      label: blogButton.querySelector(".btn-text").textContent,
+      figureClass: blogImg.closest("figure").classList.contains("showing-original"),
+    };
+    blogButton.click();
+    results.blogDithered = {
+      src: blogImg.getAttribute("src"),
+      label: blogButton.querySelector(".btn-text").textContent,
+      figureClass: blogImg.closest("figure").classList.contains("showing-original"),
+    };
     document.getElementById("results").textContent = JSON.stringify(results);
   }, 400);
 </script>
 </body></html>
 """
-
-
-def process_image_filter_markup(src, alt):
-    """What the process_image Jinja filter renders with dithering on."""
-    config = Config()
-    config.set("images", "dither", value=True)
-    return str(TemplateProcessor(config, {}).jinja_env.filters["process_image"](src, alt))
 
 
 def find_browser():
@@ -148,15 +179,13 @@ def find_browser():
 
 @pytest.fixture(scope="module")
 def harness_results(tmp_path_factory):
-    import json
-
     browser = find_browser()
     if browser is None:
         pytest.skip("no Chromium-family browser available")
     page_dir = tmp_path_factory.mktemp("dithering_js")
     shutil.copy(DITHERING_JS, page_dir / "dithering.js")
     shutil.copy(DITHERING_CSS, page_dir / "dithering.css")
-    harness = HARNESS.replace("{server_markup}", process_image_filter_markup("/x_400.png", "X"))
+    harness = HARNESS.replace("{earlier_build_container}", EARLIER_BUILD_CONTAINER)
     (page_dir / "harness.html").write_text(harness, encoding="utf-8")
 
     completed = subprocess.run(
@@ -179,51 +208,52 @@ def harness_results(tmp_path_factory):
     return json.loads(html.unescape(match.group(1)))
 
 
-class TestStandaloneImages:
+class TestOnlyPipelineMarkedImages:
+    """Only images the build dithered (data-original-src) get a toggle."""
+
     @pytest.mark.parametrize(
         "image_id, expected_original",
         [
-            ("plain", "/images/a_original.png"),
-            ("sized", "/img/b_800_original.webp"),
-            ("underscore", "/img/my_pic_original.jpg"),
-            ("dynamic", "/images/d_200_original.png"),
+            ("plain", "/images/a.png"),
+            ("variant", "/assets/images/b_800_original.webp"),
+            ("query", "/images/q.png?v=1.2"),
+            ("linked", "/images/l.png"),
+            ("dynamic", "/images/d.png"),
         ],
     )
-    def test_original_sits_beside_dithered_image(
+    def test_marked_image_toggles_to_its_recorded_original(
         self, harness_results, image_id, expected_original
     ):
         assert harness_results[image_id] == expected_original
 
-    def test_query_string_is_kept_after_the_suffix(self, harness_results):
-        assert harness_results["query"] == "/images/q_original.png?v=1.2"
-
-    def test_dots_in_directories_are_not_extensions(self, harness_results):
-        assert harness_results["dotdir"] == "/v_1.2/a_original.png"
-
-
-class TestImagesLeftAlone:
-    @pytest.mark.parametrize("image_id", ["svg", "svgupper", "external", "datauri"])
-    def test_images_without_an_original_twin_are_not_wrapped(self, harness_results, image_id):
+    @pytest.mark.parametrize(
+        "image_id", ["unmarked", "dynamicUnmarked", "svg", "external", "datauri"]
+    )
+    def test_unmarked_image_is_not_wrapped(self, harness_results, image_id):
         assert harness_results[image_id] is None
 
     def test_blog_figure_images_keep_their_own_markup(self, harness_results):
         assert harness_results["blog"] is None
 
 
-class TestOnlyPipelineMarkedImages:
-    """Only images the build dithered (data-original-src) get a toggle."""
+class TestBlogFigure:
+    def test_button_shows_the_original(self, harness_results):
+        assert harness_results["blogOriginal"] == {
+            "src": "post/p.jpg",
+            "label": "dithered (12KB)",
+            "figureClass": True,
+        }
 
-    @pytest.mark.xfail(strict=True, reason="B-solar: every same-origin image is wrapped")
-    def test_unmarked_image_is_not_wrapped(self, harness_results):
-        assert harness_results["unmarked"] is None
-
-    @pytest.mark.xfail(strict=True, reason="B-solar: the original URL is guessed, not read")
-    def test_marked_image_toggles_to_its_recorded_original(self, harness_results):
-        assert harness_results["marked"] == "/images/m.png"
+    def test_button_again_restores_the_dithered_image(self, harness_results):
+        assert harness_results["blogDithered"] == {
+            "src": "post/dithered/p.png",
+            "label": "view original",
+            "figureClass": False,
+        }
 
 
 class TestToggle:
-    def test_server_rendered_toggle_works(self, harness_results):
+    def test_container_from_an_earlier_build_works(self, harness_results):
         assert harness_results["serverToggled"] is True
 
     def test_toggle_inside_link_does_not_navigate(self, harness_results):
@@ -231,9 +261,8 @@ class TestToggle:
         assert harness_results["hash"] == ""
 
     def test_each_container_has_one_toggle(self, harness_results):
-        # plain, sized, underscore, query, dotdir, linked, dynamic, unmarked
-        # + server + legacy
-        assert harness_results["toggleCount"] == 10
+        # plain, variant, query, linked, dynamic + earlier-build + legacy
+        assert harness_results["toggleCount"] == 7
 
 
 LABEL = "Show original image"
