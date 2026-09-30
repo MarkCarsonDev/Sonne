@@ -20,7 +20,8 @@ from sonne.utils.text import slugify
 
 logger = logging.getLogger("sonne")
 
-MARKDOWN_EXTENSIONS = [
+# Python-Markdown extensions (parser plugins, not file suffixes).
+MARKDOWN_PARSER_EXTENSIONS = [
     "markdown.extensions.meta",
     "markdown.extensions.tables",
     "markdown.extensions.fenced_code",
@@ -744,7 +745,7 @@ def _format_date(value, fmt="%B %d, %Y") -> str:
 
 def _render_markdown(text: str) -> str:
     """Convert Markdown to HTML with Sonne's extension set."""
-    return markdown.markdown(text, extensions=MARKDOWN_EXTENSIONS)
+    return markdown.markdown(text, extensions=MARKDOWN_PARSER_EXTENSIONS)
 
 
 def _word_count(text: str) -> int:

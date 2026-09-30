@@ -164,6 +164,14 @@ class TestStaticImages:
         assert target.read_bytes() != b"stale"
 
 
+class TestImageDiscovery:
+    def test_uppercase_extensions_are_processed(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "CAMERA.JPG", size=(64, 64), fmt="JPEG")
+        _, out = builder(site)
+        assert (out / "assets" / "images" / "CAMERA_400_original.webp").exists()
+
+
 class TestSiteLocation:
     def test_site_inside_dot_directory_processes_images(self, site_factory, builder, image_factory):
         site = site_factory("blog", overlay="blog_site", name=".sites/blog")

@@ -19,6 +19,8 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
 import numpy as np
 from PIL import Image, ImageOps
 
+from sonne.utils.constants import IMAGE_EXTENSIONS, PAGE_EXTENSIONS
+
 logger = logging.getLogger("sonne")
 
 DEFAULT_FORMATS = ["webp", "png"]
@@ -72,11 +74,10 @@ KMEANS_SEED = 42
 KMEANS_MAX_ITERATIONS = 20
 KMEANS_TOLERANCE = 1e-4
 
-IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
 DEFAULT_MAX_WORKERS = 4
 
 # Files that may reference images, for images.only_used.
-REF_SCAN_EXTENSIONS = (".md", ".html", ".htm", ".yaml", ".yml")
+REF_SCAN_EXTENSIONS = PAGE_EXTENSIONS | {".yaml", ".yml"}
 IMAGE_REF_PATTERN = re.compile(
     r'!\[.*?\]\(([^)\s"\']+)'  # markdown image
     r'|src=["\']([^"\']+)["\']'  # html src attribute
@@ -710,24 +711,25 @@ def _files_to_scan_for_refs(directories: List[Optional[str]]) -> Iterator[str]:
         for root, dirs, files in os.walk(directory):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
             for file_name in files:
-                if file_name.endswith(REF_SCAN_EXTENSIONS):
+                if os.path.splitext(file_name)[1].lower() in REF_SCAN_EXTENSIONS:
                     yield os.path.join(root, file_name)
 
 
 def _find_images(directory: str, used_paths: Optional[Set[str]]) -> List[str]:
-    """Image files under a directory, minus hidden ones and (optionally) unused ones."""
+    """Image files under a directory (sorted), minus hidden and (optionally) unused ones."""
     root = Path(directory)
     image_paths = []
-    for ext in IMAGE_EXTENSIONS:
-        for file_path in root.glob(f"**/*{ext}"):
-            # Only parts below the scanned directory: the site itself may
-            # live under a dot-directory (e.g. ~/.sites/blog).
-            if any(part.startswith(".") for part in file_path.relative_to(root).parts):
-                continue
-            if used_paths is not None and str(file_path.resolve()) not in used_paths:
-                logger.debug(f"Skipping unused image: {file_path}")
-                continue
-            image_paths.append(str(file_path))
+    for file_path in sorted(root.rglob("*")):
+        if file_path.suffix.lower() not in IMAGE_EXTENSIONS or not file_path.is_file():
+            continue
+        # Only parts below the scanned directory: the site itself may
+        # live under a dot-directory (e.g. ~/.sites/blog).
+        if any(part.startswith(".") for part in file_path.relative_to(root).parts):
+            continue
+        if used_paths is not None and str(file_path.resolve()) not in used_paths:
+            logger.debug(f"Skipping unused image: {file_path}")
+            continue
+        image_paths.append(str(file_path))
     return image_paths
 
 
