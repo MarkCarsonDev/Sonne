@@ -2,8 +2,6 @@
 
 import logging
 
-import pytest
-
 
 from PIL import Image
 
@@ -258,11 +256,6 @@ class TestBuildStatistics:
         assert stats.images_processed >= 2
         assert (stats.images_cached, stats.cache_misses) == (0, stats.images_processed)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="B39: static images are re-dithered every build until SiteGenerator passes "
-        "image_processor.owns_static_file as copy_static_files(skip=...)",
-    )
     def test_rebuild_counts_cached_images_as_cache_hits(self, site_factory, builder, image_factory):
         site, overrides, _ = self.build(site_factory, builder, image_factory)
         generator, _ = builder(site, config_overrides=overrides)

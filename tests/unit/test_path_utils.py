@@ -1,5 +1,7 @@
 """sonne.utils.path_utils characterization + the B7 relative-prefix helper."""
 
+import pytest
+
 from sonne.utils.path_utils import (
     is_sonne_directory,
     normalize_web_path,
@@ -64,3 +66,34 @@ class TestStripRelativePrefix:
         assert strip_relative_prefix("../images/a.jpg") == "../images/a.jpg"
         assert strip_relative_prefix(".hidden/a.jpg") == ".hidden/a.jpg"
         assert strip_relative_prefix("images/a.jpg") == "images/a.jpg"
+
+
+class TestIsPostLocalRasterImage:
+    @pytest.mark.parametrize(
+        "src", ["photo.png", "./images/a.jpg", "../shared/b.webp", "img/c.JPG", "d.png?v=2"]
+    )
+    def test_relative_raster_images_qualify(self, src):
+        from sonne.utils.path_utils import is_post_local_raster_image
+
+        assert is_post_local_raster_image(src)
+
+    @pytest.mark.parametrize(
+        "src",
+        [
+            "",
+            "https://example.com/a.png",
+            "http://example.com/a.png",
+            "//cdn.example.com/a.png",
+            "/images/static.png",
+            "data:image/png;base64,AAAA",
+            "blob:https://example.com/1",
+            "logo.svg",
+            "LOGO.SVG",
+            "icon.svg?v=3",
+            "icon.svg#frag",
+        ],
+    )
+    def test_everything_else_does_not(self, src):
+        from sonne.utils.path_utils import is_post_local_raster_image
+
+        assert not is_post_local_raster_image(src)

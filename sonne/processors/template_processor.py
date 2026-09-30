@@ -18,7 +18,7 @@ from jinja2 import TemplateSyntaxError, UndefinedError
 from markupsafe import Markup
 
 from sonne.utils.constants import MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
-from sonne.utils.path_utils import validate_path_within_root
+from sonne.utils.path_utils import is_post_local_raster_image, validate_path_within_root
 from sonne.utils.text import slugify
 
 logger = logging.getLogger("sonne")
@@ -69,7 +69,6 @@ STATIC_IMAGE_REWRITES = [
 ]
 
 # Only images next to a post get dithered variants from the blog pipeline.
-NON_DITHERABLE_SRC_PREFIXES = ("http://", "https://", "data:", "/")
 
 # The toggle button's quincunx dither icon: (x, y) of each square cell.
 DITHER_ICON_CELLS = [
@@ -531,7 +530,7 @@ class TemplateProcessor:
         logger.debug(f"Found {len(img_tags)} image tags to process for dithering")
         # Ids number every <img>, including skipped ones, so they stay stable.
         for index, img in enumerate(img_tags):
-            if _has_dithered_variant(img.get("src", "")):
+            if is_post_local_raster_image(img.get("src", "")):
                 _wrap_in_dither_figure(soup, img, f"img-{index}")
         return str(soup)
 
@@ -871,11 +870,6 @@ def _template_names(templates_dir: str) -> List[str]:
                 rel_path = os.path.relpath(os.path.join(root, file), templates_dir)
                 names.append(rel_path.replace(os.sep, "/"))
     return names
-
-
-def _has_dithered_variant(src: str) -> bool:
-    """Whether the blog pipeline generates a dithered copy of this image."""
-    return not (src.endswith(".svg") or src.startswith(NON_DITHERABLE_SRC_PREFIXES))
 
 
 def _dithered_src(src: str) -> str:

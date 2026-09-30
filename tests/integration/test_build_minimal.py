@@ -116,3 +116,11 @@ class TestBuildStatistics:
         generator, _ = builder(site)
 
         assert generator.stats.pages_processed == 2
+
+
+def test_rendered_templates_are_counted(site_factory, builder):
+    site = site_factory("minimal")
+
+    generator, _ = builder(site)
+
+    assert generator.stats.templates_rendered > 0

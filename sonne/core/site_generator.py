@@ -33,8 +33,6 @@ ALWAYS_RUN_STEP_COUNT = 4
 BLOG_STEP_COUNT = 2  # collect metadata + render posts
 IMAGE_STEP_COUNT = 1
 
-MAX_AUTO_IMAGE_WORKERS = 4
-
 
 class SiteGenerator:
     """Main site generation coordinator."""
@@ -126,6 +124,7 @@ class SiteGenerator:
         """Start a fresh BuildStatistics and share it with the processors."""
         self.stats = BuildStatistics()
         self.image_processor.stats = self.stats
+        self.template_processor.stats = self.stats
         self.blog_processor.stats = self.stats
         self.variable_manager.stats = self.stats
 
@@ -143,7 +142,7 @@ class SiteGenerator:
         if blog_enabled:
             self._collect_post_metadata()
         self._run_data_scripts()
-        self._copy_static_files()
+        self._copy_static_files(skip_images)
         if not skip_images:
             self._process_images(skip_cache)
         if blog_enabled:
@@ -176,12 +175,16 @@ class SiteGenerator:
         logger.debug(f"Global variables: {list(variables.get('global', {}).keys())}")
         logger.debug(f"Site variables: {list(variables.get('site', {}).keys())}")
 
-    def _copy_static_files(self) -> None:
+    def _copy_static_files(self, skip_images: bool) -> None:
         static_dir = self.paths.get("static")
         output_dir = self.paths["output"]
+        # Files the image step will write (dithered static/images) must not
+        # be overwritten with their raw sources first; with --skip-images
+        # nothing writes them, so they are copied raw.
+        skip = None if skip_images else self.image_processor.owns_static_file
         self._progress.step("Copying static files")
         with self._timed_phase("static_copy"):
-            copy_static_files(static_dir, output_dir)
+            copy_static_files(static_dir, output_dir, skip=skip)
             # Dithering CSS/JS ship with the package (single source of
             # truth) and are only emitted — always refreshed — when
             # dithering is enabled.
@@ -194,15 +197,10 @@ class SiteGenerator:
         content_dir = self.paths.get("content", "")
         image_count = _count(_count_images(content_dir), "image")
         self._progress.step(
-            f"Processing images  ({image_count}, {self._image_worker_count()} workers)"
+            f"Processing images  ({image_count}, {self.image_processor.worker_count()} workers)"
         )
         with self._timed_phase("images"):
             self.image_processor.process_all(content_dir, skip_cache=skip_cache)
-
-    def _image_worker_count(self) -> int:
-        """Mirror of ImageProcessor's worker choice, for the progress line."""
-        workers = self.config.get("images", "parallel_workers", default=None)
-        return int(workers) if workers else min(MAX_AUTO_IMAGE_WORKERS, (os.cpu_count() or 1))
 
     def _render_posts(self) -> None:
         post_count = _count(len(self.blog_processor.posts), "post")

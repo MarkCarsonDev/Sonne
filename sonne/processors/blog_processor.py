@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 from xml.sax.saxutils import escape
 
 from sonne.utils.path_utils import (
+    is_post_local_raster_image,
     normalize_web_path,
     strip_relative_prefix,
     validate_path_within_root,
@@ -37,6 +38,7 @@ RELATED_POSTS_COUNT = 3
 ADJACENCY_WEIGHT = 0.1
 JPEG_QUALITY = 85
 EPOCH = datetime(1970, 1, 1)
+LOCAL_TIMEZONE = datetime.now().astimezone().tzinfo
 TAXONOMY_SINGULAR = {"tags": "tag", "categories": "category"}
 TAXONOMY_TYPES = tuple(TAXONOMY_SINGULAR)
 MONTH_NAMES = (
@@ -56,11 +58,17 @@ MONTH_NAMES = (
 )
 
 MARKDOWN_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
-HTML_IMAGE_SRC = re.compile(r'<img[^>]+src=["\'](([^"\']+))["\']')
+HTML_IMAGE_SRC = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']')
 QUOTED_IMAGE_TITLE = re.compile(r'\s+"([^"]*)"')
 FILENAME_DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})-")
+# The closing fence must repeat the opening fence exactly. That is stricter
+# than CommonMark (which accepts a longer closing fence) on purpose: it is
+# how Python-Markdown's fenced_code, our renderer, decides what is code.
 FENCED_CODE_BLOCK = re.compile(r"^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$", re.DOTALL | re.MULTILINE)
 INLINE_CODE = re.compile(r"`[^`\n]+`")
+LIST_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+")
+CODE_INDENT_COLUMNS = 4
+TAB_COLUMNS = 4
 
 
 @dataclass
@@ -86,6 +94,11 @@ class _PublishedImage:
     @property
     def has_both_sizes(self) -> bool:
         return bool(self.original_kb and self.dithered_kb)
+
+    @property
+    def dither_failed(self) -> bool:
+        """Dithering was requested but produced no file."""
+        return self.dithered_rel_path is not None and self.dithered_kb is None
 
     @property
     def reduction_percent(self) -> int:
@@ -177,8 +190,11 @@ class BlogProcessor:
 
     def _collect_posts(self) -> None:
         """Parse every post under the blog content directory."""
-        for file_path in Path(self.blog_content_dir).glob("**/*.md"):
-            if "_drafts" in file_path.parts and not self._include_drafts:
+        blog_root = Path(self.blog_content_dir)
+        for file_path in blog_root.glob("**/*.md"):
+            # Relative parts only: a site stored under some folder named
+            # _drafts must still publish its posts.
+            if "_drafts" in file_path.relative_to(blog_root).parts and not self._include_drafts:
                 continue
             try:
                 post = self._parse_post(file_path)
@@ -188,6 +204,10 @@ class BlogProcessor:
             if post:
                 self.posts.append(post)
                 logger.debug(f"Collected post: {post['title']} from {file_path}")
+
+    def _site_author(self) -> str:
+        """The site-wide author, used when a post names none ('' if unset)."""
+        return self.config.get("site", "author", default="") or ""
 
     @property
     def _include_drafts(self) -> bool:
@@ -223,9 +243,7 @@ class BlogProcessor:
             "date_posted": date.strftime("%B %d, %Y"),  # {{ page.date_posted }} in templates
             "modified": modified,
             "date_edited": modified.strftime("%B %d, %Y"),
-            "author": front_matter.get(
-                "author", self.config.get("site", "author", default="Anonymous")
-            ),
+            "author": front_matter.get("author", self._site_author()),
             "slug": slug,
             "url": url,
             "full_url": self._format_url("/" + os.path.join(self.blog_dir, url).replace("\\", "/")),
@@ -251,9 +269,7 @@ class BlogProcessor:
         if raw_date is None:
             prefix = FILENAME_DATE_PREFIX.match(file_path.stem)
             raw_date = prefix.group(1) if prefix else "auto"
-        stat = file_path.stat()
-        # st_birthtime exists on macOS/BSD (and Windows on Python 3.12+).
-        created = datetime.fromtimestamp(getattr(stat, "st_birthtime", stat.st_mtime))
+        created = _file_created_at(file_path.stat())
         return _parse_front_matter_date(raw_date, created, file_path.name)
 
     def _post_modified_date(self, front_matter: Dict[str, Any], file_path: Path) -> datetime:
@@ -319,14 +335,23 @@ class BlogProcessor:
         )
 
     def _group_posts_by_term(self, taxonomy_type: str) -> Dict[str, Dict[str, Any]]:
-        terms: Dict[str, Dict[str, Any]] = {}
+        """Group posts by term, merging spellings that share a slug ("Python", "python").
+
+        Such terms share one page, so they must share one entry. The display
+        name is the first spelling seen, i.e. the newest post's.
+
+        Returns:
+            {display name: {"name", "slug", "posts"}}
+        """
+        terms_by_slug: Dict[str, Dict[str, Any]] = {}
         for post in self.posts:
             for term in post.get(taxonomy_type, []):
                 name = str(term)
-                if name not in terms:
-                    terms[name] = {"name": name, "slug": slugify(name), "posts": []}
-                terms[name]["posts"].append(post)
-        return terms
+                slug = slugify(name)
+                entry = terms_by_slug.setdefault(slug, {"name": name, "slug": slug, "posts": []})
+                if not entry["posts"] or entry["posts"][-1] is not post:
+                    entry["posts"].append(post)
+        return {entry["name"]: entry for entry in terms_by_slug.values()}
 
     # Post rendering
 
@@ -365,17 +390,36 @@ class BlogProcessor:
         scripts populated their variables.
         """
         for post in self.posts:
-            try:
-                self._render_post_content_jinja(post)
-                self._copy_post_images(post, os.path.dirname(self._post_output_path(post)))
-            except Exception as e:
-                logger.error(f"Error processing images for post {post.get('title', '?')}: {e}")
-
+            self._prepare_post(post)
+        # Templates (not content Jinja) get site.images, from pass 2 on.
+        self._expose_images_config()
         for post in self.posts:
             self._render_timed_post(post)
 
+    def _prepare_post(self, post: Dict[str, Any]) -> None:
+        """Pass 1 for one post: content Jinja, then images. Each step's failure is logged apart."""
+        try:
+            self._render_post_content_jinja(post)
+        except Exception as e:
+            _log_error(f"Error rendering content Jinja for post {post.get('title', '?')}: {e}")
+        try:
+            output_dir = os.path.dirname(self._post_output_path(post))
+        except ValueError:
+            return  # path traversal; _get_output_path has logged it
+        self._publish_post_images(post, output_dir)  # logs its own errors
+
     def _post_output_path(self, post: Dict[str, Any]) -> str:
         return self._get_output_path(os.path.join(self.blog_dir, post["url"].rstrip("/")))
+
+    def _post_directory_url(self, post: Dict[str, Any]) -> str:
+        """Site-root URL of the directory holding the post's page and images.
+
+        That is the post URL itself for the clean and directory styles, but
+        its parent for the html style (/blog/2024/01/05/slug.html lives in
+        /blog/2024/01/05/).
+        """
+        post_dir = os.path.dirname(self._post_output_path(post))
+        return "/" + Path(os.path.relpath(post_dir, self.paths["output"])).as_posix()
 
     def _render_timed_post(self, post: Dict[str, Any]) -> None:
         started = time.perf_counter()
@@ -415,10 +459,7 @@ class BlogProcessor:
             return
 
         context = self.template_processor.build_content_context(
-            {
-                "global": self.variable_manager.variables.get("global", {}),
-                "site": self.variable_manager.variables.get("site", {}),
-            }
+            self.variable_manager.render_scopes()
         )
         context["page"] = post
         _, html_content = self.template_processor.process_markdown(
@@ -435,19 +476,20 @@ class BlogProcessor:
             post["excerpt"] = self._auto_excerpt(html_content)
 
     def _template_variables(self, page_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Build the global/site/page scopes passed to the page template.
+        """The global/site/page scopes for one page template (globals mirrored into site)."""
+        scopes = self.variable_manager.render_scopes()
+        scopes["page"] = page_data
+        return scopes
 
-        Global variables are also copied into the site scope (without
-        overriding site values) for templates that read them from there.
+    def _expose_images_config(self) -> None:
+        """Make the images config available to templates as site.images.
+
+        Done once, before blog pages render; it stays set for the regular
+        pages rendered afterwards.
         """
-        global_vars = self.variable_manager.variables.get("global", {})
-        site_vars = self.variable_manager.variables.get("site", {})
-        for key, value in global_vars.items():
-            site_vars.setdefault(key, value)
         images_config = self.config.get("images")
         if images_config is not None:
-            site_vars["images"] = images_config
-        return {"global": global_vars, "site": site_vars, "page": page_data}
+            self.variable_manager.variables["site"]["images"] = images_config
 
     def _get_output_path(self, rel_path: str) -> str:
         """Map a path relative to the output root onto a file for the URL style.
@@ -477,7 +519,7 @@ class BlogProcessor:
 
     # Post images
 
-    def _copy_post_images(self, post: Dict[str, Any], output_dir: str) -> None:
+    def _publish_post_images(self, post: Dict[str, Any], output_dir: str) -> None:
         """Publish the images a post references, plus its cover image.
 
         Each image is copied (resized) to its own relative path and, when
@@ -497,7 +539,7 @@ class BlogProcessor:
                 for image_ref, transforms in _local_image_refs(post)
                 if (image := self._publish_inline_image(post, image_ref, transforms, output_dir))
             ]
-            self._annotate_image_sizes(post, published)
+            self._update_figure_markup(post, published)
             self._publish_cover_image(post, output_dir)
         except Exception as e:
             _log_error(f"Error processing images for post {post.get('title', 'unknown')}: {e}")
@@ -509,25 +551,42 @@ class BlogProcessor:
     def _publish_inline_image(
         self, post: Dict[str, Any], image_ref: str, transforms: dict, output_dir: str
     ) -> Optional[_PublishedImage]:
-        source_path = _source_image_path(post, image_ref)
-        if not os.path.exists(source_path):
-            logger.warning(f"Image not found: {source_path} (referenced in {post['title']})")
+        source_path = self._publishable_source(post, image_ref, output_dir, "Image")
+        if source_path is None:
             return None
         return self._publish_image(
             source_path, image_ref, transforms, output_dir, dither=self._dither_enabled
         )
 
+    def _publishable_source(
+        self, post: Dict[str, Any], image_ref: str, output_dir: str, kind: str
+    ) -> Optional[str]:
+        """The source file for image_ref, or None (with a warning) if it can't be published.
+
+        It can't when the source is missing, or when the ref's ../ segments
+        would place the published copy outside the output directory.
+        """
+        title = post.get("title", "unknown")
+        source_path = _source_image_path(post, image_ref)
+        if not os.path.exists(source_path):
+            logger.warning(f"{kind} not found: {source_path} (referenced in {title})")
+            return None
+        published_path = os.path.join(output_dir, strip_relative_prefix(image_ref))
+        if not validate_path_within_root(published_path, self.paths["output"]):
+            logger.warning(
+                f"{kind} {image_ref} (referenced in {title}) would be published outside "
+                "the output directory; skipping it"
+            )
+            return None
+        return source_path
+
     def _publish_cover_image(self, post: Dict[str, Any], output_dir: str) -> None:
         """Publish the cover image and record its web paths and sizes on the post."""
         cover_img = post.get("cover_img")
-        if not cover_img or _is_external_or_vector(cover_img):
+        if not cover_img or not is_post_local_raster_image(cover_img):
             return
-        source_path = _source_image_path(post, cover_img)
-        if not os.path.exists(source_path):
-            logger.warning(
-                f"Cover image not found: {source_path} "
-                f"(referenced in {post.get('title', 'unknown')})"
-            )
+        source_path = self._publishable_source(post, cover_img, output_dir, "Cover image")
+        if source_path is None:
             return
 
         transforms = {}
@@ -569,26 +628,27 @@ class BlogProcessor:
             )
         return _PublishedImage(image_ref, rel_path, dithered_rel_path, original_kb, dithered_kb)
 
-    def _annotate_image_sizes(self, post: Dict[str, Any], images: List[_PublishedImage]) -> None:
-        """Stamp size data onto the post's already-rewritten <figure> markup.
+    def _update_figure_markup(self, post: Dict[str, Any], images: List[_PublishedImage]) -> None:
+        """Bring the post's <figure> markup in line with the published images.
 
         process_markdown has already turned each <img> into a <figure> whose
         src points at the dithered copy, so images are found by their
-        data-original-src instead of the src the author wrote. The HTML is
-        parsed once per post, not once per image.
+        data-original-src instead of the src the author wrote. Figures get
+        size data; a figure whose dithering failed is pointed at its
+        original. The HTML is parsed once per post, not once per image.
         """
-        images = [image for image in images if image.has_both_sizes]
+        images = [image for image in images if image.has_both_sizes or image.dither_failed]
         if not images:
             return
         try:
             from bs4 import BeautifulSoup
 
             soup = BeautifulSoup(post["content"], "html.parser")
-            annotated = [image for image in images if _annotate_image_tag(soup, image)]
-            if annotated:
+            updated = [image for image in images if _update_image_tag(soup, image)]
+            if updated:
                 post["content"] = str(soup)
         except Exception as e:
-            logger.warning(f"BS4 size-attr injection failed for {post.get('title', '?')}: {e}")
+            logger.warning(f"Updating image markup failed for {post.get('title', '?')}: {e}")
 
     def _save_resized(
         self, source_path: str, output_path: str, max_width: int, transforms: dict
@@ -635,8 +695,8 @@ class BlogProcessor:
             transforms: Transform directives (crop, rotate); may be empty.
 
         Returns:
-            Dithered file size in KB, or None if dithering failed (the source
-            is copied to dithered_path instead, and callers show no savings).
+            Dithered file size in KB, or None if dithering failed. Nothing is
+            left at dithered_path then; callers link the original instead.
         """
         from PIL import Image, ImageOps
 
@@ -645,13 +705,13 @@ class BlogProcessor:
                 img = ImageOps.exif_transpose(img)
                 resized = _resize_to_width(_apply_transforms(img, transforms), max_width)
                 if self.image_processor is not None:
-                    dithered = self.image_processor._apply_dither(resized)
+                    dithered = self.image_processor.dither(resized)
                 else:
                     dithered = resized.convert("L").convert("P", palette=1, colors=4, dither=1)
                 dithered.save(dithered_path, format="PNG", optimize=True)
         except Exception as e:
             logger.error(f"Error processing blog image {source_path}: {e}")
-            shutil.copy2(source_path, dithered_path)
+            _remove_if_present(dithered_path)  # a failed save may leave a partial file
             return None
         logger.debug(f"Created dithered PNG: {source_path} -> {dithered_path}")
         return _size_kb(dithered_path)
@@ -841,7 +901,7 @@ class BlogProcessor:
                 group.setdefault(parts[:depth], []).append(post)
         merged = {key: posts for group in groups for key, posts in group.items()}
         for posts in merged.values():
-            posts.sort(key=lambda post: post.get("date", datetime.min), reverse=True)
+            posts.sort(key=_post_sort_key, reverse=True)
         return merged
 
     def _archive_page(
@@ -887,7 +947,9 @@ class BlogProcessor:
 
     def _rss_document(self, rss_path: str) -> str:
         """Build the feed XML. All interpolated text is XML-escaped."""
-        site_url = self.config.get("site", "base_url", default="")
+        # Every feed URL is site_url + "/path"; a configured trailing slash
+        # would otherwise double it.
+        site_url = str(self.config.get("site", "base_url", default="") or "").rstrip("/")
         site_title = self.config.get("site", "title", default="My Sonne Site")
         site_description = self.config.get("site", "description", default="")
         language = self.config.get("site", "language", default="en")
@@ -913,12 +975,12 @@ class BlogProcessor:
 
     def _rss_item(self, post: Dict[str, Any], site_url: str) -> str:
         post_url = site_url + post["full_url"]
-        author = post.get("author", self.config.get("site", "author", default=""))
+        author = post.get("author", self._site_author())
         # Prefer the lighter dithered cover, fall back to the original.
         cover_rel = post.get("cover_img_dithered") or post.get("cover_img_original")
         media_tag = ""
         if cover_rel:
-            cover_url = f"{post_url.rstrip('/')}/{cover_rel.lstrip('/')}"
+            cover_url = f"{site_url}{self._post_directory_url(post)}/{cover_rel.lstrip('/')}"
             media_tag = f'\n        <media:thumbnail url="{_xml_attribute(cover_url)}" />'
         return (
             "    <item>\n"
@@ -953,13 +1015,37 @@ def _first_present(mapping: Dict[str, Any], *keys: str, default: Any = None) -> 
 
 
 def _post_sort_key(post: Dict[str, Any]) -> datetime:
+    """The post's date as a timezone-aware datetime, so all posts compare.
+
+    Front matter may mix plain dates with timezone-aware timestamps
+    (``2024-01-05 12:00:00+02:00``); plain ones are read as local time.
+    """
     date = post.get("date", "")
     if isinstance(date, datetime):
-        return date
+        return _as_aware(date)
     if all(hasattr(date, part) for part in ("year", "month", "day")):
-        return datetime(date.year, date.month, date.day)
+        return _as_aware(datetime(date.year, date.month, date.day))
     logger.warning(f"Invalid date format for post {post.get('title', 'Unknown')}, using epoch")
-    return EPOCH
+    return _as_aware(EPOCH)
+
+
+def _as_aware(moment: datetime) -> datetime:
+    # Attaches the current local offset instead of calling astimezone(),
+    # which raises OSError on Windows for naive datetimes near 1970.
+    return moment if moment.tzinfo else moment.replace(tzinfo=LOCAL_TIMEZONE)
+
+
+def _file_created_at(stat: Any) -> datetime:
+    """A file's creation time from its stat result, as well as the platform allows.
+
+    st_birthtime exists on macOS/BSD and on Windows from Python 3.12. Older
+    Windows Pythons report creation time as st_ctime; on other POSIX
+    systems st_ctime is the metadata-change time, so mtime is the fallback.
+    """
+    created = getattr(stat, "st_birthtime", None)
+    if created is None:
+        created = stat.st_ctime if os.name == "nt" else stat.st_mtime
+    return datetime.fromtimestamp(created)
 
 
 def _parse_front_matter_date(value: Any, fallback: datetime, source_name: str) -> datetime:
@@ -1026,9 +1112,9 @@ def _local_image_refs(post: Dict[str, Any]) -> Iterator[Tuple[str, dict]]:
     """Yield (image_ref, transforms) for each local raster image the post references.
 
     Markdown images come first, then <img> tags. Remote, root-relative and
-    SVG images, and anything inside code samples, are skipped. When a path
-    appears more than once, the last Markdown title's transforms apply to
-    every occurrence.
+    SVG images, and anything inside code samples, are skipped. A path that
+    appears more than once is yielded once, with the last Markdown title's
+    transforms (they apply to every occurrence, since all share one file).
     """
     content = _without_code(post.get("raw_content", post.get("content", "")))
     image_refs = []
@@ -1044,18 +1130,57 @@ def _local_image_refs(post: Dict[str, Any]) -> Iterator[Tuple[str, dict]]:
         image_refs.append(image_ref)
     image_refs.extend(match.group(1) for match in HTML_IMAGE_SRC.finditer(content))
 
-    for image_ref in image_refs:
-        if not _is_external_or_vector(image_ref):
+    for image_ref in dict.fromkeys(image_refs):  # each image once, in first-use order
+        if is_post_local_raster_image(image_ref):
             yield image_ref, transforms_by_ref.get(image_ref, {})
 
 
 def _without_code(markdown: str) -> str:
-    """Remove fenced code blocks and inline code spans, whose image syntax is only sample text."""
-    return INLINE_CODE.sub("", FENCED_CODE_BLOCK.sub("", markdown))
+    """Remove code blocks and inline code spans, whose image syntax is only sample text."""
+    return INLINE_CODE.sub("", _without_indented_code(FENCED_CODE_BLOCK.sub("", markdown)))
 
 
-def _is_external_or_vector(image_ref: str) -> bool:
-    return image_ref.startswith(("http://", "https://", "/")) or image_ref.endswith(".svg")
+def _without_indented_code(markdown: str) -> str:
+    """Blank out indented code blocks the way Python-Markdown recognizes them.
+
+    A code block starts after a blank line with at least 4 columns of
+    indentation (8 inside a list item, where 4 is just a continuation
+    paragraph) and runs until a less-indented non-blank line. An indented
+    line directly after text is a lazy continuation, not code.
+    """
+    kept = []
+    in_list = in_code = False
+    previous_blank = True
+    for line in markdown.split("\n"):
+        if not line.strip():
+            kept.append(line)
+            previous_blank = True
+            continue
+        code_indent = CODE_INDENT_COLUMNS * (2 if in_list else 1)
+        indent = _indent_columns(line)
+        in_code = indent >= code_indent and (in_code or previous_blank)
+        previous_blank = False
+        if in_code:
+            kept.append("")
+            continue
+        if LIST_ITEM.match(line):
+            in_list = True
+        elif indent == 0:
+            in_list = False
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _indent_columns(line: str) -> int:
+    columns = 0
+    for character in line:
+        if character == " ":
+            columns += 1
+        elif character == "\t":
+            columns += TAB_COLUMNS - columns % TAB_COLUMNS
+        else:
+            break
+    return columns
 
 
 def _source_image_path(post: Dict[str, Any], image_ref: str) -> str:
@@ -1063,34 +1188,58 @@ def _source_image_path(post: Dict[str, Any], image_ref: str) -> str:
     return os.path.normpath(os.path.join(post_source_dir, image_ref))
 
 
-def _annotate_image_tag(soup, image: _PublishedImage) -> bool:
-    """Add size data to the <img> for image and its figure caption/button.
+def _update_image_tag(soup, image: _PublishedImage) -> bool:
+    """Update the <img> published for image: link the original, or add size data.
 
     Returns:
         True if a matching <img> was found.
     """
-    ref = strip_relative_prefix(image.image_ref)
+    img_tag = _find_figure_image(soup, strip_relative_prefix(image.image_ref))
+    if img_tag is None:
+        return False
+    if image.dither_failed:
+        _link_original(img_tag)
+    else:
+        _annotate_sizes(img_tag, image)
+    return True
+
+
+def _find_figure_image(soup, ref: str):
     for img_tag in soup.find_all("img"):
         original_src = img_tag.get("data-original-src", "")
         if strip_relative_prefix(original_src) == ref or original_src.endswith("/" + ref):
-            dithered_size = _format_kb(image.dithered_kb)
-            original_size = _format_kb(image.original_kb)
-            img_tag["data-dithered-size"] = dithered_size
-            img_tag["data-original-size"] = original_size
-            img_tag["data-size-reduction"] = str(image.reduction_percent)
-            figure = img_tag.find_parent("figure")
-            if figure:
-                caption = figure.find("span", class_="caption-text")
-                if caption:
-                    caption.string = (
-                        f"{caption.get_text()} · {dithered_size} (−{image.reduction_percent}%)"
-                    )
-                button = figure.find("button", class_="request-original-btn")
-                if button:
-                    button["data-original-size"] = original_size
-            return True
+            return img_tag
     logger.debug(f"Could not find img with data-original-src matching {ref} in post HTML")
-    return False
+    return None
+
+
+def _link_original(img_tag) -> None:
+    """Show the original where the dithered copy could not be made (both toggle states)."""
+    img_tag["src"] = img_tag["data-original-src"]
+    img_tag["data-dithered-src"] = img_tag["data-original-src"]
+
+
+def _annotate_sizes(img_tag, image: _PublishedImage) -> None:
+    """Add size data to the <img> and to its figure's caption and toggle button."""
+    dithered_size = _format_kb(image.dithered_kb)
+    original_size = _format_kb(image.original_kb)
+    img_tag["data-dithered-size"] = dithered_size
+    img_tag["data-original-size"] = original_size
+    img_tag["data-size-reduction"] = str(image.reduction_percent)
+    figure = img_tag.find_parent("figure")
+    if not figure:
+        return
+    caption = figure.find("span", class_="caption-text")
+    if caption:
+        caption.string = f"{caption.get_text()} · {dithered_size} (−{image.reduction_percent}%)"
+    button = figure.find("button", class_="request-original-btn")
+    if button:
+        button["data-original-size"] = original_size
+
+
+def _remove_if_present(path: str) -> None:
+    if os.path.exists(path):
+        os.remove(path)
 
 
 def _parse_transforms(title: str) -> Tuple[str, dict]:
