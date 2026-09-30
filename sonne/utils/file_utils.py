@@ -7,7 +7,7 @@ import os
 import shutil
 import logging
 import glob
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 logger = logging.getLogger("sonne")
 
@@ -19,7 +19,7 @@ BUNDLED_MINIMAL_STATIC_DIR = os.path.join(PACKAGE_DIR, "templates", "minimal", "
 CORE_ASSET_PATTERNS = {"css": "*.css", "js": "*.js"}
 
 
-def ensure_dir(directory: str) -> None:
+def ensure_dir(directory: Union[str, "os.PathLike[str]"]) -> None:
     """Ensure a directory exists, creating it if necessary.
 
     Args:
@@ -45,7 +45,7 @@ def copy_core_static_files(output_dir: str) -> None:
 
 
 def copy_static_files(
-    static_dir: str, output_dir: str, skip: Optional[Callable[[str], bool]] = None
+    static_dir: Optional[str], output_dir: str, skip: Optional[Callable[[str], bool]] = None
 ) -> None:
     """Copy static files to the output directory, skipping hidden entries.
 

@@ -13,10 +13,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import jinja2
 import markdown
 import yaml
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from jinja2 import TemplateSyntaxError, UndefinedError
 from markupsafe import Markup
 
+from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
 from sonne.utils.path_utils import is_post_local_raster_image, validate_path_within_root
 from sonne.utils.text import slugify
@@ -252,7 +253,7 @@ class TemplateProcessor:
         """
         self.config = config
         self.paths = paths
-        self.stats = None  # Injected by SiteGenerator
+        self.stats: Optional[BuildStatistics] = None  # Injected by SiteGenerator
         self.dithering_enabled = self.config.get("images", "dither", default=True)
         logger.info(f"Dithering enabled: {self.dithering_enabled}")
         self.jinja_env = self._create_jinja_env()
@@ -454,7 +455,7 @@ class TemplateProcessor:
         self,
         content: str,
         rewrite_dithered: bool = True,
-        jinja_context: Dict[str, Any] = None,
+        jinja_context: Optional[Dict[str, Any]] = None,
         source: str = "<content>",
     ) -> Tuple[Dict[str, Any], str]:
         """Process Markdown content.
@@ -529,7 +530,7 @@ class TemplateProcessor:
         logger.debug(f"Found {len(img_tags)} image tags to process for dithering")
         # Ids number every <img>, including skipped ones, so they stay stable.
         for index, img in enumerate(img_tags):
-            if is_post_local_raster_image(img.get("src", "")):
+            if is_post_local_raster_image(_attribute_text(img, "src")):
                 _wrap_in_dither_figure(soup, img, f"img-{index}")
         return str(soup)
 
@@ -756,28 +757,34 @@ class TemplateProcessor:
         return str(soup)
 
 
-def _ensure_head(soup: BeautifulSoup):
+def _ensure_head(soup: BeautifulSoup) -> Tag:
     """Return the document's <head>, creating it as the first child of <html>."""
-    if not soup.head:
-        _html_root(soup).insert(0, soup.new_tag("head"))
-    return soup.head
+    head = soup.head
+    if head is None:
+        head = soup.new_tag("head")
+        _html_root(soup).insert(0, head)
+    return head
 
 
-def _ensure_body(soup: BeautifulSoup):
+def _ensure_body(soup: BeautifulSoup) -> Tag:
     """Return the document's <body>, creating it as the last child of <html>."""
-    if not soup.body:
-        _html_root(soup).append(soup.new_tag("body"))
-    return soup.body
+    body = soup.body
+    if body is None:
+        body = soup.new_tag("body")
+        _html_root(soup).append(body)
+    return body
 
 
-def _html_root(soup: BeautifulSoup):
+def _html_root(soup: BeautifulSoup) -> Tag:
     """Return the <html> element, appending one to fragment documents."""
-    if not soup.html:
-        soup.append(soup.new_tag("html"))
-    return soup.html
+    html = soup.html
+    if html is None:
+        html = soup.new_tag("html")
+        soup.append(html)
+    return html
 
 
-def _append_once(soup: BeautifulSoup, parent, tag_name: str, text: str, marker: str) -> None:
+def _append_once(soup: BeautifulSoup, parent: Tag, tag_name: str, text: str, marker: str) -> None:
     """Append an inline <style>/<script> unless one carrying ``marker`` is already there."""
     for existing in parent.find_all(tag_name):
         if existing.string and marker in existing.string:
@@ -870,6 +877,12 @@ def _template_names(templates_dir: str) -> List[str]:
                 rel_path = os.path.relpath(os.path.join(root, file), templates_dir)
                 names.append(rel_path.replace(os.sep, "/"))
     return names
+
+
+def _attribute_text(tag: Tag, name: str) -> str:
+    """A single-valued attribute's text ("" when absent)."""
+    value = tag.get(name)
+    return value if isinstance(value, str) else ""
 
 
 def _dithered_src(src: str) -> str:

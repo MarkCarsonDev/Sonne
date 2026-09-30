@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 from xml.sax.saxutils import escape
 
+from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.path_utils import (
     is_post_local_raster_image,
     normalize_web_path,
@@ -101,6 +102,8 @@ class _PublishedImage:
 
     @property
     def reduction_percent(self) -> int:
+        if not (self.original_kb and self.dithered_kb):
+            return 0
         return int(round((1 - self.dithered_kb / self.original_kb) * 100))
 
 
@@ -129,7 +132,7 @@ class BlogProcessor:
         self.template_processor = template_processor
         self.variable_manager = variable_manager
         self.image_processor = image_processor
-        self.stats = None  # Injected by SiteGenerator
+        self.stats: Optional[BuildStatistics] = None  # Injected by SiteGenerator
 
         self.blog_dir = self.config.blog_directory()
         self.blog_content_dir = os.path.join(self.paths.get("content") or "", self.blog_dir)
@@ -597,7 +600,11 @@ class BlogProcessor:
         )
         image = self._publish_image(source_path, cover_img, transforms, output_dir, dither=dither)
 
-        dithered_rel = image.dithered_rel_path if image.dithered_kb else image.rel_path
+        dithered_rel = (
+            image.dithered_rel_path
+            if image.dithered_kb and image.dithered_rel_path
+            else image.rel_path
+        )
         post["cover_img_original"] = normalize_web_path(image.rel_path)
         post["cover_img_dithered"] = normalize_web_path(dithered_rel)
         post["cover_img_original_kb"] = _format_kb(image.original_kb)
@@ -658,19 +665,21 @@ class BlogProcessor:
         Returns:
             Output file size in KB.
         """
-        from PIL import Image, ImageOps
+        from PIL import Image
+
+        from sonne.processors.image_processor import upright_image
 
         try:
             with Image.open(source_path) as img:
                 # Read the format first: exif_transpose returns a copy, and copies have no
                 # .format, which used to send every PNG down the JPEG path (B12).
                 fmt = img.format or "JPEG"
-                img = ImageOps.exif_transpose(img)
+                img = upright_image(img)
                 if img.mode not in ("RGB", "RGBA", "L"):
                     keeps_alpha = "A" in img.mode or "transparency" in img.info
                     img = img.convert("RGBA" if keeps_alpha else "RGB")
                 resized = _resize_to_width(_apply_transforms(img, transforms), max_width)
-                save_options = {"optimize": True}
+                save_options: Dict[str, Any] = {"optimize": True}
                 if fmt in ("JPEG", "JPG"):
                     save_options["quality"] = JPEG_QUALITY
                     if resized.mode not in ("RGB", "L"):  # JPEG has no alpha channel
@@ -696,16 +705,23 @@ class BlogProcessor:
             Dithered file size in KB, or None if dithering failed. Nothing is
             left at dithered_path then; callers link the original instead.
         """
-        from PIL import Image, ImageOps
+        from PIL import Image
+
+        from sonne.processors.image_processor import upright_image
 
         try:
             with Image.open(source_path) as img:
-                img = ImageOps.exif_transpose(img)
+                img = upright_image(img)
                 resized = _resize_to_width(_apply_transforms(img, transforms), max_width)
                 if self.image_processor is not None:
                     dithered = self.image_processor.dither(resized)
                 else:
-                    dithered = resized.convert("L").convert("P", palette=1, colors=4, dither=1)
+                    dithered = resized.convert("L").convert(
+                        "P",
+                        palette=Image.Palette.ADAPTIVE,
+                        colors=4,
+                        dither=Image.Dither.FLOYDSTEINBERG,
+                    )
                 dithered.save(dithered_path, format="PNG", optimize=True)
         except Exception as e:
             logger.error(f"Error processing blog image {source_path}: {e}")
@@ -1311,7 +1327,7 @@ def _resize_to_width(img: "Image.Image", max_width: int) -> "Image.Image":
 
     if img.width > max_width:
         height = int(img.height * max_width / img.width)
-        return img.resize((max_width, height), Image.LANCZOS)
+        return img.resize((max_width, height), Image.Resampling.LANCZOS)
     return img.copy()
 
 
