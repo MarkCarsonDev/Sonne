@@ -13,7 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
 
 from PIL import Image, ImageOps
 
@@ -33,6 +33,17 @@ LOSSY_QUALITY = 85
 BICUBIC_MAX_WIDTH = 400
 
 HASH_CHUNK_BYTES = 8192
+
+IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+DEFAULT_MAX_WORKERS = 4
+
+# Files that may reference images, for images.only_used.
+REF_SCAN_EXTENSIONS = (".md", ".html", ".htm", ".yaml", ".yml")
+IMAGE_REF_PATTERN = re.compile(
+    r'!\[.*?\]\(([^)\s"\']+)'  # markdown image
+    r'|src=["\']([^"\']+)["\']'  # html src attribute
+    r'|cover_img:\s*["\']?([^\s"\']+)'  # front matter cover, optionally quoted
+)
 
 
 @dataclass(frozen=True)
@@ -132,7 +143,38 @@ class ImageProcessor:
             # Return a deterministic fallback based on path and mtime
             return hashlib.sha256(f"{file_path}:{os.path.getmtime(file_path)}".encode()).hexdigest()
 
-    def _collect_used_images(self, content_dir: str) -> set:
+    def process_all(self, content_dir: str, skip_cache: bool = False) -> None:
+        """Process content images and static/images, then save the cache.
+
+        Args:
+            content_dir: Directory containing content to scan for images.
+            skip_cache: Whether to skip cache and reprocess all images.
+        """
+        only_used = self.config.get("images", "only_used", default=False)
+        used_paths = self._collect_used_images(content_dir) if only_used else None
+
+        if content_dir and os.path.exists(content_dir):
+            logger.info(f"Processing images in content directory: {content_dir}")
+            self._process_directory_images(content_dir, skip_cache, used_paths=used_paths)
+
+        static_images_dir = self._static_images_dir()
+        if static_images_dir:
+            logger.info(f"Processing images in static/images directory: {static_images_dir}")
+            self._process_directory_images(
+                static_images_dir, skip_cache, is_static=True, used_paths=used_paths
+            )
+
+        self._save_cache()
+
+    def _static_images_dir(self) -> Optional[str]:
+        """The site's static/images directory, if it exists."""
+        static_dir = self.paths.get("static")
+        if not static_dir:
+            return None
+        static_images_dir = os.path.join(static_dir, "images")
+        return static_images_dir if os.path.exists(static_images_dir) else None
+
+    def _collect_used_images(self, content_dir: str) -> Set[str]:
         """Scan content and template files for image references.
 
         Returns a set of resolved absolute source paths. Absolute references
@@ -142,86 +184,49 @@ class ImageProcessor:
         (``cover_img: "x.jpg"``) are handled.
         """
         used = set()
-        img_pattern = re.compile(
-            r'!\[.*?\]\(([^)\s"\']+)'  # markdown image
-            r'|src=["\']([^"\']+)["\']'  # html src attribute
-            r'|cover_img:\s*["\']?([^\s"\']+)'  # front matter cover, optionally quoted
-        )
-        static_dir = self.paths.get("static")
-
-        def add_ref(ref: str, root: str) -> None:
-            if not ref or ref.startswith(("http://", "https://", "data:")):
-                return
-            if ref.startswith("/"):
-                # Served from the output root, which mirrors the static dir
-                # (the markdown pipeline collapses /static/images -> /images)
-                if not static_dir:
-                    return
-                rel = ref.lstrip("/")
-                if rel.startswith("static/"):
-                    rel = rel[len("static/") :]
-                candidate = Path(static_dir) / rel
-            else:
-                candidate = Path(root) / ref
+        scan_dirs = [content_dir, self.paths.get("templates")]
+        for file_path in _files_to_scan_for_refs(scan_dirs):
             try:
-                # resolve() on both sides of the comparison (case/symlinks)
-                used.add(str(candidate.resolve()))
-            except OSError as e:
-                logger.debug(f"Could not resolve image reference {ref}: {e}")
-
-        templates_dir = self.paths.get("templates")
-        scan_dirs = [d for d in (content_dir, templates_dir) if d and os.path.exists(d)]
-        for scan_dir in scan_dirs:
-            for root, dirs, files in os.walk(scan_dir):
-                dirs[:] = [d for d in dirs if not d.startswith(".")]
-                for fname in files:
-                    if not fname.endswith((".md", ".html", ".htm", ".yaml", ".yml")):
-                        continue
-                    try:
-                        with open(
-                            os.path.join(root, fname), "r", encoding="utf-8", errors="ignore"
-                        ) as f:
-                            text = f.read()
-                        for m in img_pattern.finditer(text):
-                            add_ref(m.group(1) or m.group(2) or m.group(3), root)
-                    except Exception as e:
-                        logger.debug(f"Could not scan {fname} for image refs: {e}")
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    text = f.read()
+                for match in IMAGE_REF_PATTERN.finditer(text):
+                    ref = match.group(1) or match.group(2) or match.group(3)
+                    resolved = self._resolve_image_ref(ref, os.path.dirname(file_path))
+                    if resolved:
+                        used.add(resolved)
+            except Exception as e:
+                logger.debug(f"Could not scan {os.path.basename(file_path)} for image refs: {e}")
         return used
 
-    def process_all(self, content_dir: str, skip_cache: bool = False) -> None:
-        """Process all images in a directory.
-
-        Args:
-            content_dir: Directory containing content to scan for images.
-            skip_cache: Whether to skip cache and reprocess all images.
-        """
-        only_used = self.config.get("images", "only_used", default=False)
-        used_paths = self._collect_used_images(content_dir) if only_used else None
-
-        # Process content directory images
-        if content_dir and os.path.exists(content_dir):
-            logger.info(f"Processing images in content directory: {content_dir}")
-            self._process_directory_images(content_dir, skip_cache, used_paths=used_paths)
-
-        # Process static/images directory
-        static_dir = self.paths.get("static")
-        if static_dir and os.path.exists(static_dir):
-            static_images_dir = os.path.join(static_dir, "images")
-            if os.path.exists(static_images_dir):
-                logger.info(f"Processing images in static/images directory: {static_images_dir}")
-                self._process_directory_images(
-                    static_images_dir, skip_cache, is_static=True, used_paths=used_paths
-                )
-
-        # Save cache
-        self._save_cache()
+    def _resolve_image_ref(self, ref: str, referencing_dir: str) -> Optional[str]:
+        """Absolute source path an image reference points at, or None if not local."""
+        if not ref or ref.startswith(("http://", "https://", "data:")):
+            return None
+        if ref.startswith("/"):
+            # Served from the output root, which mirrors the static dir (the
+            # markdown pipeline collapses /static/images -> /images).
+            static_dir = self.paths.get("static")
+            if not static_dir:
+                return None
+            rel = ref.lstrip("/")
+            if rel.startswith("static/"):
+                rel = rel[len("static/") :]
+            candidate = Path(static_dir) / rel
+        else:
+            candidate = Path(referencing_dir) / ref
+        try:
+            # Callers compare against resolve()d paths too (case/symlinks).
+            return str(candidate.resolve())
+        except OSError as e:
+            logger.debug(f"Could not resolve image reference {ref}: {e}")
+            return None
 
     def _process_directory_images(
         self,
         directory: str,
         skip_cache: bool = False,
         is_static: bool = False,
-        used_paths: set = None,
+        used_paths: Optional[Set[str]] = None,
     ) -> None:
         """Process all images in a directory, optionally in parallel.
 
@@ -231,79 +236,52 @@ class ImageProcessor:
             is_static: Whether this is the static/images directory.
             used_paths: If set, only process images whose absolute path is in this set.
         """
-        image_extensions = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
-        all_paths = []
-        for ext in image_extensions:
-            for file_path in Path(directory).glob(f"**/*{ext}"):
-                if any(part.startswith(".") for part in file_path.parts):
-                    continue
-                abs_path = str(file_path.resolve())
-                if used_paths is not None and abs_path not in used_paths:
-                    logger.debug(f"Skipping unused image: {file_path}")
-                    continue
-                all_paths.append(str(file_path))
-
-        if not all_paths:
+        image_paths = _find_images(directory, used_paths)
+        if not image_paths:
             return
+        if is_static:
+            self._run_for_each(self._process_static_image, image_paths)
+        else:
+            self._run_for_each(lambda p: self.process_image(p, skip_cache=skip_cache), image_paths)
 
-        process_fn = (
-            self._process_static_image
-            if is_static
-            else (lambda p: self.process_image(p, skip_cache=skip_cache))
-        )
-
-        parallel = self.config.get("images", "parallel", default=True)
-        workers = self.config.get("images", "parallel_workers", default=None)
-        max_workers = int(workers) if workers else min(4, (os.cpu_count() or 1))
-
-        if parallel and len(all_paths) > 1:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(process_fn, p): p for p in all_paths}
+    def _run_for_each(self, process: Callable[[str], Any], image_paths: List[str]) -> None:
+        """Run ``process`` on every path, in a thread pool when enabled; log failures."""
+        if self.config.get("images", "parallel", default=True) and len(image_paths) > 1:
+            with ThreadPoolExecutor(max_workers=self._worker_count()) as executor:
+                futures = {executor.submit(process, p): p for p in image_paths}
                 for future in as_completed(futures):
                     try:
                         future.result()
                     except Exception as e:
                         logger.error(f"Error processing image {futures[future]}: {e}")
         else:
-            for p in all_paths:
+            for image_path in image_paths:
                 try:
-                    process_fn(p)
+                    process(image_path)
                 except Exception as e:
-                    logger.error(f"Error processing image {p}: {e}")
+                    logger.error(f"Error processing image {image_path}: {e}")
+
+    def _worker_count(self) -> int:
+        workers = self.config.get("images", "parallel_workers", default=None)
+        return int(workers) if workers else min(DEFAULT_MAX_WORKERS, (os.cpu_count() or 1))
 
     def _process_static_image(self, source_path: str, skip_cache: bool = False) -> None:
-        """Process an image from the static/images directory.
+        """Dither a static/images image in place, keeping the original as ``*_original``.
+
+        Falls back to a plain copy when dithering is disabled or fails.
 
         Args:
             source_path: Path to the source image.
             skip_cache: Whether to skip cache and reprocess.
         """
-        # Get dithering flag from config. NOTE: Config.get takes *keys with a
-        # keyword-only default — a positional True here used to be treated as
-        # a key lookup ('images.dither.True'), which returned None and meant
-        # static images were never dithered at all.
         dither = self.config.get("images", "dither", default=True)
         if not dither:
-            # If dithering is disabled, just copy the file
             self._copy_static_image(source_path)
             return
 
-        # Calculate relative path from static/images
-        static_dir = self.paths.get("static")
-        rel_path = os.path.relpath(source_path, static_dir)
-
-        # Determine output paths
-        output_path = os.path.join(self.paths["output"], rel_path)
-        output_dir = os.path.dirname(output_path)
-
-        # Create output directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Generate original path with _original suffix
-        filename, ext = os.path.splitext(output_path)
-        original_path = f"{filename}_original{ext}"
-
-        # Check cache if not skipping
+        output_path = self._static_output_path(source_path)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        original_path = _with_original_suffix(output_path)
         dither_method = self.config.get("images", "dither_method", default="bayer")
         dither_colors = self.config.get("images", "dither_colors", default=4)
         file_hash = self._file_hash(source_path) if not skip_cache else None
@@ -320,34 +298,13 @@ class ImageProcessor:
             )
 
         try:
-            # Copy original image with _original suffix
-            shutil.copy2(source_path, original_path)
-            logger.debug(f"Copied original image: {source_path} -> {original_path}")
-
-            # Process and save dithered version to the main path
-            img = None
-            try:
-                img = Image.open(source_path)
-                img = ImageOps.exif_transpose(img)
-
-                # Apply configured dithering pipeline
-                dithered = self._apply_dither(img, dither_method, dither_colors)
-
-                # Save dithered image to the output path
-                dithered.save(output_path, optimize=True)
-                logger.debug(f"Saved dithered image: {source_path} -> {output_path}")
-            finally:
-                # Ensure image is properly closed even on error
-                if img is not None:
-                    img.close()
-
-            # Update cache
+            self._write_static_pair(
+                source_path, output_path, original_path, dither_method, dither_colors
+            )
             if not skip_cache:
                 self.cache[cache_key] = True
-
         except (IOError, OSError) as e:
             logger.error(f"I/O error processing static image {source_path}: {e}")
-            # Fall back to just copying the file
             self._copy_static_image(source_path)
         except Exception as e:
             logger.error(f"Unexpected error processing static image {source_path}: {e}")
@@ -355,31 +312,44 @@ class ImageProcessor:
                 import traceback
 
                 traceback.print_exc()
-            # Fall back to just copying the file
             self._copy_static_image(source_path)
 
+    def _write_static_pair(
+        self,
+        source_path: str,
+        output_path: str,
+        original_path: str,
+        dither_method: str,
+        dither_colors: int,
+    ) -> None:
+        """Copy the original beside the output, then write the dithered image."""
+        shutil.copy2(source_path, original_path)
+        logger.debug(f"Copied original image: {source_path} -> {original_path}")
+        with Image.open(source_path) as opened:
+            image = ImageOps.exif_transpose(opened)
+            dithered = self._apply_dither(image, dither_method, dither_colors)
+            dithered.save(output_path, optimize=True)
+        logger.debug(f"Saved dithered image: {source_path} -> {output_path}")
+
     def _copy_static_image(self, source_path: str) -> None:
-        """Copy a static image to the output directory.
+        """Copy a static image to the output directory unchanged.
 
         Args:
             source_path: Path to the source image.
         """
-        # Calculate relative path from static directory
-        static_dir = self.paths.get("static")
-        rel_path = os.path.relpath(source_path, static_dir)
-
-        # Determine output path
-        output_path = os.path.join(self.paths["output"], rel_path)
-
-        # Create output directory if it doesn't exist
+        output_path = self._static_output_path(source_path)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-        # Copy the file
         try:
             shutil.copy2(source_path, output_path)
             logger.debug(f"Copied static image: {source_path} -> {output_path}")
         except (IOError, OSError) as e:
             logger.error(f"Error copying static image {source_path} to {output_path}: {e}")
+
+    def _static_output_path(self, source_path: str) -> str:
+        """Output path mirroring the file's location under the static dir."""
+        return os.path.join(
+            self.paths["output"], os.path.relpath(source_path, self.paths.get("static"))
+        )
 
     def process_image(
         self,
@@ -835,3 +805,35 @@ def _save_image(
         image.convert("RGB").save(path, format="JPEG", quality=LOSSY_QUALITY, optimize=optimize)
     else:
         image.save(path, format=fmt.upper())
+
+
+def _files_to_scan_for_refs(directories: List[Optional[str]]) -> Iterator[str]:
+    """Files under the existing directories that may reference images, skipping dot-dirs."""
+    for directory in directories:
+        if not directory or not os.path.exists(directory):
+            continue
+        for root, dirs, files in os.walk(directory):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for file_name in files:
+                if file_name.endswith(REF_SCAN_EXTENSIONS):
+                    yield os.path.join(root, file_name)
+
+
+def _find_images(directory: str, used_paths: Optional[Set[str]]) -> List[str]:
+    """Image files under a directory, minus hidden ones and (optionally) unused ones."""
+    image_paths = []
+    for ext in IMAGE_EXTENSIONS:
+        for file_path in Path(directory).glob(f"**/*{ext}"):
+            if any(part.startswith(".") for part in file_path.parts):
+                continue
+            if used_paths is not None and str(file_path.resolve()) not in used_paths:
+                logger.debug(f"Skipping unused image: {file_path}")
+                continue
+            image_paths.append(str(file_path))
+    return image_paths
+
+
+def _with_original_suffix(path: str) -> str:
+    """``x.png`` -> ``x_original.png``."""
+    stem, ext = os.path.splitext(path)
+    return f"{stem}_original{ext}"
