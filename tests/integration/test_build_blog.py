@@ -297,7 +297,6 @@ class TestBlogConfigShapes:
 
         assert not (out / "feed.xml").exists()
 
-    @pytest.mark.xfail(strict=True, reason="B45: empty blog.directory makes all content a blog")
     def test_empty_blog_directory_means_the_default(self, site_factory, builder):
         site = site_factory("blog", overlay="blog_site")
 

@@ -125,6 +125,9 @@ JSON_EXTENSIONS = (".json", ".config")
 
 DEFAULT_URL_STYLE = "clean"
 MAX_PORT = 65535
+DEFAULT_BLOG_DIRECTORY = DEFAULT_CONFIG["blog"]["directory"]
+# Trimmed from both ends of blog.directory: slashes of either kind, spaces.
+BLOG_DIRECTORY_TRIM = "/\\ "
 
 
 class Config:
@@ -352,7 +355,7 @@ class Config:
             return []
         problems = []
         if not blog.get("directory"):
-            problems.append("Blog is enabled but directory is not set")
+            problems.append(f"blog.directory is empty; using '{DEFAULT_BLOG_DIRECTORY}'")
         if not blog.get("template"):
             problems.append("Blog is enabled but template is not set")
         posts_per_page = blog.get("posts_per_page", 10)
@@ -375,6 +378,18 @@ class Config:
                 f"the '{DEFAULT_URL_STYLE}' URL style will be used"
             ]
         return []
+
+    def blog_directory(self) -> str:
+        """The blog's folder, relative to paths.content (and to the output root).
+
+        A missing, null, empty or non-string blog.directory means the
+        default 'blog'; surrounding slashes are dropped ('posts/' -> 'posts').
+        Every component resolves the directory through this one method.
+        """
+        configured = self.get("blog", "directory")
+        if isinstance(configured, str) and configured.strip(BLOG_DIRECTORY_TRIM):
+            return configured.strip(BLOG_DIRECTORY_TRIM)
+        return DEFAULT_BLOG_DIRECTORY
 
     def get_url_style(self) -> str:
         """Get the URL style based on configuration and environment.

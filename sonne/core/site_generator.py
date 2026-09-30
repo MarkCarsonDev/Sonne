@@ -236,8 +236,7 @@ class SiteGenerator:
             logger.warning(f"Content directory does not exist: {content_dir}")
             return []
 
-        blog_dir_name = self.config.get("blog", "directory", default="blog")
-        blog_dir = Path(content_dir, blog_dir_name).resolve() if blog_dir_name else None
+        blog_dir = Path(content_dir, self.config.blog_directory()).resolve()
         return [
             file_path
             for file_path in sorted_paths(Path(content_dir).glob("**/*.*"))

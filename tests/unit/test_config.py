@@ -139,7 +139,7 @@ class TestValidate:
             (("images", "formats", "webp"), "images.formats should be a list"),
             (("images", "sizes", 800), "images.sizes should be a list"),
             (("images", "sizes", [800, -1]), "images.sizes should contain only positive integers"),
-            (("blog", "directory", ""), "Blog is enabled but directory is not set"),
+            (("blog", "directory", ""), "blog.directory is empty; using 'blog'"),
             (("blog", "template", ""), "Blog is enabled but template is not set"),
             (("blog", "posts_per_page", True), "blog.posts_per_page must be a positive integer"),
             (("serve", "port", 70000), "serve.port must be an integer between 0 and 65535"),
@@ -202,7 +202,6 @@ class TestSave:
 
 
 class TestBlogDirectory:
-    @pytest.mark.xfail(strict=True, reason="B45: blog.directory None/'' resolved inconsistently")
     @pytest.mark.parametrize("configured", [None, "", "blog", "posts", "posts/"])
     def test_one_resolution_of_the_blog_directory(self, tmp_path, configured):
         cfg = config_with(tmp_path, ("blog", "directory", configured))
@@ -210,7 +209,6 @@ class TestBlogDirectory:
         expected = "posts" if configured and configured.startswith("posts") else "blog"
         assert cfg.blog_directory() == expected
 
-    @pytest.mark.xfail(strict=True, reason="B45: validate does not say which directory is used")
     def test_validate_says_empty_directory_falls_back(self, tmp_path):
         cfg = config_with(tmp_path, ("blog", "directory", ""))
 

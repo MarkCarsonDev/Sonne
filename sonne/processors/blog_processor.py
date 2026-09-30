@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("sonne")
 
-DEFAULT_BLOG_DIR = "blog"
 DEFAULT_URL_PATTERN = "{year}/{month}/{day}/{slug}"
 DEFAULT_POSTS_PER_PAGE = 10
 DEFAULT_EXCERPT_LENGTH = 200
@@ -132,8 +131,7 @@ class BlogProcessor:
         self.image_processor = image_processor
         self.stats = None  # Injected by SiteGenerator
 
-        configured_dir = self.config.get("blog", "directory", default=DEFAULT_BLOG_DIR)
-        self.blog_dir = DEFAULT_BLOG_DIR if configured_dir is None else configured_dir
+        self.blog_dir = self.config.blog_directory()
         self.blog_content_dir = os.path.join(self.paths.get("content") or "", self.blog_dir)
         self.blog_output_dir = os.path.join(self.paths.get("output") or "", self.blog_dir)
         os.makedirs(self.blog_output_dir, exist_ok=True)
