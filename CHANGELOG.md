@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   e.g. `sonne_config("site", "base_url")`, instead of locating and
   re-reading the config file themselves. Values include defaults, and the
   result is a copy, so scripts can't change the build's configuration.
+- `get_variable(name, default=None)` in `sonne.script_api`: data scripts
+  read build data (`all_pages`, `all_blog_posts`, `tags`, data files,
+  config values, earlier scripts' variables). It returns a copy.
+- `dither_image(image)` in `sonne.script_api`: dither an in-memory Pillow
+  image with the site's `images.dither_*` settings.
 - Sonne ships a `py.typed` marker (PEP 561), so type checkers use its
   annotations.
 - `ImageProcessor.dither(image)`: the supported way for data scripts to
