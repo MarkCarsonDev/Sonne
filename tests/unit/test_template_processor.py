@@ -76,6 +76,23 @@ class TestPostTemplate:
         assert "CUSTOM-POST" not in html
 
 
+class TestMarkdownSuffixes:
+    @pytest.mark.parametrize("file_name", ["notes.markdown", "NOTES.MD"])
+    def test_markdown_pages_use_page_template(self, site, file_name):
+        write(site / "templates" / "page.html", "PAGE-TEMPLATE {{ content }}")
+        source = write(site / "content" / file_name, "# Notes\n")
+        processor = make_processor(site)
+        _, html = processor.process_page("# Notes\n", True, str(source), EMPTY_SCOPES)
+        assert "PAGE-TEMPLATE" in html
+
+    def test_markdown_posts_use_post_template(self, site):
+        write(site / "templates" / "custom_post.html", "CUSTOM-POST {{ content }}")
+        source = write(site / "content" / "blog" / "hello.markdown", "# Hello\n")
+        processor = make_processor(site, {("blog", "template"): "custom_post.html"})
+        _, html = processor.process_page("# Hello\n", True, str(source), EMPTY_SCOPES)
+        assert "CUSTOM-POST" in html
+
+
 class TestProcessImageFilter:
     ALT_WITH_MARKUP = 'say "hi" <b>'
     ESCAPED_ALT = 'alt="say &#34;hi&#34; &lt;b&gt;"'

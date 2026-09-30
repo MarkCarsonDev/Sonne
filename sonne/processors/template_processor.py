@@ -646,7 +646,7 @@ class TemplateProcessor:
 
     def _default_template_name(self, source_path: str):
         """Default template for a Markdown source or a generated-page key."""
-        if source_path.endswith(".md"):
+        if PurePath(source_path).suffix.lower() in MARKDOWN_EXTENSIONS:
             if self._is_blog_post(source_path):
                 return self.config.get("blog", "template", default="blog_post.html")
             return "page.html"
