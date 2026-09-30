@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 import logging
 import importlib
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("sonne")
 
@@ -138,13 +138,23 @@ class VariableManager:
                 except Exception as e:
                     logger.error(f"Error loading data from {file_path}: {e}")
 
-    def _run_data_scripts(self, scripts_dir: str) -> None:
-        """Run data scripts to populate variables."""
-        for script_path in Path(scripts_dir).glob("*.py"):
-            # Skip files starting with underscore
-            if script_path.name.startswith("_"):
-                continue
+    def data_script_paths(self) -> List[Path]:
+        """Data scripts that load_variables() runs, in run order.
 
+        Every ``*.py`` directly in the scripts directory except names
+        starting with an underscore.
+        """
+        if not self.scripts_dir:
+            return []
+        return [
+            script_path
+            for script_path in Path(self.scripts_dir).glob("*.py")
+            if not script_path.name.startswith("_")
+        ]
+
+    def _run_data_scripts(self) -> None:
+        """Run data scripts to populate variables."""
+        for script_path in self.data_script_paths():
             self._executed_scripts.add(str(script_path.resolve()))
 
             try:
@@ -331,7 +341,7 @@ class VariableManager:
         # Run data scripts
         if self.scripts_dir:
             try:
-                self._run_data_scripts(self.scripts_dir)
+                self._run_data_scripts()
                 logger.debug(f"Scripts complete. Globals: {list(self.variables['global'].keys())}")
             except Exception as e:
                 logger.error(f"Error running data scripts from {self.scripts_dir}: {e}")
@@ -400,10 +410,29 @@ class VariableManager:
         if not footer_found:
             logger.debug("No footer.py script found")
 
-        # Make sure all global variables are also available in site scope
+        self._mirror_globals_into_site()
+
+    def _mirror_globals_into_site(self) -> None:
+        """Copy every global variable into site scope unless site already has it."""
         for key, value in self.variables.get("global", {}).items():
             if key not in self.variables.get("site", {}):
                 self.variables["site"][key] = value
+
+    def render_scopes(self) -> Dict[str, Dict[str, Any]]:
+        """Variable scopes for rendering one content page.
+
+        Globals set since load_variables() (e.g. by the blog processor) are
+        mirrored into site scope first; the page scope starts empty.
+
+        Returns:
+            Mapping with 'global', 'site' and 'page' scopes.
+        """
+        self._mirror_globals_into_site()
+        return {
+            "global": self.variables.get("global", {}),
+            "site": self.variables.get("site", {}),
+            "page": {},
+        }
 
     def get(self, key: str, default: Any = None, scope: Optional[str] = None) -> Any:
         """Get a variable value, optionally from a specific scope.
