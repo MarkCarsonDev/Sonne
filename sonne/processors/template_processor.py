@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+from pathlib import PurePath
 from typing import Any, Dict, List, Optional, Tuple
 
 import jinja2
@@ -16,6 +17,7 @@ from bs4 import BeautifulSoup
 from jinja2 import TemplateSyntaxError, UndefinedError
 from markupsafe import Markup
 
+from sonne.utils.constants import MARKDOWN_EXTENSIONS
 from sonne.utils.text import slugify
 
 logger = logging.getLogger("sonne")
@@ -597,10 +599,10 @@ class TemplateProcessor:
 
     def _content_file_url(self, source_path: str, is_markdown: bool) -> str:
         """URL for a file under the content directory, styled per ``url_style``."""
-        rel_url = os.path.relpath(source_path, self.paths.get("content", "")).replace("\\", "/")
-        if is_markdown:
-            rel_url = rel_url.replace(".md", "").replace(".markdown", "")
-        url = "/" + rel_url
+        rel_path = PurePath(os.path.relpath(source_path, self.paths.get("content", "")))
+        if is_markdown and rel_path.suffix.lower() in MARKDOWN_EXTENSIONS:
+            rel_path = rel_path.with_suffix("")
+        url = "/" + rel_path.as_posix()
         if hasattr(self.config, "format_url"):
             formatted = self.config.format_url(url)
             logger.debug(f"Formatted URL: {url} -> {formatted}")

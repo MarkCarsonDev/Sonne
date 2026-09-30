@@ -44,7 +44,6 @@ class TestPageUrls:
         processor = make_processor(site)
         assert page_url(processor, source) == processor.config.format_url("/projects/")
 
-    @pytest.mark.xfail(strict=True, reason="B22: .md is stripped mid-path, not just the suffix")
     def test_only_the_markdown_suffix_is_stripped(self, site):
         source = write(site / "content" / "v1.mdnotes" / "page.md", "# Page\n")
         processor = make_processor(site)
