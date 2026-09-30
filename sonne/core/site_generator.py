@@ -33,8 +33,6 @@ ALWAYS_RUN_STEP_COUNT = 4
 BLOG_STEP_COUNT = 2  # collect metadata + render posts
 IMAGE_STEP_COUNT = 1
 
-MAX_AUTO_IMAGE_WORKERS = 4
-
 
 class SiteGenerator:
     """Main site generation coordinator."""
@@ -194,15 +192,10 @@ class SiteGenerator:
         content_dir = self.paths.get("content", "")
         image_count = _count(_count_images(content_dir), "image")
         self._progress.step(
-            f"Processing images  ({image_count}, {self._image_worker_count()} workers)"
+            f"Processing images  ({image_count}, {self.image_processor.worker_count()} workers)"
         )
         with self._timed_phase("images"):
             self.image_processor.process_all(content_dir, skip_cache=skip_cache)
-
-    def _image_worker_count(self) -> int:
-        """Mirror of ImageProcessor's worker choice, for the progress line."""
-        workers = self.config.get("images", "parallel_workers", default=None)
-        return int(workers) if workers else min(MAX_AUTO_IMAGE_WORKERS, (os.cpu_count() or 1))
 
     def _render_posts(self) -> None:
         post_count = _count(len(self.blog_processor.posts), "post")
