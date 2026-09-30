@@ -175,18 +175,7 @@ class TestFeedUrls:
         image_factory(site / "content" / "blog" / "images" / "c.png")
         return site
 
-    @pytest.mark.parametrize(
-        "url_style",
-        [
-            "directory",
-            pytest.param(
-                "html",
-                marks=pytest.mark.xfail(
-                    strict=True, reason="B33: html-style thumbnail URL nests under slug.html"
-                ),
-            ),
-        ],
-    )
+    @pytest.mark.parametrize("url_style", ["clean", "directory", "html"])
     def test_feed_thumbnail_points_at_published_cover(self, cover_site, builder, url_style):
         _, out = builder(cover_site, {"url_style": url_style})
 

@@ -387,6 +387,16 @@ class BlogProcessor:
     def _post_output_path(self, post: Dict[str, Any]) -> str:
         return self._get_output_path(os.path.join(self.blog_dir, post["url"].rstrip("/")))
 
+    def _post_directory_url(self, post: Dict[str, Any]) -> str:
+        """Site-root URL of the directory holding the post's page and images.
+
+        That is the post URL itself for the clean and directory styles, but
+        its parent for the html style (/blog/2024/01/05/slug.html lives in
+        /blog/2024/01/05/).
+        """
+        post_dir = os.path.dirname(self._post_output_path(post))
+        return "/" + Path(os.path.relpath(post_dir, self.paths["output"])).as_posix()
+
     def _render_timed_post(self, post: Dict[str, Any]) -> None:
         started = time.perf_counter()
         try:
@@ -930,7 +940,7 @@ class BlogProcessor:
         cover_rel = post.get("cover_img_dithered") or post.get("cover_img_original")
         media_tag = ""
         if cover_rel:
-            cover_url = f"{post_url.rstrip('/')}/{cover_rel.lstrip('/')}"
+            cover_url = f"{site_url}{self._post_directory_url(post)}/{cover_rel.lstrip('/')}"
             media_tag = f'\n        <media:thumbnail url="{_xml_attribute(cover_url)}" />'
         return (
             "    <item>\n"
