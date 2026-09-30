@@ -74,6 +74,7 @@ include = ["sonne*"]
 
 [tool.setuptools.package-data]
 sonne = [
+    "py.typed",
     "templates/**/*",
     "schemas/*.json",
     "static/**/*",
@@ -86,7 +87,6 @@ addopts = "-ra"
 [tool.ruff]
 line-length = 100
 target-version = "py39"
-extend-exclude = ["sonne/templates", "sonne/examples"]
 
 [tool.ruff.lint]
 # Default rule set (pyflakes + core pycodestyle errors); expand deliberately.

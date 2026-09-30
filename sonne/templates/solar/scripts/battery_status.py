@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from sonne.core.config import Config
+from sonne.script_api import sonne_var
 
 DAYLIGHT_HOURS = range(6, 18)
 MINUTES_TO_CHARGE_ONE_PERCENT = 2.4  # about 4 hours from empty to full

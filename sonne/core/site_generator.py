@@ -9,7 +9,7 @@ import logging
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, List, Dict
+from typing import Iterator, List, Dict, Optional
 
 from sonne.core.config import DEFAULT_CONFIG, Config
 from sonne.core.variable_manager import VariableManager
@@ -38,7 +38,7 @@ IMAGE_STEP_COUNT = 1
 class SiteGenerator:
     """Main site generation coordinator."""
 
-    def __init__(self, config: Config, base_dir: str = None):
+    def __init__(self, config: Config, base_dir: Optional[str] = None):
         """Initialize site generator with configuration.
 
         Args:

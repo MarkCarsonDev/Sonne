@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 import sonne
+from sonne.script_api import sonne_var
 
 content_file_count = sum(1 for path in (Path.cwd() / "content").rglob("*") if path.is_file())
 now = datetime.now()
