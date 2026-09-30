@@ -503,10 +503,14 @@ class SiteRebuilder:
         # Same candidate list config discovery uses — a project using
         # .sonne.yaml etc. must also rebuild on config edits.
         self.watch_files = list(CONFIG_FILENAMES)
+        self._watched_roots = [
+            Path(os.path.normpath(os.path.join(base_dir, watched)))
+            for watched in self.watch_dirs + self.watch_files
+        ]
 
     def file_changed(self, changed_path: str) -> None:
         """Schedule a rebuild if changed_path affects the site."""
-        if not self._is_relevant(changed_path):
+        if not self.affects_site(changed_path):
             return
         # Reset debounce timer on every relevant event
         with self._lock:
@@ -516,14 +520,14 @@ class SiteRebuilder:
             self._pending.daemon = True
             self._pending.start()
 
-    def _is_relevant(self, changed_path: str) -> bool:
-        try:
-            rel = os.path.relpath(changed_path, self.base_dir)
-        except ValueError:
-            return False
-        if any(rel == f or rel.startswith(f + os.sep) for f in self.watch_files):
-            return True
-        return any(rel.startswith(d + os.sep) or rel == d for d in self.watch_dirs)
+    def affects_site(self, changed_path: str) -> bool:
+        """Whether changed_path is a config file or inside a watched directory.
+
+        Compared by path components, so configured paths may use either
+        separator, a ./ prefix, or be absolute.
+        """
+        changed = Path(os.path.abspath(changed_path))
+        return any(changed == root or root in changed.parents for root in self._watched_roots)
 
     def _rebuild(self) -> None:
         with self._lock:

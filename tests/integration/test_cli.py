@@ -107,3 +107,45 @@ class TestServeInternals:
         _rebuild_site(str(site))
         html = (site / "output" / "index.html").read_text(encoding="utf-8")
         assert "Retitled Site" in html
+
+
+class TestWatchRelevance:
+    @staticmethod
+    def rebuilder_for(site, **paths):
+        from sonne.cli.commands import SiteRebuilder
+        from sonne.core.config import Config
+
+        config = Config(base_dir=str(site))
+        for key, value in paths.items():
+            config.set("paths", key, value=value)
+        return SiteRebuilder(str(site), config)
+
+    def test_nested_forward_slash_path_is_watched(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path, content="src/pages")
+
+        assert rebuilder.affects_site(str(tmp_path / "src" / "pages" / "a.md"))
+
+    def test_dot_prefixed_path_is_watched(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path, content="./content")
+
+        assert rebuilder.affects_site(str(tmp_path / "content" / "a.md"))
+
+    def test_absolute_path_is_watched(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path, content=str(tmp_path / "abs"))
+
+        assert rebuilder.affects_site(str(tmp_path / "abs" / "a.md"))
+
+    def test_config_file_is_watched(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path)
+
+        assert rebuilder.affects_site(str(tmp_path / "sonne.yaml"))
+
+    def test_sibling_with_shared_prefix_is_ignored(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path, content="content")
+
+        assert not rebuilder.affects_site(str(tmp_path / "content-drafts" / "a.md"))
+
+    def test_output_changes_are_ignored(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path)
+
+        assert not rebuilder.affects_site(str(tmp_path / "output" / "index.html"))
