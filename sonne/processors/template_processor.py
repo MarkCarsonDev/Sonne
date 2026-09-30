@@ -18,6 +18,7 @@ from jinja2 import TemplateSyntaxError, UndefinedError
 from markupsafe import Markup
 
 from sonne.utils.constants import MARKDOWN_EXTENSIONS
+from sonne.utils.path_utils import validate_path_within_root
 from sonne.utils.text import slugify
 
 logger = logging.getLogger("sonne")
@@ -84,6 +85,9 @@ DITHER_ICON_CELL_SIZE = "24.28"
 # (they were never wired into the build); markers found in content now
 # render literally, so the author is warned once per file.
 LEGACY_MARKER_RE = re.compile(r"\{\+\}\{|\{-\}\{|\{p\}\{#")
+
+# Blog content directory (under content/) when blog.directory is unset.
+DEFAULT_BLOG_DIR = "blog"
 
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 
@@ -636,7 +640,7 @@ class TemplateProcessor:
     def _default_template_name(self, source_path: str):
         """Default template for a Markdown source or a generated-page key."""
         if source_path.endswith(".md"):
-            if "/blog/" in source_path:
+            if self._is_blog_post(source_path):
                 return self.config.get("blog", "template", default="blog_post.html")
             return "page.html"
         if source_path == "blog_index":
@@ -646,6 +650,16 @@ class TemplateProcessor:
                 taxonomy_config = self.config.get("blog", "taxonomies", taxonomy, default={})
                 return taxonomy_config.get(template_key, default)
         return None
+
+    def _is_blog_post(self, source_path: str) -> bool:
+        """Whether a source file lies under the configured blog content directory."""
+        content_dir = self.paths.get("content")
+        if not content_dir:
+            return False
+        blog_dir = self.config.get("blog", "directory", default=DEFAULT_BLOG_DIR)
+        if blog_dir is None:
+            blog_dir = DEFAULT_BLOG_DIR
+        return validate_path_within_root(source_path, os.path.join(content_dir, blog_dir))
 
     def _render_with_template(
         self,

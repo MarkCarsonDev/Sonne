@@ -49,9 +49,6 @@ class TestPageUrls:
 
 
 class TestPostTemplate:
-    @pytest.mark.xfail(
-        strict=True, reason="B23: post template picked by '/blog/' substring, not blog.directory"
-    )
     def test_posts_in_configured_blog_directory_use_post_template(self, site):
         write(site / "templates" / "custom_post.html", "CUSTOM-POST {{ content }}")
         source = write(site / "content" / "posts" / "hello.md", "# Hello\n")
@@ -61,6 +58,21 @@ class TestPostTemplate:
         )
         _, html = processor.process_page("# Hello\n", True, str(source), EMPTY_SCOPES)
         assert "CUSTOM-POST" in html
+
+    def test_posts_in_default_blog_directory_use_post_template(self, site):
+        write(site / "templates" / "custom_post.html", "CUSTOM-POST {{ content }}")
+        source = write(site / "content" / "blog" / "hello.md", "# Hello\n")
+        processor = make_processor(site, {("blog", "template"): "custom_post.html"})
+        # str(Path) uses the OS separator: backslashes on Windows
+        _, html = processor.process_page("# Hello\n", True, str(source), EMPTY_SCOPES)
+        assert "CUSTOM-POST" in html
+
+    def test_pages_outside_blog_directory_use_page_template(self, site):
+        write(site / "templates" / "custom_post.html", "CUSTOM-POST {{ content }}")
+        source = write(site / "content" / "docs" / "blog" / "notes.md", "# Notes\n")
+        processor = make_processor(site, {("blog", "template"): "custom_post.html"})
+        _, html = processor.process_page("# Notes\n", True, str(source), EMPTY_SCOPES)
+        assert "CUSTOM-POST" not in html
 
 
 class TestProcessImageFilter:
