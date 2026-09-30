@@ -6,6 +6,7 @@
     <title>{% if page.title %}{{ page.title }} - {% endif %}{{ site.title }}</title>
     <meta name="description" content="{{ page.description | default(site.description) }}">
     <link rel="stylesheet" href="/css/style.css">
+    {% if dithering_enabled %}<link rel="stylesheet" href="/css/dithering.css">{% endif %}
     <link rel="alternate" type="application/rss+xml" title="{{ site.title }} Feed" href="/feed.xml">
 </head>
 <body>
@@ -34,12 +35,13 @@
                 </div>
                 <div class="footer-links">
                     <a href="/feed.xml">RSS</a>
-                    <a href="/blog/tags/">Tags</a>
+                    <a href="{{ tag_url() }}">Tags</a>
                 </div>
             </div>
         </div>
     </footer>
 
     <script src="/js/main.js"></script>
+    {% if dithering_enabled %}<script src="/js/dithering.js" defer></script>{% endif %}
 </body>
 </html>

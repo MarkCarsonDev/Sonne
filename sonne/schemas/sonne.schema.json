@@ -350,6 +350,11 @@
           "type": "boolean",
           "description": "Persist script-produced variables across builds via the variable file. When false (default) every build starts fresh and no variable file is written. Derived state (posts, taxonomies) never persists.",
           "default": false
+        },
+        "flatten_data": {
+          "type": "boolean",
+          "description": "Also expose data files and script variables flat (data file mapping keys in site scope, script variables at top level), as before the `data` namespace. They are always available as data.<name>; set false so they can never replace site config. The default will become false.",
+          "default": true
         }
       }
     },
@@ -398,16 +403,18 @@
         },
         "csp": {
           "type": "object",
-          "description": "Content Security Policy configuration",
+          "deprecated": true,
+          "description": "DEPRECATED (no effect; will be removed): Sonne never added the policy to pages. Send a Content-Security-Policy header from your web server instead. `sonne migrate` removes this section.",
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Currently has no effect: the policy is computed by Config.get_csp_meta_tag() but not yet added to generated pages",
-              "default": false
+              "deprecated": true,
+              "description": "DEPRECATED (no effect; will be removed); see security.csp"
             },
             "directives": {
               "type": "object",
-              "description": "CSP directives, each a list of sources (currently has no effect; see csp.enabled)",
+              "deprecated": true,
+              "description": "DEPRECATED (no effect; will be removed); see security.csp",
               "additionalProperties": {
                 "type": "array",
                 "items": {
@@ -460,18 +467,18 @@
       "properties": {
         "incremental": {
           "type": "boolean",
-          "description": "Currently has no effect (not read by Sonne); every build is a full build",
-          "default": true
+          "deprecated": true,
+          "description": "DEPRECATED (no effect; will be removed); every build is a full build"
         },
         "show_progress": {
           "type": "boolean",
-          "description": "Currently has no effect (not read by Sonne); use `sonne build --no-progress`",
-          "default": true
+          "deprecated": true,
+          "description": "DEPRECATED (no effect; will be removed); use `sonne build --no-progress`"
         },
         "statistics": {
           "type": "boolean",
-          "description": "Currently has no effect (not read by Sonne); use `sonne build --perf` for the build report",
-          "default": true
+          "deprecated": true,
+          "description": "DEPRECATED (no effect; will be removed); use `sonne build --perf` for the build report"
         },
         "show_page_size": {
           "type": "boolean",

@@ -1,34 +1,34 @@
-{% extends "base.html" %}
+{% extends sonne_base_template %}
+{# Built-in fallback, used when a site has no template of this name. It renders
+   inside the site's base.html, or a minimal built-in page if there is none. #}
 
 {% block content %}
-<div class="tag-page">
+<div class="archive-page">
     <header class="page-header">
-        <h1>Posts Tagged: {{ page.tag }}</h1>
+        <h1>Archive: {{ page.title }}</h1>
     </header>
-    
+
     {% if page.posts %}
     <div class="posts">
         {% for post in page.posts %}
         <article class="post-summary">
             <h2 class="post-title"><a href="{{ post.full_url }}">{{ post.title }}</a></h2>
-            
+
             <div class="post-meta">
                 <time datetime="{{ post.date_str }}">{{ post.date_formatted }}</time>
                 {% if post.author %} • By {{ post.author }}{% endif %}
             </div>
-            
+
             <div class="post-excerpt">
                 {{ post.excerpt }}
             </div>
-            
-            <a href="{{ post.full_url }}" class="read-more">Read More</a>
         </article>
         {% endfor %}
     </div>
     {% else %}
-    <p>No posts found with this tag.</p>
+    <p>No posts in this period.</p>
     {% endif %}
-    
-    <p class="tag-nav"><a href="/blog/tags/">View all tags</a></p>
+
+    <p class="tag-nav"><a href="{{ blog_url() }}">Back to Blog</a></p>
 </div>
 {% endblock %}

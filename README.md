@@ -217,17 +217,18 @@ Any other key under `site` is passed through to templates unchanged.
 | `content.render_jinja` | `false` | Render content files through Jinja before Markdown. Per-file front matter `jinja: true` or `false` overrides it. See [Variables in Content](#variables-in-content-jinja). |
 | `variables.file` | `sonne_variables.json` | File used by `variables.preserve_prior`. |
 | `variables.preserve_prior` | `false` | Keep script-produced variables between builds. By default every build starts fresh. |
+| `variables.flatten_data` | `true` | Also expose data files and script variables flat, next to site config (legacy). They are always available as `data.<name>`; set `false` so they can never replace site config. The default will become `false`. |
 | `serve.host` | `localhost` | `sonne serve` host (the `--host` option overrides it). |
 | `serve.port` | `8000` | `sonne serve` port (the `--port` option overrides it). |
 | `environment` | `prod` | Selects the `url_style` entry. `sonne build --dev` sets `dev`, and custom names work when `url_style` has an entry for them. |
 | `url_style.prod` | `clean` | URL style in `prod`: `clean`, `html` or `directory` (see [URL Configuration](#url-configuration)). `url_style` may also be a single style for every environment. |
 | `url_style.dev` | `directory` | URL style in `dev`. |
 | `build.show_page_size` | `false` | Add a small page-weight label to every generated page. |
-| `build.incremental` | `true` | No effect (every build is a full build). |
-| `build.show_progress` | `true` | No effect; use `sonne build --no-progress`. |
-| `build.statistics` | `true` | No effect; use `sonne build --perf` for the build report. |
-| `security.csp.enabled` | `false` | No effect yet: the policy is computed but not added to generated pages. |
-| `security.csp.directives` | `{}` | CSP directives, each a list of sources (no effect yet; see above). |
+| `build.incremental` | none | Deprecated: has no effect and will be removed (every build is a full build). |
+| `build.show_progress` | none | Deprecated: has no effect and will be removed; use `sonne build --no-progress`. |
+| `build.statistics` | none | Deprecated: has no effect and will be removed; use `sonne build --perf` for the build report. |
+| `security.csp.enabled` | none | Deprecated with all of `security.csp`: has no effect and will be removed. Sonne never added the policy to pages; send a `Content-Security-Policy` header from your web server instead. |
+| `security.csp.directives` | none | Deprecated: see `security.csp.enabled`. |
 | `security.allow_embedded_python` | none | Removed (warns and is ignored). Use data scripts with `sonne_global()`/`sonne_filter()` plus `content.render_jinja`. |
 | `solar` | none | Template-specific: settings for the solar template's scripts. |
 
@@ -439,7 +440,27 @@ Available across all templates:
 - `page`: Current page information
 - `all_blog_posts`: List of all blog posts (when blog is enabled)
 - `all_pages`: List of every content page (see below)
-- Custom global variables set in data files or scripts
+- `data`: every data file and script variable, by name (see below)
+- Custom global variables set in data files or scripts (legacy flat access)
+
+### The `data` Namespace
+
+Each file in `data/` is available as `data.<file name>`, and each script
+variable (`sonne_var("name", ...)`) as `data.<name>`, in every template as
+`data.*` and `site.data.*`:
+
+```html
+<!-- data/authors.yaml:  alice: Alice A. -->
+By {{ data.authors.alice }}
+{% for book in data.books %}{{ book.title }}{% endfor %}  {# data/books.csv #}
+```
+
+For backward compatibility they are also exposed the old flat way: the keys
+of a mapping data file merged into `site`, script variables at the top level.
+Flat names can clash with site config (a script variable `weather` replaces
+`site.weather`; Sonne warns when that happens). Set
+`variables.flatten_data: false` to use only `data.*`, which can never
+clash. That will become the default in a future release.
 
 ### Listing Pages (`all_pages`)
 
@@ -652,31 +673,31 @@ After building your site, the generated static files in the `output` directory c
 
 ### URL Configuration
 
-By default, Sonne generates HTML files with the `.html` extension (e.g., `about.html`). If you prefer clean URLs without the extension (e.g., `/about/` instead of `/about.html`), you have two options:
+`url_style` decides how pages are written and linked:
 
-1. **Configure URL rewriting on your web server**:
+| Style | `about.md` is written to | and linked as |
+|-------|--------------------------|---------------|
+| `clean` | `about/index.html` | `/about` |
+| `directory` | `about/index.html` | `/about/` |
+| `html` | `about.html` | `/about.html` |
 
-   For Nginx:
+It can be one style for everything (`url_style: clean`), or one per environment:
 
-   ```
-   location / {
-       try_files $uri $uri.html $uri/ =404;
-   }
-   ```
+```yaml
+url_style:
+  prod: clean       # the default environment
+  dev: directory    # used with --dev
+```
 
-   For Apache (.htaccess):
+The `environment` setting picks the entry (default `prod`; custom names work when `url_style` has an entry for them). Both `sonne build` and `sonne serve` use the configured environment, so a plain `sonne serve` previews the production settings; add `--dev` to either command to use the `dev` settings instead.
 
-   ```
-   RewriteEngine On
-   RewriteCond %{REQUEST_FILENAME} !-f
-   RewriteCond %{REQUEST_FILENAME} !-d
-   RewriteCond %{REQUEST_FILENAME}.html -f
-   RewriteRule ^(.*)$ $1.html [L]
-   ```
-2. **Manually structure your output as directories with index.html files**:
+For `clean` links (`/about`) your web server must serve `about/index.html` for `/about`; most static hosts do this already. With Nginx, for example:
 
-   - `/about.md` → `/about/index.html` (accessible as `/about/`)
-   - This requires additional post-processing of the generated files
+```
+location / {
+    try_files $uri $uri/ $uri.html =404;
+}
+```
 
 ### Basic Hosting Options
 
@@ -772,6 +793,7 @@ Options:
 
 ```bash
 sonne serve [-p PATH] [--port PORT] [--host HOST] [--browser/--no-browser] [--watch/--no-watch]
+            [--dev]
 ```
 
 Options:
@@ -781,6 +803,28 @@ Options:
 - `--host`: Host to serve on (default: localhost)
 - `--browser/--no-browser`: Open in browser (default: open)
 - `--watch/--no-watch`: Watch for changes (default: watch)
+- `--dev`: Serve the development environment (the `dev` settings, e.g. `url_style.dev`), like `sonne build --dev`
+
+With `--watch`, a running server rebuilds your site on every change, but it keeps running the Sonne code it started with. If Sonne itself is upgraded or edited meanwhile, the next rebuild warns you to restart `sonne serve`.
+
+### Update an old config file
+
+```bash
+sonne migrate [-p PATH] [-c CONFIG] [--write]
+```
+
+Renames deprecated keys to their replacements (e.g. `images.max_workers` → `images.parallel_workers`) and removes keys that no longer exist or have no effect (e.g. `build.statistics`, `security.csp`). Sonne keeps accepting those keys, with a warning, until they are removed for good; `migrate` makes the warnings go away.
+
+It prints each change and a diff. Nothing is written unless you pass `--write`; then the original is kept next to it as `sonne.yaml.bak` (or `.bak.1`, `.bak.2`, ... if a backup already exists).
+
+- YAML configs are edited in place, so comments and layout are kept. If a file can't be edited that way (for example, a section written in `{flow: style}`), Sonne rewrites the whole file instead and says clearly that comments and formatting will be lost, so you can review the diff or edit the listed keys by hand.
+- JSON configs are rewritten with 2-space indentation.
+
+Options:
+
+- `-p, --path`: Site directory (default: current directory); only the config file in that directory is migrated
+- `-c, --config`: Migrate this config file instead
+- `--write`: Apply the changes (default: dry run)
 
 ## Troubleshooting
 

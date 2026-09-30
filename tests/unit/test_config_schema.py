@@ -12,7 +12,11 @@ import pytest
 import yaml
 
 from sonne.core.config import DEFAULT_CONFIG
-from sonne.core.deprecations import DEPRECATED_CONFIG_KEYS, REMOVED_CONFIG_KEYS
+from sonne.core.deprecations import (
+    DEPRECATED_CONFIG_KEYS,
+    NO_EFFECT_CONFIG_KEYS,
+    REMOVED_CONFIG_KEYS,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = json.loads((REPO_ROOT / "sonne" / "schemas" / "sonne.schema.json").read_text("utf-8"))
@@ -22,9 +26,13 @@ DERIVED_DEFAULTS = {
     # Unset means "the smallest of images.sizes"; no fixed default can say that.
     "images.dither_sizes",
 }
-RETIRED_KEYS = {".".join(path) for path in DEPRECATED_CONFIG_KEYS} | {
-    ".".join(path) for path in REMOVED_CONFIG_KEYS
+RETIRED_KEYS = {
+    ".".join(path)
+    for table in (DEPRECATED_CONFIG_KEYS, REMOVED_CONFIG_KEYS, NO_EFFECT_CONFIG_KEYS)
+    for path in table
 }
+# Sections whose documented keys are all retired, so they have no defaults left.
+RETIRED_SECTIONS = {"security"}
 UNUSED_BUT_DOCUMENTED = {
     # No effect; slated for removal (docs/plans/08-dead-config-keys.md).
     "images.grayscale_before_dither",
@@ -38,7 +46,14 @@ TEMPLATE_SPECIFIC = {
     "site.weather",
     "solar",
 }
-EXEMPT_FROM_DEFAULTS = DERIVED_DEFAULTS | RETIRED_KEYS | UNUSED_BUT_DOCUMENTED | TEMPLATE_SPECIFIC
+EXEMPT_FROM_DEFAULTS = (
+    DERIVED_DEFAULTS | RETIRED_KEYS | RETIRED_SECTIONS | UNUSED_BUT_DOCUMENTED | TEMPLATE_SPECIFIC
+)
+
+
+def is_exempt_from_defaults(key):
+    """Exempt itself, or inside a retired key (security.csp.enabled under security.csp)."""
+    return key in EXEMPT_FROM_DEFAULTS or any(key.startswith(f"{r}.") for r in RETIRED_KEYS)
 
 
 def resolve(node):
@@ -99,7 +114,9 @@ class TestDefaultsMatchSchema:
     def test_schema_default_equals_default_config(self, key):
         assert SCHEMA_KEYS[key]["default"] == DEFAULT_KEYS[key]
 
-    @pytest.mark.parametrize("key", sorted(set(SCHEMA_KEYS) - EXEMPT_FROM_DEFAULTS))
+    @pytest.mark.parametrize(
+        "key", sorted(k for k in SCHEMA_KEYS if not is_exempt_from_defaults(k))
+    )
     def test_every_documented_key_has_a_default(self, key):
         assert key in DEFAULT_KEYS
 

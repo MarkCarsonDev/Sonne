@@ -12,7 +12,7 @@
             {% if page.categories %}
             • In 
             {% for category in page.categories %}
-            <a href="/blog/categories/{{ category | slugify }}/">{{ category }}</a>{% if not loop.last %}, {% endif %}
+            <a href="{{ category_url(category) }}">{{ category }}</a>{% if not loop.last %}, {% endif %}
             {% endfor %}
             {% endif %}
         </div>
@@ -34,7 +34,7 @@
         <h3>Tags</h3>
         <div class="tags">
             {% for tag in page.tags %}
-            <a href="/blog/tags/{{ tag | slugify }}/" class="tag">{{ tag }}</a>
+            <a href="{{ tag_url(tag) }}" class="tag">{{ tag }}</a>
             {% endfor %}
         </div>
     </footer>

@@ -5,17 +5,17 @@
   key that omits a setting serves stale images when that setting changes —
   this was a real bug (B4). When adding an image option, add it to the cache
   key and bump the `v<N>:` cache-key version prefix.
-- **Two dithered-image conventions exist — know which pipeline you're in:**
-  1. *Blog pipeline* (post-local images): dithered copy at
-     `<dir>/dithered/<stem>.png`, original keeps its own URL. Server-side
-     `<figure>` markup carries `data-original-src`/`data-dithered-src`.
-  2. *Static pipeline* (`static/images/`): dithered image at the main path,
-     original beside it with an `_original` suffix. The client-side
-     `dithering.js` computes the `_original` path for standalone images.
-  Don't mix them: only blog markdown gets the server-side dithered rewrite
-  (`process_markdown(rewrite_dithered=True)`); regular pages must not (their
-  `dithered/` paths would never exist — that was bug B9). Unifying the two
-  conventions is a known backlog item; it requires changing dithering.js.
+- **One dithered-image convention**: an original keeps its own URL; its
+  dithered copy sits beside it (`<dir>/dithered/<stem>.png`, or a sized
+  variant `x_400.webp` next to `x_400_original.webp`). The image pipeline
+  records every pair in `DitheredImages`; `TemplateProcessor.finish_page()`
+  points registered root-relative `<img>` tags at the dithered copy and sets
+  `data-original-src`; `dithering.js` toggles only `img[data-original-src]`
+  — never guess URLs client-side (that gave undithered images broken
+  toggles, B52). Blog post figures are marked by the blog pipeline at
+  metadata collection (`process_markdown(rewrite_dithered=True)`, blog only;
+  regular pages must not use it, B9). Static `<name>_original` copies are a
+  compatibility bridge until 0.6.0.
 - **Blog image ordering is two-pass**: post images are copied/dithered
   (pass 1) before templates render (pass 2) so `cover_img_dithered` and size
   stats exist at render time. The `<figure>` rewrite happens even earlier,

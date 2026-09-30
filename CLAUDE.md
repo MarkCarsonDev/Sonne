@@ -26,6 +26,8 @@ variable scopes: global → site → page) → `processors/`
 posts/taxonomies/RSS, `image_processor.py` resize/dither/cache).
 Shared helpers in `sonne/utils/`. Bundled site templates in
 `sonne/templates/{blog,minimal,portfolio,solar}` (copied by `sonne new`);
+built-in listing templates in `sonne/templates/_fallback/` (last on the
+Jinja search path); data-script API in `sonne/script_api.py`;
 config JSON schema in `sonne/schemas/sonne.schema.json`; core static assets
 (dithering CSS/JS) in `sonne/static/`.
 

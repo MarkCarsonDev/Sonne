@@ -9,7 +9,7 @@
     {% if tags %}
     <div class="tag-cloud">
         {% for tag_name, tag_data in tags.items() %}
-        <a href="/blog/tags/{{ tag_data.slug }}/" class="tag">
+        <a href="{{ tag_url(tag_data.name) }}" class="tag">
             {{ tag_name }} ({{ tag_data.posts|length }})
         </a>
         {% endfor %}
@@ -20,7 +20,7 @@
         <ul>
             {% for tag_name, tag_data in tags.items()|sort %}
             <li>
-                <a href="/blog/tags/{{ tag_data.slug }}/">{{ tag_name }}</a> 
+                <a href="{{ tag_url(tag_data.name) }}">{{ tag_name }}</a> 
                 ({{ tag_data.posts|length }} post{% if tag_data.posts|length > 1 %}s{% endif %})
             </li>
             {% endfor %}
@@ -31,7 +31,7 @@
     {% endif %}
     
     <div class="tag-nav">
-        <a href="/blog/" class="btn">Back to Blog</a>
+        <a href="{{ blog_url() }}" class="btn">Back to Blog</a>
     </div>
 </div>
 {% endblock %}

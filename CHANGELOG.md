@@ -34,6 +34,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   e.g. `sonne_config("site", "base_url")`, instead of locating and
   re-reading the config file themselves. Values include defaults, and the
   result is a copy, so scripts can't change the build's configuration.
+- Template helpers `blog_url()`, `tag_url()`, `category_url()` and
+  `archive_url()` for linking to blog pages. They follow `blog.directory`
+  and `url_style` and slugify terms like the pages themselves. The bundled
+  blog and portfolio templates and the showcase example use them.
+- Built-in tag, tags, category, categories and archive templates: sites
+  without their own get working listing pages, rendered inside the site's
+  `base.html` (or a minimal page if there is none), instead of an
+  "Untitled" placeholder.
+- The `data` namespace: every data file is available in templates as
+  `data.<file name>` and every script variable as `data.<name>` (also
+  `site.data.*`). New `variables.flatten_data` (default `true`) keeps the
+  old flat exposure as well; set it to `false` so data and script variables
+  can never replace site config. Two data files with the same name in
+  different folders now warn.
+- `sonne migrate` updates a site's config file for deprecated keys: renames
+  them, removes no-effect or removed ones, and shows a diff. Dry run by
+  default; `--write` applies it and keeps a `.bak` backup. YAML comments and
+  layout are preserved when possible (it says clearly when they can't be);
+  JSON configs are supported.
+- `sonne serve --dev` serves the development environment, like
+  `sonne build --dev`.
+- `sonne serve --watch` warns you to restart it when Sonne itself was
+  upgraded or edited while the server was running.
+- All starter templates (blog, portfolio, minimal, solar) load
+  `dithering.css`/`dithering.js` when `images.dither` is on, so visitors
+  can switch between dithered and original images.
 - `get_variable(name, default=None)` in `sonne.script_api`: data scripts
   read build data (`all_pages`, `all_blog_posts`, `tags`, data files,
   config values, earlier scripts' variables). It returns a copy.
@@ -45,7 +71,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dither in-memory images with the site's `images.dither_*` settings.
   (`_apply_dither` keeps working.)
 
+### Deprecated
+- `/images/<name>_original.<ext>` copies of static images are still written
+  for compatibility and will be removed in Sonne 0.6.0; link to
+  `/images/<name>.<ext>` for the original.
+- `build.incremental`, `build.show_progress` and `build.statistics` have no
+  effect and will be removed. They still load, with a warning; use
+  `sonne build --no-progress` / `--perf` instead.
+- `security.csp` (`enabled`/`directives`) has no effect and will be
+  removed; Sonne never added the policy to pages. Send a
+  `Content-Security-Policy` header from your web server instead.
+- Flat access to data files and script variables (mapping keys merged into
+  `site`, script variables at the top level). Use `data.<name>`; set
+  `variables.flatten_data: false` to opt in now. The default will become
+  `false` in a future release.
+- Run `sonne migrate` to see (and with `--write`, apply) the config
+  changes for deprecated keys.
+
 ### Removed
+- `Config.generate_csp_header()` and `Config.get_csp_meta_tag()` (unused).
 - The `{+}{variable}` / `{-}{variable}` substitution syntax and the
   `{p}{# ... #}` embedded-Python blocks. These were dead code — nothing in
   the build pipeline ever invoked them, so the markers already rendered
@@ -59,6 +103,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- **Breaking (pre-1.0):** static images keep their original at their own
+  URL, and the dithered copy is `<dir>/dithered/<name>.png` (always PNG).
+  Before, `/images/a.png` served the dithered image and the original was
+  `/images/a_original.png`. Pages still show dithered images: every `<img>`
+  pointing at an image the build dithered is rewritten to the dithered
+  copy, with the original in `data-original-src`. References outside `<img>`
+  (CSS `url()`, `og:image`, RSS, links from other sites) now get the
+  original. The static-image cache is rebuilt once.
+- The dithering styles and script are no longer inlined into every page;
+  pages load `/css/dithering.css` and `/js/dithering.js` (added
+  automatically when a page doesn't link them), so pages are smaller.
+- The `process_image` template filter renders a plain `<img>`; pages mark
+  it like any other image if the build dithered it.
+- Blog links in the bundled templates follow `url_style`: in the clean
+  style they no longer end in a slash (`/blog/tags/python`, matching the
+  pages' own URLs), in the html style they end in `.html`, and they follow a
+  custom `blog.directory` instead of `/blog/`.
+- New sites from `sonne new -t blog` / `-t portfolio` no longer include
+  tag/tags/category/categories/archive templates; the built-in ones render
+  identically. Existing sites' copies still take precedence.
+- Script globals named `blog_url`, `tag_url`, `category_url`,
+  `archive_url` or `sonne_base_template` are ignored with a warning
+  (built-in names win, as for other built-ins).
+- Generated listing pages name their template explicitly; template
+  selection no longer depends on synthetic source-path prefixes.
+- README: the URL Configuration section now describes `url_style` and the
+  environments accurately (it described a default that no longer exists).
+- The dithered/original image toggle is a keyboard-operable button
+  (labelled "Show original image", state in `aria-pressed`) with a visible
+  focus ring; only the image on show is exposed to screen readers. Toggles
+  in pages built by older versions are upgraded in place.
 - Builds show a new "Collecting page metadata" step (one more `[n/N]`
   line).
 - `solar` scaffold: data scripts read settings with `sonne_config`; the
@@ -118,6 +193,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paint, and the JS no longer polls the nonexistent `/api/battery-status`.
 
 ### Fixed
+- Dithering toggles appear only on images the build actually dithered.
+  `dithering.js` guessed an `_original` URL for every same-origin image, so
+  images Sonne never dithered (e.g. a plain `logo.png`) got a toggle that
+  showed a broken image (B52).
 - Category pages rendered as a bare "Untitled" fallback page: the singular
   of `categories` was computed as `categorie`, so no template matched
   (B13). Category term pages now expose `page.category`.
@@ -175,6 +254,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unavailable drive (B51).
 - The CLI's default `--path` is the current directory when the command
   runs, not when Sonne was imported.
+- `solar` scaffold: blog, tag and category links follow `blog.directory`
+  and `url_style` (they were hardcoded to `/blog/.../`, so a custom blog
+  directory or the clean style produced broken links).
 - A post dated with a timezone (e.g. `2024-01-05 12:00:00+02:00`) no
   longer crashes the build when other posts have plain dates; URLs keep the
   written date and RSS keeps the written offset (B31).
@@ -251,6 +333,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   query string or a dotted directory no longer yields a 404
   (`q.png?v=1.2` → `q_original.png?v=1.2`).
 - Clicking the dithering toggle on a linked image no longer follows the link.
+- The image toggle and the original image line up with the image even when
+  the theme gives images a margin.
 - The config JSON schema no longer rejects valid configs: keys with
   defaults are no longer required, custom environments in `url_style` are
   accepted, and BCP 47 language tags such as `zh-Hans`, `es-419` and

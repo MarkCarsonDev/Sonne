@@ -5,6 +5,7 @@ Provides commands for creating, building, and serving static sites.
 
 import functools
 import http.server
+import json
 import logging
 import os
 import socketserver
@@ -25,7 +26,8 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from sonne.core.config import Config
+from sonne.cli.migrate import MigrationPlan, plan_migration, write_migration
+from sonne.core.config import Config, config_file_in
 from sonne.core.site_generator import SiteGenerator
 from sonne.utils.path_utils import CONFIG_FILENAMES, is_sonne_directory
 
@@ -43,6 +45,11 @@ DEFAULT_SERVE_HOST = "localhost"
 DEFAULT_SERVE_PORT = 8000
 BROWSER_OPEN_DELAY_SECONDS = 1.0
 OBSERVER_STOP_TIMEOUT_SECONDS = 5
+
+# The installed Sonne package, watched by `serve` for code changes.
+SONNE_PACKAGE_DIR = Path(__file__).resolve().parent.parent
+
+SourceFingerprint = tuple[tuple[str, int, int], ...]
 
 
 def _use_rich() -> bool:
@@ -228,9 +235,22 @@ def _load_build_config(path: str, config_path: str, dev: bool) -> Config:
     if validation_warnings:
         _report_problems("Configuration warnings", validation_warnings, logging.WARNING)
     if dev:
-        config.set("environment", value="dev")
+        _use_dev_environment(config)
         logger.info("Environment: development")
     return config
+
+
+def _load_site_config(base_dir: str, dev: bool = False) -> Config:
+    """The site's config, switched to the dev environment for --dev."""
+    config = Config(base_dir=base_dir)
+    if dev:
+        _use_dev_environment(config)
+    return config
+
+
+def _use_dev_environment(config: Config) -> None:
+    """--dev: use the dev entries of settings such as url_style."""
+    config.set("environment", value="dev")
 
 
 def _confirm_templates_or_exit(generator: SiteGenerator, assume_yes: bool) -> None:
@@ -350,6 +370,82 @@ def _set_site_title(config_path: Path, site_name: str) -> None:
         yaml.dump(site_config, f, default_flow_style=False, sort_keys=False)
 
 
+@cli.command()
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True, file_okay=False),
+    default=None,
+    help="Path to the site directory (default: the current directory).",
+)
+@click.option(
+    "--config",
+    "-c",
+    "config_file",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Config file to migrate (default: the one in the site directory).",
+)
+@click.option(
+    "--write", is_flag=True, help="Apply the changes, keeping a .bak backup. Default: dry run."
+)
+def migrate(path, config_file, write):
+    """Update a site's config file for this version of Sonne.
+
+    Renames deprecated keys to their replacements and removes keys that no
+    longer exist or have no effect, then shows the changes as a diff. Nothing
+    is written unless --write is given; then the original is kept as
+    <file>.bak (or .bak.1, .bak.2, ...).
+
+    Examples:
+        sonne migrate                 # show what would change
+        sonne migrate --write         # apply it
+    """
+    site_dir = path or os.getcwd()
+    target = Path(config_file) if config_file else _site_config_file(site_dir)
+    if target is None:
+        click.echo(f"No Sonne config file found in {site_dir}", err=True)
+        sys.exit(1)
+
+    try:
+        plan = plan_migration(target)
+    except (ValueError, yaml.YAMLError, json.JSONDecodeError) as e:
+        click.echo(f"Cannot migrate {target}: {e}", err=True)
+        sys.exit(1)
+
+    if not plan.needed:
+        click.echo(f"{target}: already up to date, nothing to migrate.")
+        return
+    _report_migration_plan(plan)
+    if not write:
+        click.echo("Dry run: nothing was written. Run again with --write to apply it.")
+        return
+    backup = write_migration(plan)
+    click.echo(f"Updated {target} (original saved as {backup.name}).")
+
+
+def _site_config_file(site_dir: str) -> Optional[Path]:
+    """The config file in site_dir itself (parents are not searched here)."""
+    found = config_file_in(os.path.abspath(site_dir))
+    return Path(found) if found else None
+
+
+def _report_migration_plan(plan: MigrationPlan) -> None:
+    click.echo(f"{plan.config_path}:")
+    for description in plan.descriptions():
+        click.echo(f"  - {description}")
+    click.echo()
+    _echo_degrading_unencodable(plan.diff())
+    if plan.is_json:
+        click.echo("Note: the JSON file is rewritten with 2-space indentation.")
+    elif not plan.edited_in_place:
+        click.echo(
+            "WARNING: this file could not be edited in place, so it is rewritten as a "
+            "whole: its comments and formatting will NOT be kept. Review the diff, or "
+            "edit the listed keys by hand instead."
+        )
+
+
 class QuietHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP request handler with quiet logging."""
 
@@ -365,7 +461,7 @@ class ReuseAddrTCPServer(socketserver.TCPServer):
     allow_reuse_address = True
 
 
-def _rebuild_site(base_dir: str) -> None:
+def _rebuild_site(base_dir: str, dev: bool = False) -> None:
     """Rebuild a site with a freshly loaded config.
 
     Used by serve --watch: the config file is in the watch set, so each
@@ -374,8 +470,9 @@ def _rebuild_site(base_dir: str) -> None:
 
     Args:
         base_dir: Absolute path to the site directory.
+        dev: Build for the dev environment (serve --dev).
     """
-    config = Config(base_dir=base_dir)
+    config = _load_site_config(base_dir, dev)
     generator = SiteGenerator(config, base_dir=base_dir)
     generator.generate(skip_cache=False)
 
@@ -392,7 +489,12 @@ def _rebuild_site(base_dir: str) -> None:
 @click.option("--host", default=None, help="Host to serve on.")
 @click.option("--browser/--no-browser", default=True, help="Open in browser.")
 @click.option("--watch/--no-watch", default=True, help="Watch for changes and rebuild.")
-def serve(path, port, host, browser, watch):
+@click.option(
+    "--dev",
+    is_flag=True,
+    help="Serve the development environment (dev url_style), like build --dev.",
+)
+def serve(path, port, host, browser, watch, dev):
     """Serve the site locally for development.
 
     Always builds the site first, then starts a local web server. With --watch
@@ -404,6 +506,7 @@ def serve(path, port, host, browser, watch):
         sonne serve --port 3000           # Use different port
         sonne serve --no-browser          # Don't open browser
         sonne serve --no-watch            # Disable auto-rebuild
+        sonne serve --dev                 # Use the dev environment settings
     """
     observer = None
     httpd = None
@@ -414,7 +517,9 @@ def serve(path, port, host, browser, watch):
         if not check_sonne_directory(path):
             sys.exit(1)
 
-        config = Config(base_dir=path)
+        config = _load_site_config(path, dev)
+        if dev:
+            click.echo("Environment: development")
         host = _configured_or_default(host, config.get("serve", "host"), DEFAULT_SERVE_HOST)
         port = _configured_or_default(port, config.get("serve", "port"), DEFAULT_SERVE_PORT)
         output_path = config.get("paths", "output", default="output")
@@ -428,7 +533,7 @@ def serve(path, port, host, browser, watch):
         httpd = ReuseAddrTCPServer((host, port), handler)
 
         if watch:
-            observer = _start_watching(path, config)
+            observer = _start_watching(path, config, dev)
 
         url = f"http://{host}:{port}"
         if browser:
@@ -483,8 +588,20 @@ class SiteRebuilder:
 
     DEBOUNCE_SECONDS = 0.4
 
-    def __init__(self, base_dir: str, config: Config):
+    def __init__(
+        self,
+        base_dir: str,
+        config: Config,
+        dev: bool = False,
+        sonne_source_dir: Path = SONNE_PACKAGE_DIR,
+    ):
         self.base_dir = base_dir
+        self.dev = dev
+        # A running server keeps the Sonne code it started with; remember
+        # that code so a rebuild can tell the user when it went stale.
+        self._sonne_source_dir = sonne_source_dir
+        self._startup_fingerprint = _source_fingerprint(sonne_source_dir)
+        self._warned_fingerprint: Optional[SourceFingerprint] = None
         self._lock = threading.Lock()
         self._pending = None  # pending debounce timer
         self._building = False
@@ -557,14 +674,49 @@ class SiteRebuilder:
             raise
 
     def _rebuild_once(self) -> None:
+        self._warn_if_sonne_changed()
         try:
             click.echo("\nChange detected — rebuilding...")
             # Fresh Config: the edit may have BEEN the config
-            _rebuild_site(self.base_dir)
+            _rebuild_site(self.base_dir, self.dev)
             click.echo("Rebuilt")
         except Exception as e:
             click.echo(f"Rebuild failed: {e}")
             _print_traceback_if_verbose()
+
+    def _warn_if_sonne_changed(self) -> None:
+        """Warn (once per new version) when Sonne's own code changed since startup.
+
+        The server process still runs the code it started with, so an
+        upgraded or edited Sonne only takes effect after a restart.
+        """
+        current = _source_fingerprint(self._sonne_source_dir)
+        if current in (self._startup_fingerprint, self._warned_fingerprint):
+            return
+        self._warned_fingerprint = current
+        logger.warning(
+            f"Sonne itself has changed since `sonne serve` started ({self._sonne_source_dir}). "
+            "This server keeps running the old code: stop it and run `sonne serve` again "
+            "to use the new version."
+        )
+
+
+def _source_fingerprint(package_dir: Path) -> SourceFingerprint:
+    """(path, mtime_ns, size) of every .py file under package_dir: cheap to compare.
+
+    Files that vanish while being scanned are skipped.
+    """
+    entries = []
+    for source_file in package_dir.rglob("*.py"):
+        if "__pycache__" in source_file.parts:
+            continue
+        try:
+            stat = source_file.stat()
+        except OSError:
+            continue
+        rel_path = source_file.relative_to(package_dir).as_posix()
+        entries.append((rel_path, stat.st_mtime_ns, stat.st_size))
+    return tuple(sorted(entries))
 
 
 def _paths_touched_by(event) -> list[str]:
@@ -580,13 +732,13 @@ def _paths_touched_by(event) -> list[str]:
     return [] if event.is_directory else [event.src_path]
 
 
-def _start_watching(path: str, config: Config) -> Optional[BaseObserver]:
+def _start_watching(path: str, config: Config, dev: bool = False) -> Optional[BaseObserver]:
     """Start a watchdog observer that feeds a SiteRebuilder.
 
     Returns:
         The running observer.
     """
-    rebuilder = SiteRebuilder(path, config)
+    rebuilder = SiteRebuilder(path, config, dev)
 
     class _WatchdogAdapter(FileSystemEventHandler):
         def on_any_event(self, event):

@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from pathlib import PurePath
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import jinja2
 import markdown
@@ -17,6 +17,8 @@ from bs4 import BeautifulSoup, Tag
 from jinja2 import TemplateSyntaxError, UndefinedError
 from markupsafe import Markup
 
+from sonne.processors.blog_urls import BlogUrls
+from sonne.processors.dithered_images import DitheredImages
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import MARKDOWN_EXTENSIONS
 from sonne.utils.page_location import page_output_path, page_url
@@ -38,15 +40,6 @@ MARKDOWN_PARSER_EXTENSIONS = [
     "markdown.extensions.abbr",
     "markdown.extensions.sane_lists",
 ]
-
-# (source-key prefix, taxonomy, template config key, default template)
-TAXONOMY_PAGE_TEMPLATES = [
-    ("tags_", "tags", "list_template", "tags.html"),
-    ("tag_", "tags", "template", "tag.html"),
-    ("categories_", "categories", "list_template", "categories.html"),
-    ("category_", "categories", "template", "category.html"),
-]
-GENERATED_PAGE_PREFIXES = tuple(prefix for prefix, *_ in TAXONOMY_PAGE_TEMPLATES)
 
 TEMPLATE_EXTENSIONS = (".html", ".htm", ".xml", ".txt", ".j2", ".jinja2")
 
@@ -87,157 +80,19 @@ DITHER_ICON_CELL_SIZE = "24.28"
 # render literally, so the author is warned once per file.
 LEGACY_MARKER_RE = re.compile(r"\{\+\}\{|\{-\}\{|\{p\}\{#")
 
-# Blog content directory (under content/) when blog.directory is unset.
-
 # Markup.format escapes every interpolated value.
 PLAIN_IMAGE_MARKUP = Markup('<img src="{src}" alt="{alt}" loading="{loading}">')
-DITHERED_IMAGE_MARKUP = Markup("""
-            <div class="dithered-image-container">
-                <img src="{src}" alt="{alt}" loading="{loading}" class="dithered">
-                <img src="{original_src}" alt="{alt}" loading="{loading}" class="original">
-                <div class="dither-toggle">
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                </div>
-            </div>
-            """)
-
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
+# Last on the search path: tag/tags/category/categories/archive pages for
+# sites that do not ship their own.
+FALLBACK_TEMPLATES_DIR = os.path.join(BUILTIN_TEMPLATES_DIR, "_fallback")
+SITE_BASE_TEMPLATE = "base.html"
+FALLBACK_BASE_TEMPLATE = "sonne_fallback_base.html"
 
-# Markers identify Sonne's injected assets so they are never added twice.
-DITHER_CSS_MARKER = "Dithered image styling - injected by Sonne"
-DITHER_JS_MARKER = "Dithered image functionality - injected by Sonne"
-
-DITHER_CSS = """
-/* Dithered image styling - injected by Sonne */
-.dithered-image-figure {
-    margin: 2rem 0;
-}
-
-.dithered-image-figure img {
-    width: 100%;
-    height: auto;
-    display: block;
-}
-
-.dithered-image-figure figcaption {
-    margin-top: 0.5rem;
-    font-family: monospace;
-    font-size: 0.75rem;
-    opacity: 0.6;
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-}
-
-.caption-text {
-    font-style: italic;
-}
-
-.request-original-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35em;
-    padding: 0.2em 0.6em;
-    font-size: 0.8rem;
-    background: transparent;
-    /* currentColor fallback: the button inherits the page's text color when
-       the theme doesn't define --text-color (a #fff fallback made the button
-       invisible on light themes) */
-    border: 1px solid var(--text-color, currentColor);
-    border-radius: 0.4em;
-    cursor: pointer;
-    color: var(--text-color, currentColor);
-    opacity: 0.5;
-    transition: opacity 0.1s, background-color 0.1s;
-    font-family: inherit;
-}
-
-.request-original-btn:hover {
-    opacity: 1;
-    background-color: var(--bg-hover, rgba(128,128,128,0.15));
-}
-
-.request-original-btn.showing-original {
-    opacity: 1;
-}
-
-/* Dithering toggle icon (LTM quincunx pattern) */
-.dither-icon-svg {
-    width: 0.85em;
-    height: 0.85em;
-    flex-shrink: 0;
-    vertical-align: middle;
-}
-
-/* Light mode: mix-blend-mode on the figure, not the img,
-   so toggling to original disables multiply cleanly */
-[data-theme="light"] .dithered-image-figure {
-    mix-blend-mode: multiply;
-}
-[data-theme="light"] .dithered-image-figure.showing-original {
-    mix-blend-mode: normal;
-}
-"""
-
-DITHER_JS = """
-// Dithered image functionality - injected by Sonne
-(function() {
-    'use strict';
-
-    function initializeDitheredImages() {
-        const buttons = document.querySelectorAll('.request-original-btn');
-
-        buttons.forEach(function(button) {
-            // Track state on button itself
-            let showingDithered = true;
-
-            button.addEventListener('click', function() {
-                const figure = this.closest('.dithered-image-figure');
-                if (!figure) return;
-
-                const img = figure.querySelector('img');
-                if (!img) return;
-
-                const ditheredSrc = img.getAttribute('data-dithered-src');
-                const originalSrc = img.getAttribute('data-original-src');
-
-                const btnText = this.querySelector('.btn-text');
-                // Toggle based on current state
-                if (showingDithered) {
-                    img.src = originalSrc;
-                    const origSize = this.getAttribute('data-original-size');
-                    if (btnText) btnText.textContent = origSize ? 'dithered (' + origSize + ')' : 'dithered';
-                    this.classList.add('showing-original');
-                    figure.classList.add('showing-original');
-                    showingDithered = false;
-                } else {
-                    img.src = ditheredSrc;
-                    if (btnText) btnText.textContent = 'view original';
-                    this.classList.remove('showing-original');
-                    figure.classList.remove('showing-original');
-                    showingDithered = true;
-                }
-            });
-        });
-    }
-
-    // Initialize when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeDitheredImages);
-    } else {
-        initializeDitheredImages();
-    }
-})();
-"""
+# The shared dithering assets (sonne/static, copied to the output by the build).
+# A page that does not link them gets them added; bundled templates link them.
+DITHERING_STYLESHEET_URL = "/css/dithering.css"
+DITHERING_SCRIPT_URL = "/js/dithering.js"
 
 
 class TemplateProcessor:
@@ -253,6 +108,8 @@ class TemplateProcessor:
         self.config = config
         self.paths = paths
         self.stats: Optional[BuildStatistics] = None  # Injected by SiteGenerator
+        # The images this build dithered; SiteGenerator shares the ImageProcessor's.
+        self.dithered_images = DitheredImages()
         self.dithering_enabled = self.config.get("images", "dither", default=True)
         logger.info(f"Dithering enabled: {self.dithering_enabled}")
         self.jinja_env = self._create_jinja_env()
@@ -261,10 +118,14 @@ class TemplateProcessor:
         self._legacy_marker_warned = set()
 
     def _create_jinja_env(self) -> jinja2.Environment:
-        """Create the Jinja environment: site templates first, then built-ins."""
+        """Create the Jinja environment: site templates, then built-ins, then fallbacks."""
         template_dirs = [
             directory
-            for directory in (self.paths.get("templates"), BUILTIN_TEMPLATES_DIR)
+            for directory in (
+                self.paths.get("templates"),
+                BUILTIN_TEMPLATES_DIR,
+                FALLBACK_TEMPLATES_DIR,
+            )
             if directory and os.path.exists(directory)
         ]
         logger.info(f"Template directories: {template_dirs}")
@@ -287,27 +148,43 @@ class TemplateProcessor:
             }
         )
         env.globals["dithering_enabled"] = self.dithering_enabled
+        # What the fallback templates extend: the site's base.html when the
+        # search path has one, else a minimal built-in page.
+        env.globals["sonne_base_template"] = (
+            SITE_BASE_TEMPLATE
+            if _template_exists(env, SITE_BASE_TEMPLATE)
+            else FALLBACK_BASE_TEMPLATE
+        )
+        blog_urls = BlogUrls(self.config)
+        env.globals.update(
+            {
+                # Links to generated blog pages; they follow blog.directory
+                # and url_style, and slugify terms like the pages themselves.
+                "blog_url": blog_urls.index,
+                "tag_url": blog_urls.tag,
+                "category_url": blog_urls.category,
+                "archive_url": blog_urls.archive,
+            }
+        )
         logger.info("Jinja environment initialized successfully")
         return env
 
     def _image_markup(self, src, alt="Image", loading="lazy"):
-        """Jinja ``process_image`` filter: an <img>, or a dithered/original pair.
+        """Jinja ``process_image`` filter: an escaped <img> tag.
+
+        If the build dithered the image, finishing the page points the tag at
+        the dithered copy and records the original for the toggle, as for any
+        other <img>.
 
         Args:
-            src: Image source URL (a sized variant such as ``x_400.webp`` or a
-                plain static image).
+            src: Image source URL (a static image or a sized variant).
             alt: Image alt text.
             loading: Loading attribute value.
 
         Returns:
-            Markup for the image, with the dithering toggle when dithering is
-            enabled. All arguments are HTML-escaped.
+            Markup for the image. All arguments are HTML-escaped.
         """
-        if not self.dithering_enabled:
-            return PLAIN_IMAGE_MARKUP.format(src=src, alt=alt, loading=loading)
-        return DITHERED_IMAGE_MARKUP.format(
-            src=src, original_src=_original_image_src(src), alt=alt, loading=loading
-        )
+        return PLAIN_IMAGE_MARKUP.format(src=src, alt=alt, loading=loading)
 
     def validate_templates(self) -> list[str]:
         """Validate all site templates for syntax and render errors.
@@ -536,13 +413,14 @@ class TemplateProcessor:
     def process_page(
         self, content: str, is_markdown: bool, source_path: str, variables: dict[str, Any]
     ) -> tuple[dict[str, Any], str]:
-        """Process a page: render its body, work out its URL, wrap it in a template.
+        """Process a content page or blog post: render its body, work out its URL, template it.
+
+        Listing pages without a source file use render_generated_page().
 
         Args:
             content: Page content.
             is_markdown: Whether the content is Markdown.
-            source_path: Path to the source file, or a generated-page key such
-                as ``blog_index`` or ``tag_<slug>``.
+            source_path: Path to the source file.
             variables: Variable scopes (``global``, ``site``, ``page``).
 
         Returns:
@@ -555,11 +433,43 @@ class TemplateProcessor:
         logger.debug(f"Template for {source_path}: {template_name}")
         if template_name:
             page_html = self._render_with_template(
-                template_name, front_matter, html_content, source_path, variables
+                template_name,
+                front_matter,
+                html_content,
+                variables,
+                page_factory=lambda: _with_page_variables(front_matter, variables),
             )
         else:
             page_html = _untemplated_page(front_matter, html_content)
-        return front_matter, self.inject_dithering_assets(page_html)
+        return front_matter, self.finish_page(page_html)
+
+    def render_generated_page(
+        self,
+        template_name: str,
+        page: dict[str, Any],
+        placeholder_html: str,
+        variables: dict[str, Any],
+    ) -> str:
+        """Render a listing page that has no source file (blog index, taxonomy, archive).
+
+        The caller names the template (config overrides included), and
+        ``page`` reaches the template unchanged; its ``url`` is the page URL.
+
+        Args:
+            template_name: Template to render, e.g. the configured blog.list_template.
+            page: The template's ``page`` variable.
+            placeholder_html: Body used as ``content``, and in the fallback page
+                when the template is missing.
+            variables: Variable scopes (``global``, ``site``).
+
+        Returns:
+            The complete page HTML.
+        """
+        logger.debug(f"Template for generated page {page.get('url')}: {template_name}")
+        page_html = self._render_with_template(
+            template_name, {}, placeholder_html, variables, page_factory=lambda: page
+        )
+        return self.finish_page(page_html)
 
     def _render_body(
         self, content: str, is_markdown: bool, source_path: str, variables: dict[str, Any]
@@ -602,7 +512,7 @@ class TemplateProcessor:
         if isinstance(page_vars, dict) and page_vars.get("full_url"):
             return page_vars["full_url"]
         if isinstance(source_path, str) and not os.path.exists(source_path):
-            # Generated pages (blog_index, tag_<slug>, ...) have no file.
+            # Content rendered without a file on disk: trust the page URL given.
             return page_vars.get("url", "/") if isinstance(page_vars, dict) else "/"
         return self._content_file_url(source_path)
 
@@ -617,8 +527,8 @@ class TemplateProcessor:
     ):
         """Pick the page template: front matter, then page variables, then defaults.
 
-        Page variables carry the template for generated pages (e.g. date
-        archives) whose front matter is empty.
+        Page variables carry the template for blog posts, whose rendered
+        content has no front matter.
         """
         if "template" in front_matter:
             return front_matter["template"]
@@ -629,19 +539,13 @@ class TemplateProcessor:
             return self._default_template_name(source_path)
         return None
 
-    def _default_template_name(self, source_path: str):
-        """Default template for a Markdown source or a generated-page key."""
-        if PurePath(source_path).suffix.lower() in MARKDOWN_EXTENSIONS:
-            if self._is_blog_post(source_path):
-                return self.config.get("blog", "template", default="blog_post.html")
-            return "page.html"
-        if source_path == "blog_index":
-            return self.config.get("blog", "list_template", default="blog_list.html")
-        for prefix, taxonomy, template_key, default in TAXONOMY_PAGE_TEMPLATES:
-            if source_path.startswith(prefix):
-                taxonomy_config = self.config.get("blog", "taxonomies", taxonomy, default={})
-                return taxonomy_config.get(template_key, default)
-        return None
+    def _default_template_name(self, source_path: str) -> Optional[str]:
+        """Default template for a Markdown source: the post template, else page.html."""
+        if PurePath(source_path).suffix.lower() not in MARKDOWN_EXTENSIONS:
+            return None
+        if self._is_blog_post(source_path):
+            return self.config.get("blog", "template", default="blog_post.html")
+        return "page.html"
 
     def _is_blog_post(self, source_path: str) -> bool:
         """Whether a source file is a blog post: under the blog directory, blog enabled.
@@ -659,15 +563,24 @@ class TemplateProcessor:
         template_name: str,
         front_matter: dict[str, Any],
         html_content: str,
-        source_path: str,
         variables: dict[str, Any],
+        page_factory: Callable[[], dict[str, Any]],
     ) -> str:
-        """Render the page through its template, falling back to bare HTML on errors."""
+        """Render the page through its template, falling back to bare HTML on errors.
+
+        Args:
+            template_name: Template to render.
+            front_matter: Supplies the title of the fallback page.
+            html_content: The page body, passed to the template as ``content``.
+            variables: Variable scopes (``global``, ``site``).
+            page_factory: Builds the template's ``page`` variable; called only
+                once the template has been found.
+        """
         try:
             template = self.jinja_env.get_template(template_name)
-            context = self._template_context(front_matter, html_content, source_path, variables)
+            context = self._template_context(page_factory(), html_content, variables)
             rendered = template.render(**context)
-            logger.debug(f"Rendered template {template_name} for {source_path}")
+            logger.debug(f"Rendered template {template_name}")
             self._count("templates_rendered")
             return rendered
         except jinja2.TemplateNotFound:
@@ -685,50 +598,55 @@ class TemplateProcessor:
             setattr(self.stats, counter, getattr(self.stats, counter) + 1)
 
     def _template_context(
-        self,
-        front_matter: dict[str, Any],
-        html_content: str,
-        source_path: str,
-        variables: dict[str, Any],
+        self, page: dict[str, Any], html_content: str, variables: dict[str, Any]
     ) -> dict[str, Any]:
-        """Build the page-template context.
-
-        For regular pages the front matter becomes ``page``, filled in (in
-        place, so the caller's front matter matches what the template saw)
-        with page variables it does not set. Generated pages use the page
-        variables as-is.
-        """
+        """The page-template context: global/site variables, ``page`` and ``content``."""
         context = self.build_content_context(variables)
         site_images = self.config.get("images")
         if "images" not in context["site"] and site_images is not None:
             context["site"]["images"] = site_images
-        if _is_generated_page(source_path):
-            context["page"] = variables.get("page", {})
-        else:
-            for key, value in variables.get("page", {}).items():
-                front_matter.setdefault(key, value)
-            context["page"] = front_matter
+        context["page"] = page
         context["content"] = Markup(html_content)
         return context
 
-    def inject_dithering_assets(self, html_content: str) -> str:
-        """Inject dithering CSS and JS inline into HTML content if dithering is enabled.
+    def finish_page(self, html_content: str) -> str:
+        """Apply dithering to a rendered page, when dithering is enabled.
 
-        Each asset is added at most once, so re-injecting is harmless.
+        Every <img> whose root-relative src the build dithered is pointed at
+        the dithered copy, with the original in data-original-src; only those
+        images get a toggle from dithering.js. The page is also made to load
+        the shared dithering stylesheet and script if it does not already.
+        Blog post figures are marked by the blog pipeline and left as they are.
 
         Args:
-            html_content: HTML content to inject into.
+            html_content: A complete rendered page.
 
         Returns:
-            HTML content with dithering assets injected.
+            The page HTML.
         """
         if not self.dithering_enabled:
             return html_content
-
         soup = BeautifulSoup(html_content, "html.parser")
-        _append_once(soup, _ensure_head(soup), "style", DITHER_CSS, DITHER_CSS_MARKER)
-        _append_once(soup, _ensure_body(soup), "script", DITHER_JS, DITHER_JS_MARKER)
+        for img in soup.find_all("img"):
+            self._mark_if_dithered(img)
+        _ensure_stylesheet_link(soup, DITHERING_STYLESHEET_URL)
+        _ensure_script(soup, DITHERING_SCRIPT_URL)
         return str(soup)
+
+    def _mark_if_dithered(self, img: Tag) -> None:
+        """Point an <img> at its dithered copy and record the original, if dithered."""
+        if img.has_attr("data-original-src"):
+            return
+        src = _attribute_text(img, "src")
+        if not src.startswith("/") or src.startswith("//"):
+            return
+        path, suffix = _split_url_suffix(src)
+        pair = self.dithered_images.pair_for(path)
+        if pair is None:
+            return
+        original_url, dithered_url = pair
+        img["src"] = dithered_url + suffix
+        img["data-original-src"] = original_url + suffix
 
 
 def _ensure_head(soup: BeautifulSoup) -> Tag:
@@ -758,14 +676,26 @@ def _html_root(soup: BeautifulSoup) -> Tag:
     return html
 
 
-def _append_once(soup: BeautifulSoup, parent: Tag, tag_name: str, text: str, marker: str) -> None:
-    """Append an inline <style>/<script> unless one carrying ``marker`` is already there."""
-    for existing in parent.find_all(tag_name):
-        if existing.string and marker in existing.string:
+def _ensure_stylesheet_link(soup: BeautifulSoup, href: str) -> None:
+    """Add <link rel="stylesheet" href=...> to <head> unless a link to it is present."""
+    for link in soup.find_all("link"):
+        if _attribute_text(link, "href") == href:
             return
-    tag = soup.new_tag(tag_name)
-    tag.string = text
-    parent.append(tag)
+    _ensure_head(soup).append(soup.new_tag("link", attrs={"rel": "stylesheet", "href": href}))
+
+
+def _ensure_script(soup: BeautifulSoup, src: str) -> None:
+    """Add <script src=... defer> to <body> unless a script with that src is present."""
+    for script in soup.find_all("script"):
+        if _attribute_text(script, "src") == src:
+            return
+    _ensure_body(soup).append(soup.new_tag("script", attrs={"src": src, "defer": ""}))
+
+
+def _split_url_suffix(url: str) -> tuple[str, str]:
+    """``/a.png?v=2#x`` -> (``/a.png``, ``?v=2#x``)."""
+    split = re.search(r"[?#]", url)
+    return (url[: split.start()], url[split.start() :]) if split else (url, "")
 
 
 def _format_date(value, fmt="%B %d, %Y") -> str:
@@ -789,23 +719,6 @@ def _truncate_words(text: str, length: int = 30) -> str:
     return " ".join(words[:length]) + ("..." if len(words) > length else "")
 
 
-def _original_image_src(src: str) -> str:
-    """Map a displayed image URL to its undithered original.
-
-    ``_original`` goes before the file name's extension, leaving
-    directories, query string and fragment untouched (``x_400.webp`` ->
-    ``x_400_original.webp``, ``q.png?v=1.2`` -> ``q_original.png?v=1.2``).
-    Must match ``originalSrcFor`` in sonne/static/js/dithering.js.
-    """
-    split = re.search(r"[?#]", src)
-    path, suffix = (src[: split.start()], src[split.start() :]) if split else (src, "")
-    file_name_start = path.rfind("/") + 1
-    extension_start = path.rfind(".")
-    if extension_start < file_name_start:
-        return f"{path}_original{suffix}"
-    return f"{path[:extension_start]}_original{path[extension_start:]}{suffix}"
-
-
 def _is_html_source_file(source_path) -> bool:
     """Whether a page comes from an existing .html/.htm file under content."""
     return (
@@ -815,11 +728,15 @@ def _is_html_source_file(source_path) -> bool:
     )
 
 
-def _is_generated_page(source_path) -> bool:
-    """Whether a source key names a generated blog index or taxonomy page."""
-    return isinstance(source_path, str) and (
-        source_path == "blog_index" or source_path.startswith(GENERATED_PAGE_PREFIXES)
-    )
+def _with_page_variables(front_matter: dict[str, Any], variables: dict[str, Any]) -> dict[str, Any]:
+    """A content page's ``page``: its front matter, filled in from the page variables.
+
+    Fills the front matter in place, so the caller's front matter matches
+    what the template saw.
+    """
+    for key, value in variables.get("page", {}).items():
+        front_matter.setdefault(key, value)
+    return front_matter
 
 
 def _untemplated_page(front_matter: dict[str, Any], html_content: str) -> str:
@@ -834,6 +751,17 @@ def _error_page(error: Exception, html_content: str) -> str:
         "<html><body><h1>Error rendering template</h1>"
         f"<p>{error}</p><div>{html_content}</div></body></html>"
     )
+
+
+def _template_exists(env: jinja2.Environment, name: str) -> bool:
+    """Whether the loader can find a template, without compiling it."""
+    if env.loader is None:
+        return False
+    try:
+        env.loader.get_source(env, name)
+    except jinja2.TemplateNotFound:
+        return False
+    return True
 
 
 def _template_names(templates_dir: str) -> list[str]:

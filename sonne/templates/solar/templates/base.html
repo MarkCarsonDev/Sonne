@@ -195,6 +195,7 @@
     
     <!-- Non-critical CSS -->
     <link rel="stylesheet" href="/css/minimal.css" media="print" onload="this.media='all'">
+    {% if dithering_enabled %}<link rel="stylesheet" href="/css/dithering.css">{% endif %}
     
     <!-- Preload link -->
     <link rel="preload" href="/js/minimal.js" as="script">
@@ -256,5 +257,6 @@
     
     <!-- Deferred JavaScript -->
     <script src="/js/minimal.js" defer></script>
+    {% if dithering_enabled %}<script src="/js/dithering.js" defer></script>{% endif %}
 </body>
 </html>
