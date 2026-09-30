@@ -23,7 +23,7 @@
             <picture>
                 <source srcset="{{ page.cover_img | replace('.jpg', '_1200.webp') | replace('.png', '_1200.webp') }}" type="image/webp">
                 <source srcset="{{ page.cover_img | replace('.jpg', '_1200.jpg') | replace('.png', '_1200.png') }}" type="image/jpeg">
-                <img src="{{ page.cover_img }}" alt="{{ page.title }}" loading="lazy">
+                <img src="{{ page.cover_img }}" alt="{{ page.cover_alt | default('') }}" loading="lazy">
             </picture>
         </div>
         {% endif %}
@@ -34,7 +34,7 @@
         
         {% if page.tags %}
         <div class="blog-post-tags">
-            <h3>Tags</h3>
+            <h2>Tags</h2>
             <ul class="tag-list">
                 {% for tag in page.tags %}
                 <li><a href="{{ tag_url(tag) }}" class="tag">{{ tag }}</a></li>
@@ -43,17 +43,17 @@
         </div>
         {% endif %}
         
-        <nav class="post-navigation">
+        <nav class="post-navigation" aria-label="More posts">
             {% if page.prev_post %}
             <a href="{{ page.prev_post.url }}" class="btn btn-secondary">
-                <span class="nav-label">&larr; Previous Post</span>
+                <span class="nav-label"><span aria-hidden="true">&larr; </span>Previous post</span>
                 <span class="nav-title">{{ page.prev_post.title }}</span>
             </a>
             {% endif %}
             
             {% if page.next_post %}
             <a href="{{ page.next_post.url }}" class="btn btn-secondary">
-                <span class="nav-label">Next Post &rarr;</span>
+                <span class="nav-label">Next post<span aria-hidden="true"> &rarr;</span></span>
                 <span class="nav-title">{{ page.next_post.title }}</span>
             </a>
             {% endif %}
@@ -71,7 +71,7 @@
                 <div class="blog-card-image">
                     <picture>
                         <source srcset="{{ post.cover_img | replace('.jpg', '_400.webp') | replace('.png', '_400.webp') }}" type="image/webp">
-                        <img src="{{ post.cover_img | replace('.jpg', '_400.jpg') | replace('.png', '_400.png') }}" alt="{{ post.title }}" loading="lazy">
+                        <img src="{{ post.cover_img | replace('.jpg', '_400.jpg') | replace('.png', '_400.png') }}" alt="" loading="lazy">
                     </picture>
                 </div>
                 {% endif %}
@@ -85,7 +85,7 @@
                     
                     <div class="blog-card-excerpt">{{ post.excerpt }}</div>
                     
-                    <a href="{{ post.full_url }}" class="btn btn-primary">Read More</a>
+                    <a href="{{ post.full_url }}" class="btn btn-primary">Read more<span class="visually-hidden"> of {{ post.title }}</span></a>
                 </div>
             </div>
             {% endfor %}

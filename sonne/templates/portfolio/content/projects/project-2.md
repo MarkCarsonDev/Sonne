@@ -20,8 +20,6 @@ gallery:
     alt: Mobile view
 ---
 
-# Portfolio Website Redesign
-
 ## Overview
 
 Alex Kim is a professional photographer specializing in landscape and wildlife photography. He needed a portfolio website that would showcase his work in the best possible light while making it easy for potential clients to contact him.

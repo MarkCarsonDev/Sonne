@@ -35,22 +35,16 @@
     <link rel="alternate" type="application/rss+xml" title="{{ site.title }} Feed" href="{{ site.base_url }}/feed.xml">
 </head>
 <body>
+    <a class="skip-link" href="#main">Skip to content</a>
     <!-- Header -->
     <header>
         <div class="container site-header">
-            <h1 class="site-title"><a href="/">{{ site.title }}</a></h1>
+            <p class="site-title"><a href="/">{{ site.title }}</a></p>
             
-            <button class="menu-toggle" aria-expanded="false" aria-controls="site-nav">
-                <span class="sr-only">Menu</span>
-                <span class="menu-toggle-bar"></span>
-                <span class="menu-toggle-bar"></span>
-                <span class="menu-toggle-bar"></span>
-            </button>
-            
-            <nav class="site-nav" id="site-nav">
+            <nav class="site-nav" id="site-nav" aria-label="Main">
                 <ul>
                     {% for item in site.nav %}
-                    <li><a href="{{ item.url }}" {% if page.url == item.url %}class="active"{% endif %}>{{ item.text }}</a></li>
+                    <li><a href="{{ item.url }}"{% if page.url == item.url %} class="active" aria-current="page"{% endif %}>{{ item.text }}</a></li>
                     {% endfor %}
                 </ul>
             </nav>
@@ -58,7 +52,7 @@
     </header>
     
     <!-- Main Content -->
-    <main>
+    <main id="main" tabindex="-1">
         {% block content %}{% endblock %}
     </main>
     
@@ -88,8 +82,8 @@
     </footer>
     
     <!-- Dark Mode Toggle -->
-    <div class="dark-mode-toggle" aria-label="Toggle dark mode">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <button type="button" class="dark-mode-toggle" aria-label="Dark mode" aria-pressed="false">
+        <svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="5"></circle>
             <line x1="12" y1="1" x2="12" y2="3"></line>
             <line x1="12" y1="21" x2="12" y2="23"></line>
@@ -100,7 +94,7 @@
             <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
             <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
         </svg>
-    </div>
+    </button>
     
     <!-- JavaScript -->
     <script src="/js/main.js"></script>

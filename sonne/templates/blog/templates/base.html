@@ -10,20 +10,21 @@
     <link rel="alternate" type="application/rss+xml" title="{{ site.title }} Feed" href="/feed.xml">
 </head>
 <body>
+    <a class="skip-link" href="#main">Skip to content</a>
     <header>
         <div class="container">
-            <h1 class="site-title"><a href="/">{{ site.title }}</a></h1>
-            <nav>
+            <p class="site-title"><a href="/">{{ site.title }}</a></p>
+            <nav aria-label="Main">
                 <ul>
                     {% for item in site.nav %}
-                    <li><a href="{{ item.url }}" {% if page.url == item.url %}class="active"{% endif %}>{{ item.text }}</a></li>
+                    <li><a href="{{ item.url }}"{% if page.url == item.url %} class="active" aria-current="page"{% endif %}>{{ item.text }}</a></li>
                     {% endfor %}
                 </ul>
             </nav>
         </div>
     </header>
 
-    <main class="container">
+    <main id="main" class="container" tabindex="-1">
         {% block content %}{% endblock %}
     </main>
 
@@ -33,10 +34,10 @@
                 <div class="copyright">
                     <p>&copy; {{ site.year }} {{ site.author }}</p>
                 </div>
-                <div class="footer-links">
+                <nav class="footer-links" aria-label="Footer">
                     <a href="/feed.xml">RSS</a>
                     <a href="{{ tag_url() }}">Tags</a>
-                </div>
+                </nav>
             </div>
         </div>
     </footer>

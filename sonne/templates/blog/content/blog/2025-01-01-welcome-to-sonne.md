@@ -9,8 +9,6 @@ categories:
   - announcements
 ---
 
-# Welcome to Sonne
-
 This is your first blog post using the Sonne static site generator. You can edit this post by modifying the `content/blog/2025-01-01-welcome-to-sonne.md` file.
 
 ## Getting Started

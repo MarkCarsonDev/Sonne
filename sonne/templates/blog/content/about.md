@@ -3,8 +3,6 @@ title: About Me
 template: page.html
 ---
 
-# About Me
-
 This is an example about page for your Sonne blog. Replace this content with information about yourself or your blog.
 
 ## Who I Am

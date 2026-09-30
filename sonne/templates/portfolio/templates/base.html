@@ -10,25 +10,26 @@
     <link rel="alternate" type="application/rss+xml" title="{{ site.title }} Feed" href="/feed.xml">
 </head>
 <body>
+    <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
         <div class="container">
             <div class="logo">
                 <a href="/">
-                    <img src="/images/logo.svg" alt="{{ site.title }}" class="logo-img">
+                    <img src="/images/logo.svg" alt="" class="logo-img">
                     <span class="site-title">{{ site.title }}</span>
                 </a>
             </div>
             
-            <nav class="site-nav">
-                <button class="menu-toggle" aria-expanded="false">
-                    <span class="sr-only">Menu</span>
+            <nav class="site-nav" aria-label="Main">
+                <button type="button" class="menu-toggle" aria-expanded="false" aria-controls="site-menu">
+                    <span class="visually-hidden">Menu</span>
                     <span class="hamburger"></span>
                 </button>
                 
-                <ul class="nav-menu">
+                <ul class="nav-menu" id="site-menu">
                     {% for item in site.nav %}
                     <li class="nav-item{% if page.url == item.url %} active{% endif %}">
-                        <a href="{{ item.url }}" class="nav-link">{{ item.text }}</a>
+                        <a href="{{ item.url }}" class="nav-link"{% if page.url == item.url %} aria-current="page"{% endif %}>{{ item.text }}</a>
                     </li>
                     {% endfor %}
                 </ul>
@@ -36,7 +37,7 @@
         </div>
     </header>
 
-    <main>
+    <main id="main" tabindex="-1">
         {% block content %}{% endblock %}
     </main>
 
@@ -44,21 +45,21 @@
         <div class="container">
             <div class="footer-content">
                 <div class="footer-info">
-                    <h3>{{ site.title }}</h3>
+                    <h2 class="footer-heading">{{ site.title }}</h2>
                     <p>{{ site.description }}</p>
                 </div>
                 
-                <div class="footer-nav">
-                    <h3>Navigation</h3>
+                <nav class="footer-nav" aria-labelledby="footer-nav-heading">
+                    <h2 class="footer-heading" id="footer-nav-heading">Navigation</h2>
                     <ul>
                         {% for item in site.nav %}
                         <li><a href="{{ item.url }}">{{ item.text }}</a></li>
                         {% endfor %}
                     </ul>
-                </div>
+                </nav>
                 
                 <div class="footer-contact">
-                    <h3>Contact</h3>
+                    <h2 class="footer-heading">Contact</h2>
                     <p>Email: info@example.com</p>
                     <div class="social-links">
                         <a href="#" class="social-link">Twitter</a>
