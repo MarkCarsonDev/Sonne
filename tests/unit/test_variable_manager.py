@@ -93,6 +93,62 @@ class TestDataScripts:
         vm.load_variables()
         assert counter.read_text().count("run") == 1
 
+    def test_footer_in_data_dir_runs_and_is_html_safe(self, tmp_path):
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / "footer.py").write_text(
+            "sonne_var('footer_custom', '<i>f</i>')\n", encoding="utf-8"
+        )
+        vm = make_vm(tmp_path)
+
+        vm.load_variables()
+
+        assert hasattr(vm.get("footer_custom", scope="global"), "__html__")
+        assert hasattr(vm.get("footer", scope="site")["custom"], "__html__")
+        assert str(vm.get("footer", scope="site")["custom"]) == "<i>f</i>"
+
+    def test_broken_footer_falls_through_to_next_candidate(self, tmp_path):
+        (tmp_path / "data").mkdir()
+        (tmp_path / "data" / "footer.py").write_text("raise RuntimeError('x')\n", encoding="utf-8")
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "footer.py").write_text(
+            "sonne_var('footer_custom', '<b>ok</b>')\n", encoding="utf-8"
+        )
+        vm = make_vm(tmp_path)
+
+        vm.load_variables()
+
+        assert str(vm.get("footer_custom")) == "<b>ok</b>"
+
+
+class TestSiteConfigVariables:
+    def test_site_config_is_exposed_in_site_scope(self, tmp_path):
+        (tmp_path / "sonne.yaml").write_text(
+            "site:\n  title: T\n  footer:\n    note: n\n", encoding="utf-8"
+        )
+        vm = make_vm(tmp_path)
+
+        vm.load_variables()
+
+        assert vm.get("title", scope="site") == "T"
+        assert vm.get("footer", scope="site") == {"custom": None, "note": "n"}
+
+    def test_dict_title_uses_its_text(self, tmp_path):
+        (tmp_path / "sonne.yaml").write_text("site:\n  title:\n    text: Hi\n", encoding="utf-8")
+        vm = make_vm(tmp_path)
+
+        vm.load_variables()
+
+        assert vm.get("title", scope="site") == "Hi"
+
+    def test_blog_variables_survive_reload(self, tmp_path):
+        vm = make_vm(tmp_path)
+        vm.set("all_blog_posts", [{"slug": "a"}], "global")
+
+        vm.load_variables()
+
+        assert vm.get("all_blog_posts", scope="site") == [{"slug": "a"}]
+
 
 class TestDataFiles:
     def test_yaml_data_file_loaded_into_site_scope(self, tmp_path):
