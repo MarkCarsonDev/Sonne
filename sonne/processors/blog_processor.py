@@ -799,7 +799,7 @@ class BlogProcessor:
                 _GeneratedPage(
                     list_template,
                     page_data,
-                    f"<h1>{page_data['title']}</h1><p>{page_data['description']}</p>",
+                    f"<h1>{escape(page_data['title'])}</h1><p>{escape(page_data['description'])}</p>",
                     rel_path,
                 )
             )
@@ -861,7 +861,7 @@ class BlogProcessor:
             _GeneratedPage(
                 self._taxonomy_template(taxonomy_type, "template", f"{singular}.html"),
                 page_data,
-                f"<!-- {singular.capitalize()} Page: {term['name']} -->",
+                f"<!-- {singular.capitalize()} Page -->",  # term names could end a comment
                 os.path.join(self.blog_dir, taxonomy_type, term["slug"]),
             )
         )

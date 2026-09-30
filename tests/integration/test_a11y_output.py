@@ -181,3 +181,43 @@ class TestPageWithoutTemplate:
         assert "<title>Error rendering template</title>" in html
         assert "<p>division by zero</p>" in html
         assert "<strong>kept</strong>" in html
+
+
+class TestBlogIndexFallback:
+    """The built-in blog index: posts, labelled pagination, current page marked."""
+
+    def build(self, fallback_site, builder):
+        _, out = builder(fallback_site, {**BLOG_AND_LABELS, ("blog", "posts_per_page"): 1})
+        return out
+
+    def pagination(self, out, page):
+        path = out / "blog" / ("index.html" if page == 1 else f"page/{page}/index.html")
+        soup = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
+        nav = soup.find("nav", attrs={"aria-label": "Pagination"})
+        assert isinstance(nav, Tag), f"no labelled pagination on page {page}"
+        return nav
+
+    def test_current_page_is_marked(self, fallback_site, builder):
+        out = self.build(fallback_site, builder)
+
+        for page in (1, 2):
+            current = self.pagination(out, page).find_all("a", attrs={"aria-current": "page"})
+            assert [accessible_name(link) for link in current] == [f"Page {page}"]
+
+    def test_links_say_where_they_go(self, fallback_site, builder):
+        out = self.build(fallback_site, builder)
+
+        names = [accessible_name(link) for link in self.pagination(out, 1).find_all("a")]
+        assert names == ["Page 1", "Page 2", "Next page"]
+        names = [accessible_name(link) for link in self.pagination(out, 2).find_all("a")]
+        assert names == ["Previous page", "Page 1", "Page 2"]
+
+    def test_posts_are_listed_with_named_read_more_links(self, fallback_site, builder):
+        out = self.build(fallback_site, builder)
+
+        soup = BeautifulSoup(
+            (out / "blog" / "index.html").read_text(encoding="utf-8"), "html.parser"
+        )
+        assert [accessible_name(a) for a in soup.find_all("a", class_="read-more")] == [
+            "Read More: Second Post"
+        ]
