@@ -5,7 +5,7 @@ Provides secure path handling, validation, and sanitization.
 
 import re
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 import logging
 
 logger = logging.getLogger("sonne")
@@ -27,6 +27,16 @@ CONFIG_FILENAMES = [
 # its ancestors.
 CONFIG_SEARCH_DEPTH = 3
 
+# Device names Windows reserves regardless of extension.
+WINDOWS_RESERVED_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"COM{number}" for number in range(1, 10)]
+    + [f"LPT{number}" for number in range(1, 10)]
+)
+
+# Characters Windows forbids in filenames (< > : " | ? *) plus control characters.
+DANGEROUS_FILENAME_CHARS = r'[<>:"|?*\x00-\x1f\x7f]'
+
 
 def sanitize_filename(filename: str, replace_char: str = "_") -> str:
     """Sanitize a filename by removing/replacing dangerous characters.
@@ -46,49 +56,15 @@ def sanitize_filename(filename: str, replace_char: str = "_") -> str:
     filename = filename.replace("/", replace_char)
     filename = filename.replace("\\", replace_char)
 
-    # Remove other dangerous characters
-    # Windows reserved: < > : " | ? *
-    # Also remove control characters
-    dangerous_chars = r'[<>:"|?*\x00-\x1f\x7f]'
-    filename = re.sub(dangerous_chars, replace_char, filename)
+    filename = re.sub(DANGEROUS_FILENAME_CHARS, replace_char, filename)
 
     # Remove leading/trailing spaces and dots (problematic on Windows)
     filename = filename.strip(". ")
 
-    # Handle Windows reserved names
-    reserved_names = {
-        "CON",
-        "PRN",
-        "AUX",
-        "NUL",
-        "COM1",
-        "COM2",
-        "COM3",
-        "COM4",
-        "COM5",
-        "COM6",
-        "COM7",
-        "COM8",
-        "COM9",
-        "LPT1",
-        "LPT2",
-        "LPT3",
-        "LPT4",
-        "LPT5",
-        "LPT6",
-        "LPT7",
-        "LPT8",
-        "LPT9",
-    }
-    name_without_ext = Path(filename).stem.upper()
-    if name_without_ext in reserved_names:
+    if Path(filename).stem.upper() in WINDOWS_RESERVED_NAMES:
         filename = f"{replace_char}{filename}"
 
-    # Ensure filename isn't empty
-    if not filename:
-        filename = "unnamed"
-
-    return filename
+    return filename or "unnamed"
 
 
 def validate_path_within_root(path: Union[str, Path], root: Union[str, Path]) -> bool:
@@ -112,31 +88,6 @@ def validate_path_within_root(path: Union[str, Path], root: Union[str, Path]) ->
         # ValueError: path is not relative to root
         # RuntimeError: infinite loop in resolution (symlink loops)
         return False
-
-
-def safe_join(base: Union[str, Path], *paths: Union[str, Path]) -> Optional[Path]:
-    """Safely join paths, ensuring result is within base directory.
-
-    Args:
-        base: Base directory path.
-        *paths: Path components to join.
-
-    Returns:
-        Joined path if valid, None if path traversal detected.
-    """
-    try:
-        base = Path(base).resolve()
-        joined = base.joinpath(*paths).resolve()
-
-        # Verify the joined path is within base
-        if validate_path_within_root(joined, base):
-            return joined
-        else:
-            logger.error(f"Path traversal detected: {paths} escapes {base}")
-            return None
-    except (ValueError, RuntimeError) as e:
-        logger.error(f"Error joining paths {base} + {paths}: {e}")
-        return None
 
 
 def strip_relative_prefix(path: str) -> str:
@@ -175,25 +126,6 @@ def is_sonne_directory(directory: Union[str, Path]) -> bool:
     has_typical_structure = any((directory / d).exists() for d in typical_dirs)
 
     return has_config or has_typical_structure
-
-
-def get_relative_path_safe(path: Union[str, Path], start: Union[str, Path]) -> Optional[Path]:
-    """Get relative path safely, handling edge cases.
-
-    Args:
-        path: The path to make relative.
-        start: The starting path.
-
-    Returns:
-        Relative path, or None if paths are on different drives/not relatable.
-    """
-    try:
-        path = Path(path)
-        start = Path(start)
-        return path.relative_to(start)
-    except (ValueError, TypeError):
-        logger.warning(f"Cannot make {path} relative to {start}")
-        return None
 
 
 def normalize_web_path(path: Union[str, Path]) -> str:
