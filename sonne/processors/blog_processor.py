@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 from xml.sax.saxutils import escape
 
+from sonne.processors.blog_urls import BlogUrls
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.path_utils import (
     is_post_local_raster_image,
@@ -76,9 +77,9 @@ TAB_COLUMNS = 4
 class _GeneratedPage:
     """A listing page (index, taxonomy, archive) with no Markdown source."""
 
+    template: str
     page_data: dict[str, Any]
     placeholder_html: str
-    source_id: str
     rel_path: str
 
 
@@ -136,6 +137,7 @@ class BlogProcessor:
         self.stats: Optional[BuildStatistics] = None  # Injected by SiteGenerator
 
         self.blog_dir = self.config.blog_directory()
+        self.urls = BlogUrls(config)
         self.blog_content_dir = os.path.join(self.paths.get("content") or "", self.blog_dir)
         self.blog_output_dir = os.path.join(self.paths.get("output") or "", self.blog_dir)
         os.makedirs(self.blog_output_dir, exist_ok=True)
@@ -749,8 +751,11 @@ class BlogProcessor:
     def _render_generated_page(self, page: _GeneratedPage) -> str:
         """Render a listing page through its template and write it; returns the output path."""
         self.variable_manager.set_page_variables(page.page_data)
-        _, rendered = self.template_processor.process_page(
-            page.placeholder_html, False, page.source_id, self._template_variables(page.page_data)
+        rendered = self.template_processor.render_generated_page(
+            page.template,
+            page.page_data,
+            page.placeholder_html,
+            self._template_variables(page.page_data),
         )
         output_path = self._get_output_path(page.rel_path)
         _write_page(output_path, rendered)
@@ -761,11 +766,8 @@ class BlogProcessor:
         posts_per_page = self._posts_per_page()
         total_pages = math.ceil(len(self.posts) / posts_per_page)
         global_vars = self.variable_manager.variables.get("global", {})
-        logger.debug(
-            f"Using template "
-            f"{self.config.get('blog', 'list_template', default='blog_list.html')} "
-            f"for blog index pages"
-        )
+        list_template = self.config.get("blog", "list_template", default="blog_list.html")
+        logger.debug(f"Using template {list_template} for blog index pages")
 
         for page_num in range(1, total_pages + 1):
             start = (page_num - 1) * posts_per_page
@@ -779,10 +781,10 @@ class BlogProcessor:
                     "total": total_pages,
                     "has_prev": page_num > 1,
                     "has_next": has_next,
-                    "prev_url": self._index_page_url(page_num - 1) if page_num > 1 else None,
-                    "next_url": self._index_page_url(page_num + 1) if has_next else None,
+                    "prev_url": self.urls.index(page_num - 1) if page_num > 1 else None,
+                    "next_url": self.urls.index(page_num + 1) if has_next else None,
                 },
-                "url": self._index_page_url(page_num),
+                "url": self.urls.index(page_num),
             }
             # Index templates read globals (e.g. battery status) from page scope.
             for key, value in global_vars.items():
@@ -795,9 +797,9 @@ class BlogProcessor:
             )
             output_path = self._render_generated_page(
                 _GeneratedPage(
+                    list_template,
                     page_data,
                     f"<h1>{page_data['title']}</h1><p>{page_data['description']}</p>",
-                    "blog_index",
                     rel_path,
                 )
             )
@@ -821,10 +823,6 @@ class BlogProcessor:
             f"Invalid blog.posts_per_page ({posts_per_page!r}); using {DEFAULT_POSTS_PER_PAGE}"
         )
         return DEFAULT_POSTS_PER_PAGE
-
-    def _index_page_url(self, page_num: int) -> str:
-        blog_url = f"/{self.blog_dir}".rstrip("/")
-        return self._format_url(blog_url if page_num == 1 else f"{blog_url}/page/{page_num}")
 
     def _generate_taxonomy_pages(self) -> None:
         """Generate term and index pages for each enabled taxonomy."""
@@ -857,13 +855,13 @@ class BlogProcessor:
             singular: term["name"],
             f"{singular}_slug": term["slug"],
             "posts": term["posts"],
-            "url": self._format_url(f"/{self.blog_dir}/{taxonomy_type}/{term['slug']}"),
+            "url": self.urls.term_page(taxonomy_type, term["slug"]),
         }
         output_path = self._render_generated_page(
             _GeneratedPage(
+                self._taxonomy_template(taxonomy_type, "template", f"{singular}.html"),
                 page_data,
                 f"<!-- {singular.capitalize()} Page: {term['name']} -->",
-                f"{singular}_{term['slug']}",
                 os.path.join(self.blog_dir, taxonomy_type, term["slug"]),
             )
         )
@@ -874,17 +872,21 @@ class BlogProcessor:
             "title": taxonomy_type.capitalize(),
             "description": f"All {taxonomy_type}",
             taxonomy_type: self.taxonomies[taxonomy_type],
-            "url": self._format_url(f"/{self.blog_dir}/{taxonomy_type}"),
+            "url": self.urls.taxonomy_index(taxonomy_type),
         }
         output_path = self._render_generated_page(
             _GeneratedPage(
+                self._taxonomy_template(taxonomy_type, "list_template", f"{taxonomy_type}.html"),
                 page_data,
                 f"<!-- {taxonomy_type.capitalize()} Index Page -->",
-                f"{taxonomy_type}_index",
                 os.path.join(self.blog_dir, taxonomy_type),
             )
         )
         logger.debug(f"Generated {taxonomy_type} index page -> {output_path}")
+
+    def _taxonomy_template(self, taxonomy_type: str, template_key: str, default: str) -> str:
+        """blog.taxonomies.<type>.<template_key>, e.g. the tag page or tag index template."""
+        return self.config.get("blog", "taxonomies", taxonomy_type, template_key, default=default)
 
     def _generate_date_archives(self) -> None:
         """Generate year (/blog/YYYY/), month (/blog/YYYY/MM/) and day archive pages."""
@@ -931,7 +933,7 @@ class BlogProcessor:
         page_data = {
             "title": title,
             "posts": posts,
-            "url": self._format_url(f"/{self.blog_dir}/{'/'.join(date_parts)}/"),
+            "url": self.urls.archive(*date_parts),
             "template": archive_template,
             "archive_type": archive_type,
             "archive_year": year,
@@ -940,9 +942,9 @@ class BlogProcessor:
             "archive_day": day,
         }
         return _GeneratedPage(
+            archive_template,
             page_data,
             f"<!-- Archive: {title} -->",
-            "archive_" + "_".join(date_parts),
             os.path.join(self.blog_dir, *date_parts),
         )
 

@@ -1,4 +1,6 @@
-{% extends "base.html" %}
+{% extends sonne_base_template %}
+{# Built-in fallback, used when a site has no template of this name. It renders
+   inside the site's base.html, or a minimal built-in page if there is none. #}
 
 {% block content %}
 <div class="tags-page">
@@ -9,7 +11,7 @@
     {% if tags %}
     <div class="tag-cloud">
         {% for tag_name, tag_data in tags.items() %}
-        <a href="/blog/tags/{{ tag_data.slug }}/" class="tag tag-{{ tag_data.posts|length }}">
+        <a href="{{ tag_url(tag_data.name) }}" class="tag tag-{{ tag_data.posts|length }}">
             {{ tag_name }} ({{ tag_data.posts|length }})
         </a>
         {% endfor %}
@@ -18,6 +20,6 @@
     <p>No tags found.</p>
     {% endif %}
     
-    <p class="tag-nav"><a href="/blog/">Back to Blog</a></p>
+    <p class="tag-nav"><a href="{{ blog_url() }}">Back to Blog</a></p>
 </div>
 {% endblock %}

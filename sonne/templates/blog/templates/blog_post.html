@@ -25,7 +25,7 @@
         <h3>Tags</h3>
         <div class="tag-list">
             {% for tag in page.tags %}
-            <a href="/blog/tags/{{ tag | slugify }}/" class="tag">{{ tag }}</a>
+            <a href="{{ tag_url(tag) }}" class="tag">{{ tag }}</a>
             {% endfor %}
         </div>
     </div>
