@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Error tracebacks in library code now go through the `sonne` logger
   (shown with `-vv`/debug logging) instead of being printed straight to
   stderr.
+- `dithering.js` scans only newly added content when the page changes,
+  instead of the whole document.
+- README: complete Configuration Reference, config-file discovery rules,
+  and a "Dithered/Original Toggle" section with the dithering.css/js
+  include snippet. It replaces the unreferenced `sonne/static/base.html`,
+  which is removed. Keys that are accepted but currently have no effect
+  (`build.incremental`, `build.show_progress`, `build.statistics`,
+  `security.csp.*`, `images.grayscale_before_dither`,
+  `images.lazy_loading`) are marked as such.
 - `data/footer.py` scripts can call `get_post()`, and their `footer_custom`
   is marked HTML-safe exactly like `scripts/footer.py`.
 - A data script's `sonne_var()` that replaces an existing site variable (a
@@ -84,6 +93,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing file.
 - Sites without a `static/` directory no longer get `dithering.css`/`.js`
   when `images.dither` is false.
+- `dithering.js` no longer adds a second, broken toggle to blog-post
+  figures, and no longer wraps images that have no `_original` copy
+  (external URLs, `data:` URIs, SVGs including `logo.svg?v=2` and `.SVG`).
+- `dithering.js` builds `_original` URLs from the file name only, so a
+  query string or a dotted directory no longer yields a 404
+  (`q.png?v=1.2` → `q_original.png?v=1.2`).
+- Clicking the dithering toggle on a linked image no longer follows the link.
+- The config JSON schema no longer rejects valid configs: keys with
+  defaults are no longer required, custom environments in `url_style` are
+  accepted, and BCP 47 language tags such as `zh-Hans`, `es-419` and
+  `en-us` are allowed.
 - `blog.rss.path` pointing into a subdirectory (e.g. `feeds/blog.xml`)
   failed because the directory was never created.
 - `solar` scaffold (affects new `sonne new -t solar` sites): the battery
