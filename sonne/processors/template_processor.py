@@ -800,15 +800,18 @@ def _truncate_words(text: str, length: int = 30) -> str:
 def _original_image_src(src: str) -> str:
     """Map a displayed image URL to its undithered original.
 
-    Sized variants (``x_400.webp``) become ``x_400_original.webp``; other
-    images get ``_original`` before the extension.
+    ``_original`` goes before the file name's extension, leaving
+    directories, query string and fragment untouched (``x_400.webp`` ->
+    ``x_400_original.webp``, ``q.png?v=1.2`` -> ``q_original.png?v=1.2``).
+    Must match ``originalSrcFor`` in sonne/static/js/dithering.js.
     """
-    size_match = re.search(r"_(\d+)\.", src)
-    if size_match:
-        size = size_match.group(1)
-        return src.replace(f"_{size}.", f"_{size}_original.")
-    filename, ext = os.path.splitext(src)
-    return f"{filename}_original{ext}"
+    split = re.search(r"[?#]", src)
+    path, suffix = (src[: split.start()], src[split.start() :]) if split else (src, "")
+    file_name_start = path.rfind("/") + 1
+    extension_start = path.rfind(".")
+    if extension_start < file_name_start:
+        return f"{path}_original{suffix}"
+    return f"{path[:extension_start]}_original{path[extension_start:]}{suffix}"
 
 
 def _is_html_source_file(source_path) -> bool:

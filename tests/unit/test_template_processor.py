@@ -94,16 +94,9 @@ class TestProcessImageFilter:
         [
             ("/images/b_800.webp", "/images/b_800_original.webp"),
             ("/images/a.png", "/images/a_original.png"),
-            pytest.param(
-                "/v_1.2/a.png",
-                "/v_1.2/a_original.png",
-                marks=pytest.mark.xfail(strict=True, reason="B29: _original put after _<digits>."),
-            ),
-            pytest.param(
-                "q.png?v=1.2",
-                "q_original.png?v=1.2",
-                marks=pytest.mark.xfail(strict=True, reason="B29: _original put in query string"),
-            ),
+            ("/v_1.2/a.png", "/v_1.2/a_original.png"),
+            ("q.png?v=1.2", "q_original.png?v=1.2"),
+            ("/images/README", "/images/README_original"),
         ],
     )
     def test_original_goes_before_the_file_extension(self, site, src, original_src):
