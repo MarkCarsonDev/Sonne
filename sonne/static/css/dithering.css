@@ -6,13 +6,22 @@
     max-width: 100%;
 }
 
+/* No margin inside the container: the original (absolutely positioned at
+   the container's corner) and the toggle must line up with the image. */
 .dithered-image-container img {
+    margin: 0;
     max-width: 100%;
     height: auto;
     transition: opacity 0.3s ease;
 }
 
+/* The toggle is a <button>; reset browser button styling. */
 .dither-toggle {
+    appearance: none;
+    border: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
     position: absolute;
     top: 8px;
     right: 8px;
@@ -31,11 +40,21 @@
     z-index: 10;
 }
 
-.dithered-image-container:hover .dither-toggle {
+.dithered-image-container:hover .dither-toggle,
+.dithered-image-container:focus-within .dither-toggle {
     opacity: 1;
 }
 
+/* Keyboard focus: a white ring inside a dark one, visible on any image. */
+.dither-toggle:focus-visible {
+    opacity: 1;
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px #000;
+}
+
 .dither-toggle-dot {
+    display: block;
     width: 100%;
     height: 100%;
     background-color: #fff;
