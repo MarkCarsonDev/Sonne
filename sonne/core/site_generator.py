@@ -142,7 +142,7 @@ class SiteGenerator:
         if blog_enabled:
             self._collect_post_metadata()
         self._run_data_scripts()
-        self._copy_static_files()
+        self._copy_static_files(skip_images)
         if not skip_images:
             self._process_images(skip_cache)
         if blog_enabled:
@@ -175,12 +175,16 @@ class SiteGenerator:
         logger.debug(f"Global variables: {list(variables.get('global', {}).keys())}")
         logger.debug(f"Site variables: {list(variables.get('site', {}).keys())}")
 
-    def _copy_static_files(self) -> None:
+    def _copy_static_files(self, skip_images: bool) -> None:
         static_dir = self.paths.get("static")
         output_dir = self.paths["output"]
+        # Files the image step will write (dithered static/images) must not
+        # be overwritten with their raw sources first; with --skip-images
+        # nothing writes them, so they are copied raw.
+        skip = None if skip_images else self.image_processor.owns_static_file
         self._progress.step("Copying static files")
         with self._timed_phase("static_copy"):
-            copy_static_files(static_dir, output_dir)
+            copy_static_files(static_dir, output_dir, skip=skip)
             # Dithering CSS/JS ship with the package (single source of
             # truth) and are only emitted — always refreshed — when
             # dithering is enabled.
