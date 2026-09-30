@@ -223,11 +223,11 @@ Any other key under `site` is passed through to templates unchanged.
 | `url_style.prod` | `clean` | URL style in `prod`: `clean`, `html` or `directory` (see [URL Configuration](#url-configuration)). `url_style` may also be a single style for every environment. |
 | `url_style.dev` | `directory` | URL style in `dev`. |
 | `build.show_page_size` | `false` | Add a small page-weight label to every generated page. |
-| `build.incremental` | `true` | No effect (every build is a full build). |
-| `build.show_progress` | `true` | No effect; use `sonne build --no-progress`. |
-| `build.statistics` | `true` | No effect; use `sonne build --perf` for the build report. |
-| `security.csp.enabled` | `false` | No effect yet: the policy is computed but not added to generated pages. |
-| `security.csp.directives` | `{}` | CSP directives, each a list of sources (no effect yet; see above). |
+| `build.incremental` | none | Deprecated: has no effect and will be removed (every build is a full build). |
+| `build.show_progress` | none | Deprecated: has no effect and will be removed; use `sonne build --no-progress`. |
+| `build.statistics` | none | Deprecated: has no effect and will be removed; use `sonne build --perf` for the build report. |
+| `security.csp.enabled` | none | Deprecated with all of `security.csp`: has no effect and will be removed. Sonne never added the policy to pages; send a `Content-Security-Policy` header from your web server instead. |
+| `security.csp.directives` | none | Deprecated: see `security.csp.enabled`. |
 | `security.allow_embedded_python` | none | Removed (warns and is ignored). Use data scripts with `sonne_global()`/`sonne_filter()` plus `content.render_jinja`. |
 | `solar` | none | Template-specific: settings for the solar template's scripts. |
 
@@ -652,31 +652,31 @@ After building your site, the generated static files in the `output` directory c
 
 ### URL Configuration
 
-By default, Sonne generates HTML files with the `.html` extension (e.g., `about.html`). If you prefer clean URLs without the extension (e.g., `/about/` instead of `/about.html`), you have two options:
+`url_style` decides how pages are written and linked:
 
-1. **Configure URL rewriting on your web server**:
+| Style | `about.md` is written to | and linked as |
+|-------|--------------------------|---------------|
+| `clean` | `about/index.html` | `/about` |
+| `directory` | `about/index.html` | `/about/` |
+| `html` | `about.html` | `/about.html` |
 
-   For Nginx:
+It can be one style for everything (`url_style: clean`), or one per environment:
 
-   ```
-   location / {
-       try_files $uri $uri.html $uri/ =404;
-   }
-   ```
+```yaml
+url_style:
+  prod: clean       # the default environment
+  dev: directory    # used with --dev
+```
 
-   For Apache (.htaccess):
+The `environment` setting picks the entry (default `prod`; custom names work when `url_style` has an entry for them). Both `sonne build` and `sonne serve` use the configured environment, so a plain `sonne serve` previews the production settings; add `--dev` to either command to use the `dev` settings instead.
 
-   ```
-   RewriteEngine On
-   RewriteCond %{REQUEST_FILENAME} !-f
-   RewriteCond %{REQUEST_FILENAME} !-d
-   RewriteCond %{REQUEST_FILENAME}.html -f
-   RewriteRule ^(.*)$ $1.html [L]
-   ```
-2. **Manually structure your output as directories with index.html files**:
+For `clean` links (`/about`) your web server must serve `about/index.html` for `/about`; most static hosts do this already. With Nginx, for example:
 
-   - `/about.md` → `/about/index.html` (accessible as `/about/`)
-   - This requires additional post-processing of the generated files
+```
+location / {
+    try_files $uri $uri/ $uri.html =404;
+}
+```
 
 ### Basic Hosting Options
 
@@ -772,6 +772,7 @@ Options:
 
 ```bash
 sonne serve [-p PATH] [--port PORT] [--host HOST] [--browser/--no-browser] [--watch/--no-watch]
+            [--dev]
 ```
 
 Options:
@@ -781,6 +782,28 @@ Options:
 - `--host`: Host to serve on (default: localhost)
 - `--browser/--no-browser`: Open in browser (default: open)
 - `--watch/--no-watch`: Watch for changes (default: watch)
+- `--dev`: Serve the development environment (the `dev` settings, e.g. `url_style.dev`), like `sonne build --dev`
+
+With `--watch`, a running server rebuilds your site on every change, but it keeps running the Sonne code it started with. If Sonne itself is upgraded or edited meanwhile, the next rebuild warns you to restart `sonne serve`.
+
+### Update an old config file
+
+```bash
+sonne migrate [-p PATH] [-c CONFIG] [--write]
+```
+
+Renames deprecated keys to their replacements (e.g. `images.max_workers` → `images.parallel_workers`) and removes keys that no longer exist or have no effect (e.g. `build.statistics`, `security.csp`). Sonne keeps accepting those keys, with a warning, until they are removed for good; `migrate` makes the warnings go away.
+
+It prints each change and a diff. Nothing is written unless you pass `--write`; then the original is kept next to it as `sonne.yaml.bak` (or `.bak.1`, `.bak.2`, ... if a backup already exists).
+
+- YAML configs are edited in place, so comments and layout are kept. If a file can't be edited that way (for example, a section written in `{flow: style}`), Sonne rewrites the whole file instead and says clearly that comments and formatting will be lost, so you can review the diff or edit the listed keys by hand.
+- JSON configs are rewritten with 2-space indentation.
+
+Options:
+
+- `-p, --path`: Site directory (default: current directory); only the config file in that directory is migrated
+- `-c, --config`: Migrate this config file instead
+- `--write`: Apply the changes (default: dry run)
 
 ## Troubleshooting
 
