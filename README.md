@@ -552,10 +552,12 @@ A script named `footer.py`, placed in `data/`, your `paths.data` folder, or `scr
 
 ### Script API
 
-Scripts talk to Sonne through five functions in `sonne.script_api`. Import them, so your editor, Pylance/pyright and ruff know where they come from (Sonne ships type hints):
+Scripts talk to Sonne through seven functions in `sonne.script_api`. Import them, so your editor, Pylance/pyright and ruff know where they come from (Sonne ships type hints):
 
 ```python
-from sonne.script_api import get_post, sonne_config, sonne_filter, sonne_global, sonne_var
+from sonne.script_api import (
+    dither_image, get_post, get_variable, sonne_config, sonne_filter, sonne_global, sonne_var,
+)
 ```
 
 | Function | What it does |
@@ -565,6 +567,8 @@ from sonne.script_api import get_post, sonne_config, sonne_filter, sonne_global,
 | `sonne_filter(name, fn)` | Registers a Jinja filter: `{{ value \| name }}`. |
 | `sonne_global(name, value)` | Registers a Jinja global value or function: `{{ name }}`, `{{ name(...) }}`. |
 | `sonne_config(*keys, default=None)` | Reads the site's configuration (your config file merged over the defaults), e.g. `sonne_config("site", "base_url")`; one key returns a whole section. Returns `default` when the key is not set. The result is a copy, so changing it does not affect the build. |
+| `get_variable(name, default=None)` | Reads anything templates can see: `all_pages`, `all_blog_posts`, `tags`, data files, site config values, and variables set by scripts that ran earlier (scripts run in file-name order). Returns `default` when there is no such variable. The result is a copy; large values such as `all_blog_posts` (which includes rendered content) are copied on every call, so call it once and keep the result. |
+| `dither_image(image)` | Dithers a Pillow image with the site's `images.dither_*` settings and returns the result, ready to save as PNG. For images a script fetches or generates itself; resize first if needed. |
 
 Use `sonne_config` rather than opening `sonne.yaml` yourself: it is the configuration of the build that is running (the right file even with `sonne build -p other-site`, with defaults and deprecated-key renames applied).
 
@@ -574,6 +578,15 @@ from sonne.script_api import sonne_config, sonne_var
 
 city = sonne_config("site", "weather", "city", default="Berlin")
 sonne_var("weather_city", city)
+```
+
+```python
+# scripts/projects.py: the three newest pages under content/projects/
+from sonne.script_api import get_variable, sonne_var
+
+pages = get_variable("all_pages", [])
+projects = [p for p in pages if p["section"] == "projects" and p["url"] != "/projects/"]
+sonne_var("recent_projects", sorted(projects, key=lambda p: p.get("date", ""), reverse=True)[:3])
 ```
 
 The functions work only while Sonne runs the script during `sonne build` or `sonne serve` (including from helper modules the script calls). Anywhere else, for example when you run the script with plain `python`, they raise `RuntimeError`. Older scripts that call them without importing keep working: Sonne still provides the same names as globals, but the import is the recommended form.

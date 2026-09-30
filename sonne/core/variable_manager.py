@@ -14,7 +14,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import yaml
 from markupsafe import Markup
@@ -22,6 +22,11 @@ from markupsafe import Markup
 from sonne.script_api import ScriptHooks, running_script
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.path_utils import sorted_paths
+
+if TYPE_CHECKING:
+    from PIL import Image
+
+    from sonne.processors.image_processor import ImageProcessor
 
 logger = logging.getLogger("sonne")
 
@@ -69,6 +74,9 @@ class VariableManager:
         self._script_vars = set()
         self._executed_scripts = set()
         self._shadow_warned = set()
+        # Dithers images for data scripts (script_api.dither_image); one per
+        # build, created on first use.
+        self._image_processor: Optional[ImageProcessor] = None
 
         # Jinja extensions registered by data scripts via sonne_filter /
         # sonne_global. SiteGenerator hands these to the TemplateProcessor
@@ -111,6 +119,7 @@ class VariableManager:
         self._script_vars = set()
         self._executed_scripts = set()
         self._shadow_warned = set()
+        self._image_processor = None
         self.custom_filters = {}
         self.custom_globals = {}
 
@@ -321,13 +330,35 @@ class VariableManager:
             value = self.config.get(*keys, default=_NOT_CONFIGURED)
             return default if value is _NOT_CONFIGURED else copy.deepcopy(value)
 
+        def get_variable(name: str, default: Any = None) -> Any:
+            # Read-only for scripts, like sonne_config: global scope first
+            # (collected content, script variables), then site scope.
+            for scope in ("global", "site"):
+                if name in self.variables.get(scope, {}):
+                    return copy.deepcopy(self.variables[scope][name])
+            return default
+
+        def dither_image(image: "Image.Image") -> "Image.Image":
+            return self._script_image_processor().dither(image)
+
         return ScriptHooks(
             sonne_var=sonne_var,
             get_post=get_post,
             sonne_filter=sonne_filter,
             sonne_global=sonne_global,
             sonne_config=sonne_config,
+            get_variable=get_variable,
+            dither_image=dither_image,
         )
+
+    def _script_image_processor(self) -> "ImageProcessor":
+        """The ImageProcessor scripts dither with: one per build, made on first use."""
+        if self._image_processor is None:
+            # Imported here so loading core does not load the image pipeline.
+            from sonne.processors.image_processor import ImageProcessor
+
+            self._image_processor = ImageProcessor(self.config, {})
+        return self._image_processor
 
     def _warn_if_shadowing_site_variable(self, name: str) -> None:
         """Warn (once per load) when a script replaces a site config/data variable.
