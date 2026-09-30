@@ -3,37 +3,37 @@ Template processing for Sonne.
 Handles rendering templates, processing Markdown, and extracting front matter.
 """
 
+import json
+import logging
 import os
 import re
-import json
+from typing import Any, Dict, List, Tuple
+
+import jinja2
 import markdown
 import yaml
-import logging
-from typing import Dict, Any, List, Tuple
 from bs4 import BeautifulSoup
+from jinja2 import TemplateSyntaxError, UndefinedError
+from markupsafe import Markup
 
-try:
-    import jinja2
-    from jinja2 import TemplateSyntaxError, UndefinedError
-
-    # Try to import Markup from the correct location
-    try:
-        from markupsafe import Markup
-    except ImportError:
-        try:
-            from jinja2 import Markup
-        except ImportError:
-            # Fallback if Markup is not available
-            class Markup(str):
-                pass
-
-    JINJA_AVAILABLE = True
-except ImportError:
-    JINJA_AVAILABLE = False
-    TemplateSyntaxError = None
-    UndefinedError = None
+from sonne.utils.text import slugify
 
 logger = logging.getLogger("sonne")
+
+MARKDOWN_EXTENSIONS = [
+    "markdown.extensions.meta",
+    "markdown.extensions.tables",
+    "markdown.extensions.fenced_code",
+    "markdown.extensions.toc",
+    "markdown.extensions.smarty",
+    "markdown.extensions.footnotes",
+    "markdown.extensions.attr_list",
+    "markdown.extensions.def_list",
+    "markdown.extensions.abbr",
+    "markdown.extensions.sane_lists",
+]
+
+BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 
 # Markers identify Sonne's injected assets so they are never added twice.
 DITHER_CSS_MARKER = "Dithered image styling - injected by Sonne"
@@ -176,64 +176,72 @@ class TemplateProcessor:
         """
         self.config = config
         self.paths = paths
-        self.markdown_extensions = [
-            "markdown.extensions.meta",
-            "markdown.extensions.tables",
-            "markdown.extensions.fenced_code",
-            "markdown.extensions.toc",
-            "markdown.extensions.smarty",
-            "markdown.extensions.footnotes",
-            "markdown.extensions.attr_list",
-            "markdown.extensions.def_list",
-            "markdown.extensions.abbr",
-            "markdown.extensions.sane_lists",
-        ]
-
-        # Initialize Jinja2 environment if available
-        self.jinja_env = None
-        if JINJA_AVAILABLE:
-            # Make sure templates directory exists
-            template_dirs = []
-            if "templates" in paths and paths["templates"] and os.path.exists(paths["templates"]):
-                template_dirs.append(paths["templates"])
-
-            # Also add built-in templates
-            built_in_templates = os.path.join(os.path.dirname(__file__), "..", "templates")
-            if os.path.exists(built_in_templates):
-                template_dirs.append(built_in_templates)
-
-            if template_dirs:
-                logger.info(f"Template directories: {template_dirs}")
-
-                # Create Jinja environment
-                try:
-                    self.jinja_env = jinja2.Environment(
-                        loader=jinja2.FileSystemLoader(template_dirs),
-                        autoescape=jinja2.select_autoescape(["html", "xml"]),
-                        trim_blocks=True,
-                        lstrip_blocks=True,
-                    )
-
-                    # Add custom filters
-                    self._register_jinja_filters()
-
-                    logger.info("Jinja environment initialized successfully")
-                except Exception as e:
-                    logger.error(f"Error initializing Jinja environment: {e}")
-                    self.jinja_env = None
-            else:
-                logger.warning("No template directories found, template processing is disabled")
-
-        # Check if dithering is enabled
         self.dithering_enabled = self.config.get("images", "dither", default=True)
         logger.info(f"Dithering enabled: {self.dithering_enabled}")
+        self.jinja_env = self._create_jinja_env()
 
-        if JINJA_AVAILABLE and self.jinja_env:
-            # Add a global variable for dithering status
-            self.jinja_env.globals["dithering_enabled"] = self.dithering_enabled
+    def _create_jinja_env(self) -> jinja2.Environment:
+        """Create the Jinja environment: site templates first, then built-ins."""
+        template_dirs = [
+            directory
+            for directory in (self.paths.get("templates"), BUILTIN_TEMPLATES_DIR)
+            if directory and os.path.exists(directory)
+        ]
+        logger.info(f"Template directories: {template_dirs}")
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(template_dirs),
+            autoescape=jinja2.select_autoescape(["html", "xml"]),
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+        env.filters.update(
+            {
+                "date": _format_date,
+                "markdown": _render_markdown,
+                "word_count": _word_count,
+                # Must be the canonical slugify the blog uses for post URLs
+                # and taxonomy pages, or template-built tag links 404.
+                "slugify": slugify,
+                "truncate_words": _truncate_words,
+                "process_image": self._image_markup,
+            }
+        )
+        env.globals["dithering_enabled"] = self.dithering_enabled
+        logger.info("Jinja environment initialized successfully")
+        return env
 
-            # Add custom filters for image processing
-            self._register_jinja_filters()
+    def _image_markup(self, src, alt="Image", loading="lazy"):
+        """Jinja ``process_image`` filter: an <img>, or a dithered/original pair.
+
+        Args:
+            src: Image source URL (a sized variant such as ``x_400.webp`` or a
+                plain static image).
+            alt: Image alt text.
+            loading: Loading attribute value.
+
+        Returns:
+            HTML for the image, with the dithering toggle when dithering is enabled.
+        """
+        if not self.dithering_enabled:
+            return f'<img src="{src}" alt="{alt}" loading="{loading}">'
+        original_src = _original_image_src(src)
+        return Markup(f"""
+            <div class="dithered-image-container">
+                <img src="{src}" alt="{alt}" loading="{loading}" class="dithered">
+                <img src="{original_src}" alt="{alt}" loading="{loading}" class="original">
+                <div class="dither-toggle">
+                    <div class="dither-toggle-dot"></div>
+                    <div class="dither-toggle-dot empty"></div>
+                    <div class="dither-toggle-dot"></div>
+                    <div class="dither-toggle-dot empty"></div>
+                    <div class="dither-toggle-dot"></div>
+                    <div class="dither-toggle-dot empty"></div>
+                    <div class="dither-toggle-dot"></div>
+                    <div class="dither-toggle-dot empty"></div>
+                    <div class="dither-toggle-dot"></div>
+                </div>
+            </div>
+            """)
 
     def validate_templates(self) -> List[str]:
         """Validate all templates for syntax errors.
@@ -241,9 +249,6 @@ class TemplateProcessor:
         Returns:
             List of error messages. Empty list means all templates are valid.
         """
-        if not JINJA_AVAILABLE or not self.jinja_env:
-            return ["Jinja2 not available, cannot validate templates"]
-
         errors = []
         templates_dir = self.paths.get("templates")
 
@@ -287,79 +292,6 @@ class TemplateProcessor:
                 errors.append(f"{template_path}: {str(e)}")
 
         return errors
-
-    def _register_jinja_filters(self) -> None:
-        """Register custom Jinja2 filters."""
-        if not self.jinja_env:
-            return
-
-        # Date formatting
-        self.jinja_env.filters["date"] = lambda d, fmt="%B %d, %Y": d.strftime(fmt)
-
-        # Markdown rendering
-        self.jinja_env.filters["markdown"] = lambda text: markdown.markdown(
-            text, extensions=self.markdown_extensions
-        )
-
-        # Word count
-        self.jinja_env.filters["word_count"] = lambda text: len(text.split())
-
-        # Slugify — MUST be the same algorithm the blog uses for post URLs
-        # and taxonomy pages, or template-built tag links 404.
-        from sonne.utils.text import slugify as _canonical_slugify
-
-        self.jinja_env.filters["slugify"] = _canonical_slugify
-
-        # Truncate words
-        self.jinja_env.filters["truncate_words"] = lambda text, length=30: (
-            " ".join(text.split()[:length]) + ("..." if len(text.split()) > length else "")
-        )
-
-        def process_image_src(src, alt="Image", loading="lazy"):
-            """Process image source to add dithering support if enabled.
-
-            Args:
-                src: Image source URL
-                alt: Image alt text
-                loading: Loading attribute value
-
-            Returns:
-                HTML structure for the image with dithering support if enabled
-            """
-            if not self.dithering_enabled:
-                return f'<img src="{src}" alt="{alt}" loading="{loading}">'
-
-            # Extract size and determine original URL
-            size_match = re.search(r"_(\d+)\.", src)
-            if size_match:
-                size = size_match.group(1)
-                original_src = src.replace(f"_{size}.", f"_{size}_original.")
-            else:
-                # Check if it's a standard image (from /images/ directory)
-                filename, ext = os.path.splitext(src)
-                original_src = f"{filename}_original{ext}"
-
-            # Create HTML with dithering container
-            html = f"""
-            <div class="dithered-image-container">
-                <img src="{src}" alt="{alt}" loading="{loading}" class="dithered">
-                <img src="{original_src}" alt="{alt}" loading="{loading}" class="original">
-                <div class="dither-toggle">
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                </div>
-            </div>
-            """
-            return Markup(html)
-
-        self.jinja_env.filters["process_image"] = process_image_src
 
     def extract_front_matter(self, content: str) -> Tuple[Dict[str, Any], str]:
         """Extract front matter from content.
@@ -427,8 +359,6 @@ class TemplateProcessor:
             filters: Mapping of filter name -> callable.
             globals_: Mapping of global name -> value or callable.
         """
-        if not self.jinja_env:
-            return
         for name, fn in (filters or {}).items():
             if name in self.jinja_env.filters:
                 logger.warning(f"Script filter '{name}' collides with a built-in filter; ignored")
@@ -455,10 +385,8 @@ class TemplateProcessor:
             source: Source path for error messages.
 
         Returns:
-            Rendered content, or the original on error / no Jinja env.
+            Rendered content, or the original on error.
         """
-        if not self.jinja_env:
-            return content
         try:
             return self.jinja_env.from_string(content).render(**context)
         except Exception as e:
@@ -535,9 +463,7 @@ class TemplateProcessor:
         content_without_front_matter = self._replace_image_paths(content_without_front_matter)
 
         # Convert Markdown to HTML
-        html_content = markdown.markdown(
-            content_without_front_matter, extensions=self.markdown_extensions
-        )
+        html_content = _render_markdown(content_without_front_matter)
 
         # Process image tags for dithering support
         if self.dithering_enabled and rewrite_dithered:
@@ -826,7 +752,7 @@ class TemplateProcessor:
 
         logger.debug(f"Template for {source_path}: {template_name}")
 
-        if template_name and self.jinja_env:
+        if template_name:
             try:
                 # Try to get the template
                 template = self.jinja_env.get_template(template_name)
@@ -894,7 +820,7 @@ class TemplateProcessor:
 
                 return front_matter, processed_content
 
-            except jinja2.exceptions.TemplateNotFound:
+            except jinja2.TemplateNotFound:
                 logger.warning(f"Template not found: {template_name}")
                 # Fall back to direct HTML content
                 processed_content = f"<html><body><h1>{front_matter.get('title', 'Untitled')}</h1>{html_content}</body></html>"
@@ -961,3 +887,38 @@ def _append_once(soup: BeautifulSoup, parent, tag_name: str, text: str, marker: 
     tag = soup.new_tag(tag_name)
     tag.string = text
     parent.append(tag)
+
+
+def _format_date(value, fmt="%B %d, %Y") -> str:
+    """Jinja ``date`` filter."""
+    return value.strftime(fmt)
+
+
+def _render_markdown(text: str) -> str:
+    """Convert Markdown to HTML with Sonne's extension set."""
+    return markdown.markdown(text, extensions=MARKDOWN_EXTENSIONS)
+
+
+def _word_count(text: str) -> int:
+    """Jinja ``word_count`` filter."""
+    return len(text.split())
+
+
+def _truncate_words(text: str, length: int = 30) -> str:
+    """Jinja ``truncate_words`` filter: first ``length`` words, "..." if cut."""
+    words = text.split()
+    return " ".join(words[:length]) + ("..." if len(words) > length else "")
+
+
+def _original_image_src(src: str) -> str:
+    """Map a displayed image URL to its undithered original.
+
+    Sized variants (``x_400.webp``) become ``x_400_original.webp``; other
+    images get ``_original`` before the extension.
+    """
+    size_match = re.search(r"_(\d+)\.", src)
+    if size_match:
+        size = size_match.group(1)
+        return src.replace(f"_{size}.", f"_{size}_original.")
+    filename, ext = os.path.splitext(src)
+    return f"{filename}_original{ext}"
