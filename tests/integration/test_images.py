@@ -155,7 +155,6 @@ class TestStaticImages:
         # A failed dither falls back to copying the source unchanged
         assert dithered.read_bytes() != source.read_bytes()
 
-    @pytest.mark.xfail(strict=True, reason="B19: skip_cache not forwarded to static images")
     def test_skip_cache_reprocesses_static_images(self, site_factory, builder, image_factory):
         site = site_factory("blog", overlay="blog_site")
         image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")

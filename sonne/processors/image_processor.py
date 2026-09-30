@@ -276,10 +276,8 @@ class ImageProcessor:
         image_paths = _find_images(directory, used_paths)
         if not image_paths:
             return
-        if is_static:
-            self._run_for_each(self._process_static_image, image_paths)
-        else:
-            self._run_for_each(lambda p: self.process_image(p, skip_cache=skip_cache), image_paths)
+        process = self._process_static_image if is_static else self.process_image
+        self._run_for_each(lambda path: process(path, skip_cache=skip_cache), image_paths)
 
     def _run_for_each(self, process: Callable[[str], Any], image_paths: List[str]) -> None:
         """Run ``process`` on every path, in a thread pool when enabled; log failures."""
