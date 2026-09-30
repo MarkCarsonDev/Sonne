@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   e.g. `sonne_config("site", "base_url")`, instead of locating and
   re-reading the config file themselves. Values include defaults, and the
   result is a copy, so scripts can't change the build's configuration.
+- The `data` namespace: every data file is available in templates as
+  `data.<file name>` and every script variable as `data.<name>` (also
+  `site.data.*`). New `variables.flatten_data` (default `true`) keeps the
+  old flat exposure as well; set it to `false` so data and script variables
+  can never replace site config. Two data files with the same name in
+  different folders now warn.
 - `sonne migrate` updates a site's config file for deprecated keys: renames
   them, removes no-effect or removed ones, and shows a diff. Dry run by
   default; `--write` applies it and keeps a `.bak` backup. YAML comments and
@@ -64,6 +70,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `security.csp` (`enabled`/`directives`) has no effect and will be
   removed; Sonne never added the policy to pages. Send a
   `Content-Security-Policy` header from your web server instead.
+- Flat access to data files and script variables (mapping keys merged into
+  `site`, script variables at the top level). Use `data.<name>`; set
+  `variables.flatten_data: false` to opt in now. The default will become
+  `false` in a future release.
 - Run `sonne migrate` to see (and with `--write`, apply) the config
   changes for deprecated keys.
 
