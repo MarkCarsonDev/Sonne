@@ -402,12 +402,12 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Enable CSP header generation",
+              "description": "Currently has no effect: the policy is computed by Config.get_csp_meta_tag() but not yet added to generated pages",
               "default": false
             },
             "directives": {
               "type": "object",
-              "description": "CSP directives",
+              "description": "CSP directives, each a list of sources (currently has no effect; see csp.enabled)",
               "additionalProperties": {
                 "type": "array",
                 "items": {

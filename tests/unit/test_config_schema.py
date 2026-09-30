@@ -158,7 +158,28 @@ class TestSchemaAcceptsWhatSonneAccepts:
         assert re.fullmatch(SCHEMA_KEYS["site.language"]["pattern"], language)
 
     @pytest.mark.parametrize(
-        "key", ["build.incremental", "build.show_progress", "build.statistics"]
+        "key",
+        [
+            "build.incremental",
+            "build.show_progress",
+            "build.statistics",
+            "security.csp.enabled",
+            "security.csp.directives",
+        ],
     )
     def test_unused_keys_say_they_have_no_effect(self, key):
         assert "no effect" in SCHEMA_KEYS[key]["description"].lower()
+
+
+README = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+DOCUMENTED_LEAF_KEYS = sorted(
+    key
+    for key, node in SCHEMA_KEYS.items()
+    if not (node.get("type") == "object" and node.get("properties"))
+)
+
+
+class TestReadmeDocumentsEveryKey:
+    @pytest.mark.parametrize("key", DOCUMENTED_LEAF_KEYS)
+    def test_key_appears_in_readme_reference(self, key):
+        assert f"`{key}`" in README
