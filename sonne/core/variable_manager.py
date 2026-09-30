@@ -15,20 +15,11 @@ from pathlib import Path
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
+from markupsafe import Markup
+
 from sonne.utils.path_utils import sorted_paths
 
 logger = logging.getLogger("sonne")
-
-# Try to import Markup from the correct location
-try:
-    from markupsafe import Markup
-except ImportError:
-    try:
-        from jinja2 import Markup
-    except ImportError:
-        # Fallback if Markup is not available
-        class Markup(str):
-            pass
 
 
 DEFAULT_VARIABLE_FILE = "sonne_variables.json"

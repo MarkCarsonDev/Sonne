@@ -19,15 +19,8 @@ from shutil import copytree, ignore_patterns
 from typing import List
 
 import yaml
-
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-
-    RICH_AVAILABLE = True
-except ImportError:
-    RICH_AVAILABLE = False
-    Console = None
+from rich.console import Console
+from rich.panel import Panel
 
 from sonne.core.config import Config
 from sonne.core.site_generator import SiteGenerator
@@ -39,8 +32,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sonne")
 
-# Initialize rich console if available
-console = Console() if RICH_AVAILABLE else None
+# Rich output for interactive use. Setting this to None routes CLI output
+# through the "sonne" logger instead (plain text; used by tests).
+console = Console()
 
 DEFAULT_SERVE_HOST = "localhost"
 DEFAULT_SERVE_PORT = 8000
@@ -49,7 +43,7 @@ OBSERVER_STOP_TIMEOUT_SECONDS = 5
 
 
 def _use_rich() -> bool:
-    return bool(console and RICH_AVAILABLE)
+    return console is not None
 
 
 def _print_traceback_if_verbose() -> None:
