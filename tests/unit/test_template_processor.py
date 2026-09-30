@@ -4,6 +4,7 @@ import pytest
 
 from sonne.core.config import Config
 from sonne.core.site_generator import SiteGenerator
+from sonne.utils.build_stats import BuildStatistics
 
 EMPTY_SCOPES = {"global": {}, "site": {}, "page": {}}
 
@@ -97,3 +98,20 @@ class TestProcessImageFilter:
         html = self.render(site, dither=True)
         assert '<img src="pic.png"' in html
         assert self.ESCAPED_ALT in html
+
+
+class TestTemplateStatistics:
+    def render(self, site, template):
+        source = write(site / "content" / "page.md", f"---\ntemplate: {template}\n---\n# Page\n")
+        processor = make_processor(site)
+        processor.stats = BuildStatistics()
+        processor.process_page(source.read_text(encoding="utf-8"), True, str(source), EMPTY_SCOPES)
+        return processor.stats
+
+    def test_rendered_template_is_counted(self, site):
+        stats = self.render(site, "page.html")
+        assert (stats.templates_rendered, stats.template_errors) == (1, 0)
+
+    def test_missing_template_is_counted_as_error(self, site):
+        stats = self.render(site, "missing.html")
+        assert (stats.templates_rendered, stats.template_errors) == (0, 1)

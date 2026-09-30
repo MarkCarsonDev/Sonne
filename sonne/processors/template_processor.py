@@ -252,6 +252,7 @@ class TemplateProcessor:
         """
         self.config = config
         self.paths = paths
+        self.stats = None  # Injected by SiteGenerator
         self.dithering_enabled = self.config.get("images", "dither", default=True)
         logger.info(f"Dithering enabled: {self.dithering_enabled}")
         self.jinja_env = self._create_jinja_env()
@@ -681,13 +682,21 @@ class TemplateProcessor:
             context = self._template_context(front_matter, html_content, source_path, variables)
             rendered = template.render(**context)
             logger.debug(f"Rendered template {template_name} for {source_path}")
+            self._count("templates_rendered")
             return rendered
         except jinja2.TemplateNotFound:
             logger.warning(f"Template not found: {template_name}")
+            self._count("template_errors")
             return _untemplated_page(front_matter, html_content)
         except Exception as e:
             logger.error(f"Error rendering template {template_name}: {e}")
+            self._count("template_errors")
             return _error_page(e, html_content)
+
+    def _count(self, counter: str) -> None:
+        """Increment a BuildStatistics counter, if statistics are being collected."""
+        if self.stats:
+            setattr(self.stats, counter, getattr(self.stats, counter) + 1)
 
     def _template_context(
         self,

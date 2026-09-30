@@ -131,8 +131,8 @@ class ImageProcessor:
         self.cache_file = None
         self.stats = None  # Injected by SiteGenerator
         self._warned_dither_methods: Set[str] = set()
-        # Images are processed in a thread pool.
-        self._warnings_lock = threading.Lock()
+        # Images are processed in a thread pool; guards warnings and stats.
+        self._lock = threading.Lock()
 
         # Setup cache if a cache directory is configured
         if "cache" in self.paths:
@@ -333,6 +333,7 @@ class ImageProcessor:
             # cache but wipes the output dir)
             if os.path.exists(output_path) and os.path.exists(original_path):
                 logger.debug(f"Using cached version of static image: {source_path}")
+                self._count(images_cached=1, cache_hits=1)
                 return
             logger.debug(
                 f"Cache hit for static image {source_path} but outputs missing; reprocessing"
@@ -344,6 +345,12 @@ class ImageProcessor:
             )
             if not skip_cache:
                 self.cache[cache_key] = True
+            self._count(
+                images_processed=1,
+                cache_misses=0 if skip_cache else 1,
+                original_image_size=os.path.getsize(source_path),
+                processed_image_size=os.path.getsize(output_path),
+            )
         except (IOError, OSError) as e:
             logger.error(f"I/O error processing static image {source_path}: {e}")
             self._copy_static_image(source_path)
@@ -420,6 +427,7 @@ class ImageProcessor:
         if not skip_cache:
             cached = self._cached_variants(cache_key, source_path)
             if cached is not None:
+                self._count(images_cached=1, cache_hits=1)
                 if self.stats:
                     self.stats.record_image(source_path, time.perf_counter() - started, cached=True)
                 return cached
@@ -436,6 +444,7 @@ class ImageProcessor:
                     results.setdefault(key, {})[fmt] = rel_path
             if not skip_cache and self.cache_file:
                 self.cache[cache_key] = results
+            self._count(images_processed=1, cache_misses=0 if skip_cache else 1)
         except Exception as e:
             logger.error(
                 f"Error processing image {source_path}: {e}",
@@ -629,9 +638,22 @@ class ImageProcessor:
             self._warn_unknown_dither_method(method)
             return _bayer_dither(img, colors)
 
+    def _count(self, **increments: int) -> None:
+        """Add to BuildStatistics counters, if statistics are being collected.
+
+        Only successes are counted. Byte sizes are recorded for static images
+        only: a content image becomes many variants, with no single
+        processed size to set against the source.
+        """
+        if not self.stats:
+            return
+        with self._lock:
+            for counter, amount in increments.items():
+                setattr(self.stats, counter, getattr(self.stats, counter) + amount)
+
     def _warn_unknown_dither_method(self, method: str) -> None:
         """Warn about an unknown dither method once per processor, not per image."""
-        with self._warnings_lock:
+        with self._lock:
             if method in self._warned_dither_methods:
                 return
             self._warned_dither_methods.add(method)

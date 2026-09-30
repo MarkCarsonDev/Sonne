@@ -201,3 +201,32 @@ class TestUnknownDitherMethod:
             processor.dither(image)
         warnings = [r.message for r in caplog.records if "bogus" in r.message]
         assert len(warnings) == 1 and "bayer" in warnings[0]
+
+
+class TestBuildStatistics:
+    def build(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        overrides = {("images", "dither"): True}
+        generator, _ = builder(site, config_overrides=overrides)
+        return site, overrides, generator.stats
+
+    def test_first_build_counts_processed_images_as_cache_misses(
+        self, site_factory, builder, image_factory
+    ):
+        _, _, stats = self.build(site_factory, builder, image_factory)
+        assert stats.images_processed >= 2
+        assert (stats.images_cached, stats.cache_misses) == (0, stats.images_processed)
+
+    def test_rebuild_counts_cached_images_as_cache_hits(self, site_factory, builder, image_factory):
+        site, overrides, _ = self.build(site_factory, builder, image_factory)
+        generator, _ = builder(site, config_overrides=overrides)
+        stats = generator.stats
+        assert stats.images_cached >= 2
+        assert (stats.images_processed, stats.cache_hits) == (0, stats.images_cached)
+
+    def test_static_image_sizes_are_recorded(self, site_factory, builder, image_factory):
+        _, _, stats = self.build(site_factory, builder, image_factory)
+        assert stats.original_image_size > 0
+        assert stats.processed_image_size > 0
