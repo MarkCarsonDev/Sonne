@@ -456,7 +456,7 @@ class TestFallbackTemplates:
         _, out = builder(site, BLOG_ON, skip_images=True)
 
         html = (out / "blog" / "tags" / "alpha" / "index.html").read_text(encoding="utf-8")
-        assert '<main id="main-content">' in html
+        assert '<main id="main" tabindex="-1">' in html
         assert "Posts Tagged: alpha" in html
 
     def test_site_template_takes_precedence(self, site_factory, builder):

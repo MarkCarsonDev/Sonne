@@ -112,8 +112,8 @@ class TestSonneGeneratedPages:
             "html.parser",
         )
         skip = soup.find("a", class_="skip-link")
-        assert skip is not None and skip["href"] == "#main-content"
-        assert soup.find("main", id="main-content") is not None
+        assert skip is not None and skip["href"] == "#main"
+        assert soup.find("main", id="main") is not None
 
     def test_term_lists_are_lists(self, fallback_site, builder):
         _, out = builder(fallback_site, BLOG_AND_LABELS)
@@ -221,3 +221,16 @@ class TestBlogIndexFallback:
         assert [accessible_name(a) for a in soup.find_all("a", class_="read-more")] == [
             "Read More: Second Post"
         ]
+
+
+class TestBuildTimeChecker:
+    def test_sonne_generated_site_has_no_findings(self, fallback_site, builder):
+        from sonne.utils.a11y_check import check_output_dir
+
+        generator, _ = builder(fallback_site, {**BLOG_AND_LABELS, ("blog", "posts_per_page"): 1})
+
+        report = check_output_dir(generator.paths["output"])
+        assert report.checked_page_count >= 8
+        assert {
+            page: [f.describe() for f in findings] for page, findings in report.pages.items()
+        } == {}

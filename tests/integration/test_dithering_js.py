@@ -367,6 +367,10 @@ CONTROLS
       };
     }
     var results = { initial: state() };
+    var oneBox = document.getElementById("one").closest(".dithered-image-container");
+    results.altPair = Array.prototype.map.call(oneBox.querySelectorAll("img"), function (img) {
+      return img.getAttribute("alt");
+    });
     var injected = document.querySelector(".sonne-original-images-toggle");
     results.placedBeforeFirstImage = Boolean(injected) &&
       injected.nextElementSibling === document.getElementById("one").closest(".dithered-image-container");
@@ -512,3 +516,8 @@ class TestMotionAndContrast:
 
     def test_toggle_is_not_faded(self, default_preference):
         assert default_preference["css"]["toggleOpacity"] == "1"
+
+
+class TestImagePairs:
+    def test_dithered_and_original_share_the_alt_text(self, default_preference):
+        assert default_preference["altPair"] == ["One", "One"]

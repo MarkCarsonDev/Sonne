@@ -1,4 +1,5 @@
-{# Minimal page used by Sonne's fallback templates when a site has no base.html. #}
+{# Minimal page used by Sonne's fallback templates when a site has no base.html.
+   Same skip-link approach as the starter templates: "#main", focusable main. #}
 <!DOCTYPE html>
 <html lang="{{ site.language | default('en') }}">
 <head>
@@ -9,14 +10,16 @@
         /* Off-screen until focused, then shown in place (WCAG 2.4.1). */
         .skip-link { position: absolute; left: -10000px; }
         .skip-link:focus { position: static; }
+        /* The skip link's target: focused programmatically, needs no ring. */
+        main:focus { outline: none; }
     </style>
 </head>
 <body>
-    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <a class="skip-link" href="#main">Skip to content</a>
     <header>
         <p><a href="/">{{ site.title | default('Home') }}</a></p>
     </header>
-    <main id="main-content">
+    <main id="main" tabindex="-1">
         {% block content %}{% endblock %}
     </main>
 </body>
