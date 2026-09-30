@@ -153,6 +153,12 @@ class TestProcessImageFilter:
         html = self.render(site, dither=True, src=src)
         assert f'src="{original_src}"' in html
 
+    @pytest.mark.xfail(strict=True, reason="B-solar: toggle rendered for an undithered image")
+    def test_image_the_build_did_not_dither_gets_no_toggle(self, site):
+        html = self.render(site, dither=True, src="/images/never-dithered.png")
+        assert "dithered-image-container" not in html
+        assert '<img src="/images/never-dithered.png"' in html
+
     def test_plain_image_renders_as_markup_with_escaped_alt(self, site):
         html = self.render(site, dither=False)
         assert '<img src="pic.png"' in html

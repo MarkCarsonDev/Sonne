@@ -56,6 +56,8 @@ HARNESS = """<!DOCTYPE html>
   <div class="dither-toggle"></div>
 </div>
 <a href="#navigated"><img id="linked" src="/images/l.png"></a>
+<img id="unmarked" src="/images/not-dithered.png" alt="never dithered">
+<img id="marked" src="/images/dithered/m.png" data-original-src="/images/m.png" alt="M">
 <pre id="results"></pre>
 <script src="dithering.js"></script>
 <script>
@@ -208,6 +210,18 @@ class TestImagesLeftAlone:
         assert harness_results["blog"] is None
 
 
+class TestOnlyPipelineMarkedImages:
+    """Only images the build dithered (data-original-src) get a toggle."""
+
+    @pytest.mark.xfail(strict=True, reason="B-solar: every same-origin image is wrapped")
+    def test_unmarked_image_is_not_wrapped(self, harness_results):
+        assert harness_results["unmarked"] is None
+
+    @pytest.mark.xfail(strict=True, reason="B-solar: the original URL is guessed, not read")
+    def test_marked_image_toggles_to_its_recorded_original(self, harness_results):
+        assert harness_results["marked"] == "/images/m.png"
+
+
 class TestToggle:
     def test_server_rendered_toggle_works(self, harness_results):
         assert harness_results["serverToggled"] is True
@@ -217,8 +231,9 @@ class TestToggle:
         assert harness_results["hash"] == ""
 
     def test_each_container_has_one_toggle(self, harness_results):
-        # plain, sized, underscore, query, dotdir, linked, dynamic + server + legacy
-        assert harness_results["toggleCount"] == 9
+        # plain, sized, underscore, query, dotdir, linked, dynamic, unmarked
+        # + server + legacy
+        assert harness_results["toggleCount"] == 10
 
 
 LABEL = "Show original image"
