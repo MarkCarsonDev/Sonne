@@ -5,7 +5,7 @@ Provides secure path handling, validation, and sanitization.
 
 import re
 from pathlib import Path
-from typing import Union
+from typing import Iterable, List, Union
 import logging
 
 logger = logging.getLogger("sonne")
@@ -92,6 +92,16 @@ def validate_path_within_root(path: Union[str, Path], root: Union[str, Path]) ->
         # RuntimeError: infinite loop in resolution (symlink loops)
         # OSError: the path cannot be resolved (e.g. unavailable drive)
         return False
+
+
+def sorted_paths(paths: Iterable[Union[str, Path]]) -> List[Path]:
+    """Paths in a platform-independent order (case-sensitive, by '/'-joined text).
+
+    Directory listings and globs come back in filesystem order, which
+    differs between OSes (and Path ordering itself is case-insensitive on
+    Windows only), so anything whose result depends on order sorts first.
+    """
+    return sorted((Path(path) for path in paths), key=lambda path: path.as_posix())
 
 
 def is_post_local_raster_image(src: str) -> bool:

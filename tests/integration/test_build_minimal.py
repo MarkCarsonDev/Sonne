@@ -129,7 +129,6 @@ def test_rendered_templates_are_counted(site_factory, builder):
 
 
 class TestPageDiscovery:
-    @pytest.mark.xfail(strict=True, reason="B42: pages render in filesystem (glob) order")
     def test_pages_render_in_sorted_order(self, site_factory, builder, monkeypatch):
         from pathlib import Path
 

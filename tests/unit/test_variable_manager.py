@@ -288,7 +288,6 @@ class TestDeterministicOrder:
             Path, "glob", lambda self, pattern: reversed(list(real_glob(self, pattern)))
         )
 
-    @pytest.mark.xfail(strict=True, reason="B42: data scripts run in filesystem (glob) order")
     def test_data_scripts_run_in_sorted_order(self, tmp_path, reversed_glob):
         scripts = tmp_path / "scripts"
         scripts.mkdir()
@@ -299,7 +298,6 @@ class TestDeterministicOrder:
 
         assert names == ["a.py", "b.py", "c.py"]
 
-    @pytest.mark.xfail(strict=True, reason="B42: data files load in filesystem (glob) order")
     def test_later_data_file_wins_in_sorted_order(self, tmp_path, reversed_glob):
         data = tmp_path / "data"
         data.mkdir()

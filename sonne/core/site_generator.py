@@ -24,7 +24,7 @@ from sonne.utils.file_utils import (
 )
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import IMAGE_EXTENSIONS, MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
-from sonne.utils.path_utils import validate_path_within_root
+from sonne.utils.path_utils import sorted_paths, validate_path_within_root
 from sonne.utils.page_size import inject_page_size_labels
 
 logger = logging.getLogger("sonne")
@@ -240,7 +240,7 @@ class SiteGenerator:
         blog_dir = Path(content_dir, blog_dir_name).resolve() if blog_dir_name else None
         return [
             file_path
-            for file_path in Path(content_dir).glob("**/*.*")
+            for file_path in sorted_paths(Path(content_dir).glob("**/*.*"))
             if file_path.suffix.lower() in PAGE_EXTENSIONS
             and not (blog_dir and validate_path_within_root(file_path, blog_dir))
         ]

@@ -15,6 +15,8 @@ from pathlib import Path
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
+from sonne.utils.path_utils import sorted_paths
+
 logger = logging.getLogger("sonne")
 
 # Try to import Markup from the correct location
@@ -196,7 +198,7 @@ class VariableManager:
         if not self.data_dir:
             return
         for pattern in DATA_FILE_PATTERNS:
-            for file_path in Path(self.data_dir).glob(f"**/{pattern}"):
+            for file_path in sorted_paths(Path(self.data_dir).glob(f"**/{pattern}")):
                 try:
                     self._load_data_file(str(file_path), "site")
                 except Exception as e:
@@ -231,7 +233,7 @@ class VariableManager:
             return []
         return [
             script_path
-            for script_path in Path(self.scripts_dir).glob("*.py")
+            for script_path in sorted_paths(Path(self.scripts_dir).glob("*.py"))
             if not script_path.name.startswith("_")
         ]
 
