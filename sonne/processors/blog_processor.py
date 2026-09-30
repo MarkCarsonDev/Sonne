@@ -381,14 +381,21 @@ class BlogProcessor:
         scripts populated their variables.
         """
         for post in self.posts:
-            try:
-                self._render_post_content_jinja(post)
-                self._copy_post_images(post, os.path.dirname(self._post_output_path(post)))
-            except Exception as e:
-                logger.error(f"Error processing images for post {post.get('title', '?')}: {e}")
-
+            self._prepare_post(post)
         for post in self.posts:
             self._render_timed_post(post)
+
+    def _prepare_post(self, post: Dict[str, Any]) -> None:
+        """Pass 1 for one post: content Jinja, then images. Each step's failure is logged apart."""
+        try:
+            self._render_post_content_jinja(post)
+        except Exception as e:
+            _log_error(f"Error rendering content Jinja for post {post.get('title', '?')}: {e}")
+        try:
+            output_dir = os.path.dirname(self._post_output_path(post))
+        except ValueError:
+            return  # path traversal; _get_output_path has logged it
+        self._copy_post_images(post, output_dir)  # logs its own errors
 
     def _post_output_path(self, post: Dict[str, Any]) -> str:
         return self._get_output_path(os.path.join(self.blog_dir, post["url"].rstrip("/")))
