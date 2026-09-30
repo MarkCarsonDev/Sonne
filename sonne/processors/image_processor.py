@@ -515,7 +515,7 @@ class ImageProcessor:
                 yield f"{width}_original", fmt, rel_path
             if not (settings.dither and width in settings.dither_sizes):
                 continue
-            dithered = self._apply_dither(resized)
+            dithered = self.dither(resized)
             logger.debug(f"Applied dithering to image {stem} at width {width}")
             for fmt, rel_path in self._save_formats(
                 dithered,
@@ -554,6 +554,17 @@ class ImageProcessor:
                 logger.error(f"Error saving {variant_kind} image in {fmt} format: {e}")
                 continue
             yield fmt, rel_path
+
+    def dither(self, image: "Image.Image") -> "Image.Image":
+        """Dither an image with the site's configured method and palette size.
+
+        Args:
+            image: Source PIL Image (any mode).
+
+        Returns:
+            The dithered image, ready to save as PNG.
+        """
+        return self._apply_dither(image)
 
     def _apply_dither(
         self, img: "Image.Image", method: str = None, colors: int = None
@@ -617,7 +628,7 @@ class ImageProcessor:
 
             with Image.open(input_path) as img:
                 img = ImageOps.exif_transpose(img)
-                dithered = self._apply_dither(img)
+                dithered = self.dither(img)
                 dithered.save(output_path, optimize=True, format="PNG")
 
             logger.debug(f"Dithered image: {input_path} -> {output_path}")
