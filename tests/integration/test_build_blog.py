@@ -78,3 +78,41 @@ class TestTaxonomyAndArchivePages:
         _, _, out = blog_build
         html = (out / "blog" / "2025" / "02" / "index.html").read_text(encoding="utf-8")
         assert "February 2025" in html and "Hello World" in html
+
+
+CODE_SAMPLE_POST = """---
+title: Code Sample
+date: 2025-05-01
+---
+
+Real image: ![Red](red.png)
+
+```markdown
+![Example](not-a-real-file.png)
+```
+
+Inline too: `![x](also-missing.png)`
+"""
+
+
+class TestPostImagesInCode:
+    @pytest.fixture
+    def code_sample_build(self, site_factory, builder, image_factory, caplog):
+        site = site_factory("blog", overlay="blog_site")
+        post_dir = site / "content" / "blog"
+        (post_dir / "2025-05-01-code-sample.md").write_text(CODE_SAMPLE_POST, encoding="utf-8")
+        image_factory(post_dir / "red.png")
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            _, out = builder(site)
+        return out, [record.getMessage() for record in caplog.records]
+
+    def test_real_image_is_published(self, code_sample_build):
+        out, _ = code_sample_build
+        assert (out / "blog" / "2025" / "05" / "01" / "code-sample" / "red.png").exists()
+
+    @pytest.mark.xfail(
+        strict=True, reason="B26: image syntax inside code samples is treated as a real image"
+    )
+    def test_image_syntax_in_code_is_ignored(self, code_sample_build):
+        _, messages = code_sample_build
+        assert not any("Image not found" in message for message in messages)
