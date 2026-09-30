@@ -121,3 +121,44 @@ class TestBundledConfigsMatchSchema:
         config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
         assert unknown_keys(config) == []
+
+
+def required_lists(node=SCHEMA, prefix=""):
+    """(dotted object path, required keys) for every object that declares 'required'."""
+    node = resolve(node)
+    found = [(prefix or "<root>", node["required"])] if "required" in node else []
+    for key, sub in node.get("properties", {}).items():
+        found += required_lists(sub, prefix + key + ".")
+    return found
+
+
+class TestSchemaAcceptsWhatSonneAccepts:
+    def test_nothing_with_a_default_is_required(self):
+        required_with_default = [
+            (path, key)
+            for path, keys in required_lists()
+            for key in keys
+            if (key if path == "<root>" else path + key) in DEFAULT_KEYS
+        ]
+
+        assert required_with_default == []
+
+    def test_custom_environments_are_allowed(self):
+        # Config.validate/get_url_style support any environment that has a
+        # url_style entry (e.g. "staging").
+        url_style_mapping = SCHEMA_KEYS["url_style"]
+
+        assert "enum" not in SCHEMA_KEYS["environment"]
+        assert url_style_mapping["additionalProperties"]["enum"] == ["clean", "html", "directory"]
+
+    @pytest.mark.parametrize("language", ["en", "en-US", "en-us", "de-CH", "zh-Hans", "es-419"])
+    def test_common_language_tags_are_valid(self, language):
+        import re
+
+        assert re.fullmatch(SCHEMA_KEYS["site.language"]["pattern"], language)
+
+    @pytest.mark.parametrize(
+        "key", ["build.incremental", "build.show_progress", "build.statistics"]
+    )
+    def test_unused_keys_say_they_have_no_effect(self, key):
+        assert "no effect" in SCHEMA_KEYS[key]["description"].lower()
