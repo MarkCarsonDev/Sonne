@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   functions callable from every template and (with content Jinja) every
   content file. Names shadowing built-ins are ignored with a warning.
 - Implementation plans for the whole backlog in `docs/plans/`.
+- `sonne.script_api`: data scripts can `from sonne.script_api import
+  sonne_var, get_post, sonne_filter, sonne_global`, so editors,
+  Pylance/pyright and ruff resolve them. The functions are typed and
+  documented, work while Sonne runs the script during a build, and raise
+  `RuntimeError` elsewhere. Scripts using them without the import keep
+  working.
+- Sonne ships a `py.typed` marker (PEP 561), so type checkers use its
+  annotations.
 - `ImageProcessor.dither(image)`: the supported way for data scripts to
   dither in-memory images with the site's `images.dither_*` settings.
   (`_apply_dither` keeps working.)
@@ -36,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- Sonne requires Pillow 9.1 or newer (typed `Image.Resampling`/`Dither`/
+  `Palette` enums; output is unchanged).
+- The codebase type-checks with pyright in standard mode (the checker
+  behind VS Code/Pylance) and lints with an expanded ruff rule set; both
+  run in CI. The bundled solar and showcase scripts import the script API
+  and are linted like the rest of the code.
 - Error tracebacks in library code now go through the `sonne` logger
   (shown with `-vv`/debug logging) instead of being printed straight to
   stderr.
