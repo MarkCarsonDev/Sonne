@@ -45,11 +45,11 @@ HASH_CHUNK_BYTES = 8192
 DITHERED_DIR_NAME = "dithered"
 
 # Logged once per build that dithers static images. The "_original" part goes
-# away with the compatibility copy in Sonne 0.5.0 (_write_legacy_original_copy).
+# away with the compatibility copy in Sonne 0.6.0 (_write_legacy_original_copy).
 STATIC_LAYOUT_NOTICE = (
     "Static images keep their original at their own URL; the dithered copy is "
     "<dir>/dithered/<name>.png. The <name>_original copies are still written for "
-    "compatibility and will be removed in Sonne 0.5.0."
+    "compatibility and will be removed in Sonne 0.6.0."
 )
 
 DEFAULT_DITHER_COLORS = 4
@@ -440,7 +440,7 @@ class ImageProcessor:
         """Also publish the original as ``<name>_original<ext>``, its URL before 0.5.0.
 
         Compatibility bridge for one release, so pages and links built by
-        earlier versions keep resolving. REMOVE in Sonne 0.5.0, together with
+        earlier versions keep resolving. REMOVE in Sonne 0.6.0, together with
         the mention in STATIC_LAYOUT_NOTICE.
         """
         legacy_path = _with_original_suffix(original_path)

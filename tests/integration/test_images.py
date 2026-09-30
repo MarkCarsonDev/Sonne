@@ -165,7 +165,7 @@ class TestStaticImages:
 
     def test_legacy_original_copy_is_still_written(self, site_factory, builder, image_factory):
         # Compatibility bridge for pages and links from before this layout;
-        # remove this test together with the bridge in Sonne 0.5.0.
+        # remove this test together with the bridge in Sonne 0.6.0.
         site = site_factory("blog", overlay="blog_site")
         source = image_factory(site / "static" / "images" / "vogel.jpg", size=(32, 32), fmt="JPEG")
 

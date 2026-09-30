@@ -72,6 +72,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`_apply_dither` keeps working.)
 
 ### Deprecated
+- `/images/<name>_original.<ext>` copies of static images are still written
+  for compatibility and will be removed in Sonne 0.6.0; link to
+  `/images/<name>.<ext>` for the original.
 - `build.incremental`, `build.show_progress` and `build.statistics` have no
   effect and will be removed. They still load, with a warning; use
   `sonne build --no-progress` / `--perf` instead.
@@ -100,6 +103,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- **Breaking (pre-1.0):** static images keep their original at their own
+  URL, and the dithered copy is `<dir>/dithered/<name>.png` (always PNG).
+  Before, `/images/a.png` served the dithered image and the original was
+  `/images/a_original.png`. Pages still show dithered images: every `<img>`
+  pointing at an image the build dithered is rewritten to the dithered
+  copy, with the original in `data-original-src`. References outside `<img>`
+  (CSS `url()`, `og:image`, RSS, links from other sites) now get the
+  original. The static-image cache is rebuilt once.
+- The dithering styles and script are no longer inlined into every page;
+  pages load `/css/dithering.css` and `/js/dithering.js` (added
+  automatically when a page doesn't link them), so pages are smaller.
+- The `process_image` template filter renders a plain `<img>`; pages mark
+  it like any other image if the build dithered it.
 - Blog links in the bundled templates follow `url_style`: in the clean
   style they no longer end in a slash (`/blog/tags/python`, matching the
   pages' own URLs), in the html style they end in `.html`, and they follow a
@@ -177,6 +193,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paint, and the JS no longer polls the nonexistent `/api/battery-status`.
 
 ### Fixed
+- Dithering toggles appear only on images the build actually dithered.
+  `dithering.js` guessed an `_original` URL for every same-origin image, so
+  images Sonne never dithered (e.g. a plain `logo.png`) got a toggle that
+  showed a broken image (B52).
 - Category pages rendered as a bare "Untitled" fallback page: the singular
   of `categories` was computed as `categorie`, so no template matched
   (B13). Category term pages now expose `page.category`.
