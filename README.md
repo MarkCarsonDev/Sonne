@@ -497,9 +497,7 @@ You can create Python scripts to generate dynamic data:
 
 ```python
 # scripts/team.py
-
-# The sonne_var function will be injected by Sonne at runtime
-# Ignore any linting warnings
+from sonne.script_api import sonne_var
 
 # Generate team data
 team_members = [
@@ -528,6 +526,23 @@ Then access in templates:
 Every `*.py` directly in `scripts/` runs on each build, in alphabetical order; files whose names start with `_` are skipped (use them for shared helpers). Scripts are trusted code: see [Security](#security).
 
 A script named `footer.py`, placed in `data/`, your `paths.data` folder, or `scripts/`, can set custom footer HTML with `sonne_var('footer_custom', '<p>...</p>')`. The first one found runs (once), and its value is marked HTML-safe and exposed as `site.footer.custom`.
+
+### Script API
+
+Scripts talk to Sonne through four functions in `sonne.script_api`. Import them, so your editor, Pylance/pyright and ruff know where they come from (Sonne ships type hints):
+
+```python
+from sonne.script_api import get_post, sonne_filter, sonne_global, sonne_var
+```
+
+| Function | What it does |
+|----------|--------------|
+| `sonne_var(name, value)` | Publishes a variable to every template and to content Jinja, as `{{ name }}` and `{{ site.name }}`. A name that matches a site config or data-file key replaces it, with a warning. |
+| `get_post(slug=None, tag=None)` | Returns a blog post of this build (a dict with title, url, date, tags, excerpt, ...) by slug, or the newest one with a tag; `None` if there is none. |
+| `sonne_filter(name, fn)` | Registers a Jinja filter: `{{ value \| name }}`. |
+| `sonne_global(name, value)` | Registers a Jinja global value or function: `{{ name }}`, `{{ name(...) }}`. |
+
+The functions work only while Sonne runs the script during `sonne build` or `sonne serve` (including from helper modules the script calls). Anywhere else, for example when you run the script with plain `python`, they raise `RuntimeError`. Older scripts that call them without importing keep working: Sonne still provides the four names as globals, but the import is the recommended form.
 
 ## Image Processing
 
@@ -655,6 +670,8 @@ No need to touch Sonne's source:
 ```python
 # scripts/tools.py
 from datetime import datetime
+
+from sonne.script_api import sonne_filter, sonne_global
 
 def read_time(html):
     words = len(html.split())
