@@ -56,6 +56,13 @@ DEFAULT_CONFIG = {
                 "list_template": "categories.html",
             },
         },
+        "rss": {
+            "enabled": True,
+            "path": "feed.xml",
+            "max_items": 20,
+        },
+        "date_archives": True,
+        "archive_template": "archive.html",
     },
     "images": {
         "dither": True,
@@ -66,6 +73,17 @@ DEFAULT_CONFIG = {
         "only_used": False,
         "parallel": True,
         "parallel_workers": 0,  # 0 = auto (min(4, cpu_count))
+        "dither_method": "bayer",
+        "dither_colors": 4,
+        "dither_formats": ["webp"],
+        # dither_sizes is deliberately absent: when unset, dithered variants
+        # are made at the smallest of images.sizes, which a fixed default
+        # here could not express.
+        "dither_cover_images": True,
+        "blog_original_max_width": 1600,
+        "blog_dithered_max_width": 400,
+        "webp_method": 0,  # WebP encoder effort for dithered saves (0 = fastest)
+        "webp_method_original": 4,
     },
     "variables": {
         "file": "sonne_variables.json",
