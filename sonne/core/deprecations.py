@@ -8,11 +8,11 @@ the schema (mark the old key deprecated) plus README and CHANGELOG.
 
 import logging
 import warnings
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 logger = logging.getLogger("sonne")
 
-KeyPath = Tuple[str, ...]
+KeyPath = tuple[str, ...]
 
 # Returned by _pop_key when the key is absent (None is a valid config value).
 _MISSING = object()
@@ -40,7 +40,7 @@ REMOVED_CONFIG_KEYS = {
 _warned = set()
 
 
-def apply_config_deprecations(user_config: Dict[str, Any]) -> None:
+def apply_config_deprecations(user_config: dict[str, Any]) -> None:
     """Rewrite deprecated keys in a user config dict, in place.
 
     Must run on the raw user config BEFORE it is merged over defaults, so
@@ -68,7 +68,7 @@ def apply_config_deprecations(user_config: Dict[str, Any]) -> None:
             )
 
 
-def _pop_key(config: Dict[str, Any], key_path: KeyPath) -> Any:
+def _pop_key(config: dict[str, Any], key_path: KeyPath) -> Any:
     """Remove and return the value at key_path, or _MISSING if absent."""
     section = _parent_section(config, key_path)
     if section is None or key_path[-1] not in section:
@@ -76,7 +76,7 @@ def _pop_key(config: Dict[str, Any], key_path: KeyPath) -> Any:
     return section.pop(key_path[-1])
 
 
-def _parent_section(config: Dict[str, Any], key_path: KeyPath) -> Optional[Dict[str, Any]]:
+def _parent_section(config: dict[str, Any], key_path: KeyPath) -> Optional[dict[str, Any]]:
     """The mapping that would hold key_path's last key, or None if there is none."""
     section = config
     for part in key_path[:-1]:
@@ -86,7 +86,7 @@ def _parent_section(config: Dict[str, Any], key_path: KeyPath) -> Optional[Dict[
     return section if isinstance(section, dict) else None
 
 
-def _set_key_unless_present(config: Dict[str, Any], key_path: KeyPath, value: Any) -> None:
+def _set_key_unless_present(config: dict[str, Any], key_path: KeyPath, value: Any) -> None:
     section = config
     for part in key_path[:-1]:
         section = section.setdefault(part, {})

@@ -90,7 +90,7 @@ class TestKnownBugs:
         )
         snapshot = copy.deepcopy(config_module.DEFAULT_CONFIG)
         Config(base_dir=str(tmp_path))
-        assert config_module.DEFAULT_CONFIG == snapshot
+        assert snapshot == config_module.DEFAULT_CONFIG
 
     def test_user_formats_list_replaces_default(self, tmp_path):
         write_yaml(tmp_path / "sonne.yaml", {"images": {"formats": ["png"]}})

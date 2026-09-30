@@ -3,29 +3,30 @@ Core site generation functionality for Sonne.
 Coordinates the various processing steps to generate a complete static site.
 """
 
+import logging
 import os
 import shutil
-import logging
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, List, Dict, Optional
+from typing import Optional
 
 from sonne.core.config import DEFAULT_CONFIG, Config
 from sonne.core.variable_manager import VariableManager
 from sonne.processors.blog_processor import BlogProcessor
-from sonne.processors.template_processor import TemplateProcessor
 from sonne.processors.image_processor import ImageProcessor
-from sonne.utils.file_utils import (
-    copy_static_files,
-    ensure_dir,
-    copy_template_static_files,
-    copy_core_static_files,
-)
+from sonne.processors.template_processor import TemplateProcessor
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
-from sonne.utils.path_utils import sorted_paths, validate_path_within_root
+from sonne.utils.file_utils import (
+    copy_core_static_files,
+    copy_static_files,
+    copy_template_static_files,
+    ensure_dir,
+)
 from sonne.utils.page_size import inject_page_size_labels
+from sonne.utils.path_utils import sorted_paths, validate_path_within_root
 
 logger = logging.getLogger("sonne")
 
@@ -68,7 +69,7 @@ class SiteGenerator:
         # Which source file produced each output file, so collisions
         # (about.md vs about/index.md) warn instead of silently
         # last-writer-winning.
-        self._written_outputs: Dict[str, str] = {}
+        self._written_outputs: dict[str, str] = {}
 
     def _fill_missing_paths(self) -> None:
         """Give every standard path key its default when unset or empty."""
@@ -229,7 +230,7 @@ class SiteGenerator:
             if self.config.get("build", "show_page_size", default=False):
                 inject_page_size_labels(self.paths["output"])
 
-    def _page_files(self) -> List[Path]:
+    def _page_files(self) -> list[Path]:
         """Content pages to render: page-type files outside the blog directory.
 
         Hidden files and anything in hidden folders (.obsidian/, .git/) are
@@ -272,7 +273,7 @@ class SiteGenerator:
         output_path = self._output_path_for(file_path)
         ensure_dir(output_path.parent)
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             content = f.read()
         is_markdown = file_path.suffix.lower() in MARKDOWN_EXTENSIONS
         _front_matter, processed_content = self.template_processor.process_page(

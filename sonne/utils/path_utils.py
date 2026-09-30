@@ -3,10 +3,11 @@ Path utility functions for Sonne.
 Provides secure path handling, validation, and sanitization.
 """
 
-import re
-from pathlib import Path
-from typing import Iterable, List, Union
 import logging
+import re
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Union
 
 logger = logging.getLogger("sonne")
 
@@ -94,7 +95,7 @@ def validate_path_within_root(path: Union[str, Path], root: Union[str, Path]) ->
         return False
 
 
-def sorted_paths(paths: Iterable[Union[str, Path]]) -> List[Path]:
+def sorted_paths(paths: Iterable[Union[str, Path]]) -> list[Path]:
     """Paths in a platform-independent order (case-sensitive, by '/'-joined text).
 
     Directory listings and globs come back in filesystem order, which
@@ -173,9 +174,4 @@ def normalize_web_path(path: Union[str, Path]) -> str:
     Returns:
         Web-compatible path string.
     """
-    path_str = str(path)
-    # Replace backslashes with forward slashes
-    web_path = path_str.replace("\\", "/")
-    # Remove double slashes
-    web_path = re.sub(r"/+", "/", web_path)
-    return web_path
+    return re.sub(r"/+", "/", str(path).replace("\\", "/"))

@@ -90,8 +90,15 @@ line-length = 100
 target-version = "py39"
 
 [tool.ruff.lint]
-# Default rule set (pyflakes + core pycodestyle errors); expand deliberately.
-select = ["E4", "E7", "E9", "F"]
+# pyflakes + core pycodestyle errors, import sorting, bugbear, pyupgrade (to the
+# py39 floor), simplifications, return hygiene and ruff's own checks.
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "SIM", "RET", "RUF"]
+ignore = [
+    # Typographic characters (·, −, ×, …) in user-facing strings and docs are intentional.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
 
 [tool.pyright]
 # Same checker VS Code/Pylance uses. Third-party stubs (PyYAML, Markdown)

@@ -16,14 +16,15 @@ are also injected into every script as globals, so older scripts without
 the import keep working; the import is the preferred, documented form.)
 """
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass
-from typing import Any, Callable, Dict, Iterator, Optional
+from typing import Any, Callable, Optional
 
 __all__ = ["get_post", "sonne_filter", "sonne_global", "sonne_var"]
 
-Post = Dict[str, Any]
+Post = dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -35,7 +36,7 @@ class ScriptHooks:
     sonne_filter: Callable[[str, Callable[..., Any]], None]
     sonne_global: Callable[[str, Any], None]
 
-    def as_globals(self) -> Dict[str, Callable[..., Any]]:
+    def as_globals(self) -> dict[str, Callable[..., Any]]:
         """The hooks by name, for injecting into a script module's globals."""
         return {name: getattr(self, name) for name in asdict(self)}
 

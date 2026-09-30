@@ -68,7 +68,7 @@ def inject_page_size_labels(output_dir: str) -> None:
 
 def _label_file(html_path: str, output_dir: str) -> None:
     try:
-        with open(html_path, "r", encoding="utf-8") as f:
+        with open(html_path, encoding="utf-8") as f:
             html = f.read()
         if LABEL_ID in html:
             return

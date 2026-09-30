@@ -3,11 +3,11 @@ Build statistics tracking for Sonne.
 Tracks metrics during site generation for reporting.
 """
 
+import logging
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 from pathlib import Path
-import logging
+from typing import Optional
 
 logger = logging.getLogger("sonne")
 
@@ -65,18 +65,18 @@ class BuildStatistics:
     cache_misses: int = 0
 
     # Validation warnings/errors
-    warnings: List[str] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     # --- Performance timing ---
     # Phase name -> seconds elapsed
-    phase_times: Dict[str, float] = field(default_factory=dict)
+    phase_times: dict[str, float] = field(default_factory=dict)
     # [{file, seconds, method, cached, width, height}]
-    image_times: List[Dict] = field(default_factory=list)
+    image_times: list[dict] = field(default_factory=list)
     # script name -> seconds
-    script_times: Dict[str, float] = field(default_factory=dict)
+    script_times: dict[str, float] = field(default_factory=dict)
     # [{slug, seconds}]
-    post_times: List[Dict] = field(default_factory=list)
+    post_times: list[dict] = field(default_factory=list)
 
     def finish(self) -> None:
         """Mark the build as finished."""
@@ -155,7 +155,7 @@ class BuildStatistics:
         lines.append(REPORT_RULE)
         return "\n".join(lines)
 
-    def _summary_lines(self, verbose: bool) -> List[str]:
+    def _summary_lines(self, verbose: bool) -> list[str]:
         lines = [REPORT_RULE, "Build Complete", REPORT_RULE, f"Duration: {self.duration:.2f}s", ""]
         lines += self._page_lines()
         lines += self._image_lines()
@@ -168,15 +168,15 @@ class BuildStatistics:
         lines += self._message_lines("✗ Errors", self.errors, verbose)
         return lines
 
-    def _page_lines(self) -> List[str]:
+    def _page_lines(self) -> list[str]:
         lines = ["Pages:", f"  ✓ Processed: {self.pages_processed}"]
         if self.pages_skipped > 0:
             lines.append(f"  ⊘ Skipped (cached): {self.pages_skipped}")
         if self.blog_posts_processed > 0:
             lines.append(f"  ✓ Blog posts: {self.blog_posts_processed}")
-        return lines + [""]
+        return [*lines, ""]
 
-    def _image_lines(self) -> List[str]:
+    def _image_lines(self) -> list[str]:
         if self.images_processed == 0 and self.images_cached == 0:
             return []
         lines = ["Images:", f"  ✓ Processed: {self.images_processed}"]
@@ -184,26 +184,26 @@ class BuildStatistics:
             lines.append(f"  ⊘ Cached: {self.images_cached}")
         if self.image_savings > 0:
             lines.append(f"  ↓ Saved: {self.image_savings_mb:.2f} MB")
-        return lines + [""]
+        return [*lines, ""]
 
-    def _template_lines(self) -> List[str]:
+    def _template_lines(self) -> list[str]:
         lines = ["Templates:", f"  ✓ Rendered: {self.templates_rendered}"]
         if self.template_errors > 0:
             lines.append(f"  ✗ Errors: {self.template_errors}")
-        return lines + [""]
+        return [*lines, ""]
 
-    def _cache_lines(self, verbose: bool) -> List[str]:
+    def _cache_lines(self, verbose: bool) -> list[str]:
         if not self._cache_was_used():
             return []
         lines = ["Cache:", f"  Hit rate: {self.cache_hit_rate:.1f}%"]
         if verbose:
             lines += [f"  Hits: {self.cache_hits}", f"  Misses: {self.cache_misses}"]
-        return lines + [""]
+        return [*lines, ""]
 
     def _cache_was_used(self) -> bool:
         return self.cache_hits + self.cache_misses > 0
 
-    def _file_operation_lines(self) -> List[str]:
+    def _file_operation_lines(self) -> list[str]:
         if self.files_copied == 0 and self.files_deleted == 0:
             return []
         lines = ["File Operations:"]
@@ -211,10 +211,10 @@ class BuildStatistics:
             lines.append(f"  Copied: {self.files_copied}")
         if self.files_deleted > 0:
             lines.append(f"  Deleted: {self.files_deleted}")
-        return lines + [""]
+        return [*lines, ""]
 
     @staticmethod
-    def _message_lines(heading: str, messages: List[str], verbose: bool) -> List[str]:
+    def _message_lines(heading: str, messages: list[str], verbose: bool) -> list[str]:
         if not messages:
             return []
         lines = [f"{heading}: {len(messages)}"]
@@ -223,9 +223,9 @@ class BuildStatistics:
             hidden_count = len(messages) - MAX_LISTED_MESSAGES
             if hidden_count > 0:
                 lines.append(f"  ... and {hidden_count} more")
-        return lines + [""]
+        return [*lines, ""]
 
-    def _performance_lines(self) -> List[str]:
+    def _performance_lines(self) -> list[str]:
         lines = [THIN_RULE, "Performance Breakdown", THIN_RULE]
         lines += self._phase_lines()
         lines += self._slowest_image_lines()
@@ -234,7 +234,7 @@ class BuildStatistics:
         lines += self._hint_lines()
         return lines
 
-    def _phase_lines(self) -> List[str]:
+    def _phase_lines(self) -> list[str]:
         total_seconds = sum(self.phase_times.values())
         phases = sorted(self.phase_times.items(), key=lambda phase: _phase_rank(phase[0]))
         lines = ["Phases:"]
@@ -243,12 +243,12 @@ class BuildStatistics:
             label = PHASE_LABELS.get(name, f"{name:<12}")
             bar = self._bar(seconds, total_seconds)
             lines.append(f"  {label}  {self._fmt_time(seconds):>7}  {bar}  {percent:3.0f}%")
-        return lines + [""]
+        return [*lines, ""]
 
-    def _uncached_images(self) -> List[Dict]:
+    def _uncached_images(self) -> list[dict]:
         return [timing for timing in self.image_times if not timing["cached"]]
 
-    def _slowest_image_lines(self) -> List[str]:
+    def _slowest_image_lines(self) -> list[str]:
         uncached = self._uncached_images()
         if not uncached:
             return []
@@ -258,33 +258,33 @@ class BuildStatistics:
             name = Path(timing["file"]).name
             elapsed = self._fmt_time(timing["seconds"])
             lines.append(f"  {name:<35}  {elapsed:>7}{_image_details(timing)}")
-        return lines + [""]
+        return [*lines, ""]
 
-    def _slowest_post_lines(self) -> List[str]:
+    def _slowest_post_lines(self) -> list[str]:
         if not self.post_times:
             return []
         slowest = sorted(self.post_times, key=lambda timing: timing["seconds"], reverse=True)
         lines = ["Slowest posts:"]
         for timing in slowest[:SLOWEST_SHOWN]:
             lines.append(f"  {timing['slug']:<40}  {self._fmt_time(timing['seconds']):>7}")
-        return lines + [""]
+        return [*lines, ""]
 
-    def _script_lines(self) -> List[str]:
+    def _script_lines(self) -> list[str]:
         if not self.script_times:
             return []
         slowest = sorted(self.script_times.items(), key=lambda script: script[1], reverse=True)
         lines = ["Scripts:"]
         for name, seconds in slowest:
             lines.append(f"  {name:<35}  {self._fmt_time(seconds):>7}")
-        return lines + [""]
+        return [*lines, ""]
 
-    def _hint_lines(self) -> List[str]:
+    def _hint_lines(self) -> list[str]:
         hints = self._performance_hints()
         if not hints:
             return []
         return ["Hints:"] + [f"  {hint}" for hint in hints] + [""]
 
-    def _performance_hints(self) -> List[str]:
+    def _performance_hints(self) -> list[str]:
         hints = []
         slow_images = [
             timing for timing in self._uncached_images() if timing["seconds"] > SLOW_IMAGE_SECONDS
@@ -308,10 +308,9 @@ class BuildStatistics:
         """Format a duration in the most readable unit."""
         if seconds >= 1.0:
             return f"{seconds:.2f}s"
-        elif seconds >= 0.001:
+        if seconds >= 0.001:
             return f"{seconds * 1000:.0f}ms"
-        else:
-            return f"{seconds * 1000:.1f}ms"
+        return f"{seconds * 1000:.1f}ms"
 
     @staticmethod
     def _bar(value: float, total: float, width: int = 24) -> str:
@@ -331,7 +330,7 @@ class BuildStatistics:
         self.errors.append(error)
         logger.error(error)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert statistics to dictionary format."""
         return {
             "duration": self.duration,
@@ -372,7 +371,7 @@ def _phase_rank(name: str) -> int:
     return PHASE_ORDER.index(name) if name in PHASE_ORDER else len(PHASE_ORDER)
 
 
-def _image_details(timing: Dict) -> str:
+def _image_details(timing: dict) -> str:
     """Parenthesised dimensions and dither method, or '' when neither is known."""
     dimensions = f"{timing['width']}×{timing['height']}" if timing["width"] else ""
     method = f", {timing['method']}" if timing["method"] else ""

@@ -78,16 +78,25 @@ class TestFormatReport:
         report = busy_build().format_report()
 
         assert report == "\n".join(
-            SUMMARY_LINES
-            + ["Cache:", "  Hit rate: 25.0%", "", "⚠ Warnings: 7", "", "✗ Errors: 1", "", RULE]
+            [
+                *SUMMARY_LINES,
+                "Cache:",
+                "  Hit rate: 25.0%",
+                "",
+                "⚠ Warnings: 7",
+                "",
+                "✗ Errors: 1",
+                "",
+                RULE,
+            ]
         )
 
     def test_verbose_perf_report_includes_every_section(self):
         report = busy_build().format_report(verbose=True, perf=True)
 
         assert report == "\n".join(
-            SUMMARY_LINES
-            + [
+            [
+                *SUMMARY_LINES,
                 "Templates:",
                 "  ✓ Rendered: 6",
                 "  ✗ Errors: 1",

@@ -27,7 +27,7 @@ def main():
     battery["formatted_time"] = now.strftime("%H:%M:%S")
     if battery["remaining_time"]:
         battery["remaining_formatted"] = format_duration(battery["remaining_time"])
-    sonne_var("battery", battery)  # noqa: F821 — injected by Sonne's script runner
+    sonne_var("battery", battery)
 
 
 def simulation_enabled():

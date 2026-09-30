@@ -77,8 +77,8 @@ def main():
     except (URLError, OSError, ValueError, KeyError, IndexError) as error:
         logger.warning(f"Weather API unavailable ({error}); using simulated weather")
         current, forecast = simulate_weather(location)
-    sonne_var("current_weather", current)  # noqa: F821 — injected by Sonne's script runner
-    sonne_var("forecast", forecast)  # noqa: F821
+    sonne_var("current_weather", current)
+    sonne_var("forecast", forecast)
 
 
 def weather_location():

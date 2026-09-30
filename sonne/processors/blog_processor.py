@@ -10,10 +10,11 @@ import os
 import re
 import shutil
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 from xml.sax.saxutils import escape
 
 from sonne.utils.build_stats import BuildStatistics
@@ -75,7 +76,7 @@ TAB_COLUMNS = 4
 class _GeneratedPage:
     """A listing page (index, taxonomy, archive) with no Markdown source."""
 
-    page_data: Dict[str, Any]
+    page_data: dict[str, Any]
     placeholder_html: str
     source_id: str
     rel_path: str
@@ -104,7 +105,7 @@ class _PublishedImage:
     def reduction_percent(self) -> int:
         if not (self.original_kb and self.dithered_kb):
             return 0
-        return int(round((1 - self.dithered_kb / self.original_kb) * 100))
+        return round((1 - self.dithered_kb / self.original_kb) * 100)
 
 
 class BlogProcessor:
@@ -113,7 +114,7 @@ class BlogProcessor:
     def __init__(
         self,
         config,
-        paths: Dict[str, str],
+        paths: dict[str, str],
         template_processor,
         variable_manager,
         image_processor=None,
@@ -214,7 +215,7 @@ class BlogProcessor:
     def _include_drafts(self) -> bool:
         return bool(self.config.get("blog", "include_drafts", default=False))
 
-    def _parse_post(self, file_path: Path) -> Optional[Dict[str, Any]]:
+    def _parse_post(self, file_path: Path) -> Optional[dict[str, Any]]:
         """Parse a blog post file.
 
         Args:
@@ -264,7 +265,7 @@ class BlogProcessor:
             "metadata": front_matter,
         }
 
-    def _post_date(self, front_matter: Dict[str, Any], file_path: Path) -> datetime:
+    def _post_date(self, front_matter: dict[str, Any], file_path: Path) -> datetime:
         """Resolve the publish date: front matter, then filename prefix, then file creation."""
         raw_date = _first_present(front_matter, "date", "date_posted")
         if raw_date is None:
@@ -273,14 +274,14 @@ class BlogProcessor:
         created = _file_created_at(file_path.stat())
         return _parse_front_matter_date(raw_date, created, file_path.name)
 
-    def _post_modified_date(self, front_matter: Dict[str, Any], file_path: Path) -> datetime:
+    def _post_modified_date(self, front_matter: dict[str, Any], file_path: Path) -> datetime:
         """Resolve the last-edited date; missing or 'auto' means the file's mtime."""
         raw_modified = _first_present(front_matter, "modified", "date_edited", default="auto")
         modified = datetime.fromtimestamp(file_path.stat().st_mtime)
         return _parse_front_matter_date(raw_modified, modified, file_path.name)
 
     @staticmethod
-    def _post_slug(front_matter: Dict[str, Any], file_path: Path) -> str:
+    def _post_slug(front_matter: dict[str, Any], file_path: Path) -> str:
         """Resolve the slug: explicit slug, else the title, else the undated filename.
 
         The Jekyll-style date prefix is stripped from filenames because the
@@ -316,7 +317,7 @@ class BlogProcessor:
             )
             return DEFAULT_URL_PATTERN.format(**placeholders)
 
-    def _post_excerpt(self, front_matter: Dict[str, Any], html_content: str) -> str:
+    def _post_excerpt(self, front_matter: dict[str, Any], html_content: str) -> str:
         """Use the front-matter excerpt/description, or derive one from the content."""
         excerpt = _first_present(front_matter, "excerpt", "description")
         return excerpt or self._auto_excerpt(html_content)
@@ -335,7 +336,7 @@ class BlogProcessor:
             f"{len(self.taxonomies['categories'])} categories"
         )
 
-    def _group_posts_by_term(self, taxonomy_type: str) -> Dict[str, Dict[str, Any]]:
+    def _group_posts_by_term(self, taxonomy_type: str) -> dict[str, dict[str, Any]]:
         """Group posts by term, merging spellings that share a slug ("Python", "python").
 
         Such terms share one page, so they must share one entry. The display
@@ -344,7 +345,7 @@ class BlogProcessor:
         Returns:
             {display name: {"name", "slug", "posts"}}
         """
-        terms_by_slug: Dict[str, Dict[str, Any]] = {}
+        terms_by_slug: dict[str, dict[str, Any]] = {}
         for post in self.posts:
             for term in post.get(taxonomy_type, []):
                 name = str(term)
@@ -364,12 +365,12 @@ class BlogProcessor:
             post["next_post"] = self._post_link(index + 1)
             post["related_posts"] = self._related_posts(index, tag_sets)
 
-    def _post_link(self, index: int) -> Optional[Dict[str, str]]:
+    def _post_link(self, index: int) -> Optional[dict[str, str]]:
         if not 0 <= index < len(self.posts):
             return None
         return {"title": self.posts[index]["title"], "url": self.posts[index]["full_url"]}
 
-    def _related_posts(self, index: int, tag_sets: List[set]) -> List[Dict[str, Any]]:
+    def _related_posts(self, index: int, tag_sets: list[set]) -> list[dict[str, Any]]:
         """Rank other posts by shared tags, breaking ties by closeness in the timeline."""
 
         def relatedness(other: int) -> float:
@@ -397,7 +398,7 @@ class BlogProcessor:
         for post in self.posts:
             self._render_timed_post(post)
 
-    def _prepare_post(self, post: Dict[str, Any]) -> None:
+    def _prepare_post(self, post: dict[str, Any]) -> None:
         """Pass 1 for one post: content Jinja, then images. Each step's failure is logged apart."""
         try:
             self._render_post_content_jinja(post)
@@ -409,10 +410,10 @@ class BlogProcessor:
             return  # path traversal; _get_output_path has logged it
         self._publish_post_images(post, output_dir)  # logs its own errors
 
-    def _post_output_path(self, post: Dict[str, Any]) -> str:
+    def _post_output_path(self, post: dict[str, Any]) -> str:
         return self._get_output_path(os.path.join(self.blog_dir, post["url"].rstrip("/")))
 
-    def _post_directory_url(self, post: Dict[str, Any]) -> str:
+    def _post_directory_url(self, post: dict[str, Any]) -> str:
         """Site-root URL of the directory holding the post's page and images.
 
         That is the post URL itself for the clean and directory styles, but
@@ -422,7 +423,7 @@ class BlogProcessor:
         post_dir = os.path.dirname(self._post_output_path(post))
         return "/" + Path(os.path.relpath(post_dir, self.paths["output"])).as_posix()
 
-    def _render_timed_post(self, post: Dict[str, Any]) -> None:
+    def _render_timed_post(self, post: dict[str, Any]) -> None:
         started = time.perf_counter()
         try:
             self._render_post(post)
@@ -434,7 +435,7 @@ class BlogProcessor:
                     post.get("slug", post.get("title", "?")), time.perf_counter() - started
                 )
 
-    def _render_post(self, post: Dict[str, Any]) -> None:
+    def _render_post(self, post: dict[str, Any]) -> None:
         self.variable_manager.set_page_variables(post)
         _, rendered = self.template_processor.process_page(
             post["content"], False, post["source_path"], self._template_variables(post)
@@ -445,7 +446,7 @@ class BlogProcessor:
             self.stats.blog_posts_processed += 1
         logger.debug(f"Rendered blog post: {post['title']} -> {output_path}")
 
-    def _render_post_content_jinja(self, post: Dict[str, Any]) -> None:
+    def _render_post_content_jinja(self, post: dict[str, Any]) -> None:
         """Re-render a post's content with Jinja when enabled for the post.
 
         Replaces post['content'] (and a generated excerpt) from raw_content
@@ -476,7 +477,7 @@ class BlogProcessor:
         if not front_matter.get("excerpt") and not front_matter.get("description"):
             post["excerpt"] = self._auto_excerpt(html_content)
 
-    def _template_variables(self, page_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _template_variables(self, page_data: dict[str, Any]) -> dict[str, Any]:
         """The global/site/page scopes for one page template (globals mirrored into site)."""
         scopes = self.variable_manager.render_scopes()
         scopes["page"] = page_data
@@ -520,7 +521,7 @@ class BlogProcessor:
 
     # Post images
 
-    def _publish_post_images(self, post: Dict[str, Any], output_dir: str) -> None:
+    def _publish_post_images(self, post: dict[str, Any], output_dir: str) -> None:
         """Publish the images a post references, plus its cover image.
 
         Each image is copied (resized) to its own relative path and, when
@@ -550,7 +551,7 @@ class BlogProcessor:
         return bool(self.config.get("images", "dither", default=True)) and _pil_available()
 
     def _publish_inline_image(
-        self, post: Dict[str, Any], image_ref: str, transforms: dict, output_dir: str
+        self, post: dict[str, Any], image_ref: str, transforms: dict, output_dir: str
     ) -> Optional[_PublishedImage]:
         source_path = self._publishable_source(post, image_ref, output_dir, "Image")
         if source_path is None:
@@ -560,7 +561,7 @@ class BlogProcessor:
         )
 
     def _publishable_source(
-        self, post: Dict[str, Any], image_ref: str, output_dir: str, kind: str
+        self, post: dict[str, Any], image_ref: str, output_dir: str, kind: str
     ) -> Optional[str]:
         """The source file for image_ref, or None (with a warning) if it can't be published.
 
@@ -581,7 +582,7 @@ class BlogProcessor:
             return None
         return source_path
 
-    def _publish_cover_image(self, post: Dict[str, Any], output_dir: str) -> None:
+    def _publish_cover_image(self, post: dict[str, Any], output_dir: str) -> None:
         """Publish the cover image and record its web paths and sizes on the post."""
         cover_img = post.get("cover_img")
         if not cover_img or not is_post_local_raster_image(cover_img):
@@ -633,7 +634,7 @@ class BlogProcessor:
             )
         return _PublishedImage(image_ref, rel_path, dithered_rel_path, original_kb, dithered_kb)
 
-    def _update_figure_markup(self, post: Dict[str, Any], images: List[_PublishedImage]) -> None:
+    def _update_figure_markup(self, post: dict[str, Any], images: list[_PublishedImage]) -> None:
         """Bring the post's <figure> markup in line with the published images.
 
         process_markdown has already turned each <img> into a <figure> whose
@@ -679,7 +680,7 @@ class BlogProcessor:
                     keeps_alpha = "A" in img.mode or "transparency" in img.info
                     img = img.convert("RGBA" if keeps_alpha else "RGB")
                 resized = _resize_to_width(_apply_transforms(img, transforms), max_width)
-                save_options: Dict[str, Any] = {"optimize": True}
+                save_options: dict[str, Any] = {"optimize": True}
                 if fmt in ("JPEG", "JPG"):
                     save_options["quality"] = JPEG_QUALITY
                     if resized.mode not in ("RGB", "L"):  # JPEG has no alpha channel
@@ -848,7 +849,7 @@ class BlogProcessor:
         except Exception as e:
             _log_error(f"Error generating {taxonomy_type} index page: {e}")
 
-    def _generate_term_page(self, taxonomy_type: str, term: Dict[str, Any]) -> None:
+    def _generate_term_page(self, taxonomy_type: str, term: dict[str, Any]) -> None:
         singular = TAXONOMY_SINGULAR[taxonomy_type]
         page_data = {
             "title": f"{term['name']} ({singular.capitalize()})",
@@ -900,12 +901,12 @@ class BlogProcessor:
             except Exception as e:
                 _log_error(f"Error generating archive '{title}': {e}")
 
-    def _posts_by_date_prefix(self) -> Dict[Tuple[str, ...], List[Dict[str, Any]]]:
+    def _posts_by_date_prefix(self) -> dict[tuple[str, ...], list[dict[str, Any]]]:
         """Group posts under ('YYYY',), ('YYYY', 'MM') and ('YYYY', 'MM', 'DD'), newest first.
 
         Keys are ordered all years, then all months, then all days.
         """
-        groups: List[Dict[Tuple[str, ...], List[Dict[str, Any]]]] = [{}, {}, {}]
+        groups: list[dict[tuple[str, ...], list[dict[str, Any]]]] = [{}, {}, {}]
         for post in self.posts:
             date = post.get("date")
             if not date or not hasattr(date, "year"):
@@ -920,12 +921,12 @@ class BlogProcessor:
 
     def _archive_page(
         self,
-        date_parts: Tuple[str, ...],
-        posts: List[Dict[str, Any]],
+        date_parts: tuple[str, ...],
+        posts: list[dict[str, Any]],
         title: str,
         archive_template: str,
     ) -> _GeneratedPage:
-        year, month, day = (date_parts + (None, None))[:3]
+        year, month, day = ((*date_parts, None, None))[:3]
         archive_type = ("year", "month", "day")[len(date_parts) - 1]
         page_data = {
             "title": title,
@@ -994,7 +995,7 @@ class BlogProcessor:
             "</rss>\n"
         )
 
-    def _rss_item(self, post: Dict[str, Any], site_url: str) -> str:
+    def _rss_item(self, post: dict[str, Any], site_url: str) -> str:
         post_url = site_url + post["full_url"]
         author = post.get("author", self._site_author())
         # Prefer the lighter dithered cover, fall back to the original.
@@ -1027,7 +1028,7 @@ def _write_page(output_path: str, content: str) -> None:
         f.write(content)
 
 
-def _first_present(mapping: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+def _first_present(mapping: dict[str, Any], *keys: str, default: Any = None) -> Any:
     """Return the value of the first key present in mapping (even if falsy)."""
     for key in keys:
         if key in mapping:
@@ -1035,7 +1036,7 @@ def _first_present(mapping: Dict[str, Any], *keys: str, default: Any = None) -> 
     return default
 
 
-def _post_sort_key(post: Dict[str, Any]) -> datetime:
+def _post_sort_key(post: dict[str, Any]) -> datetime:
     """The post's date as a timezone-aware datetime, so all posts compare.
 
     Front matter may mix plain dates with timezone-aware timestamps
@@ -1096,7 +1097,7 @@ def _parse_date_string(value: str, fallback: datetime, source_name: str) -> date
         return fallback
 
 
-def _split_terms(taxonomy_value: Any) -> List[str]:
+def _split_terms(taxonomy_value: Any) -> list[str]:
     """Normalize a front-matter tags/categories value to a list of strings.
 
     Strings are split on commas and whitespace; lists are stringified item by item.
@@ -1119,7 +1120,7 @@ def _excerpt_from_html(html_content: str, length: int = DEFAULT_EXCERPT_LENGTH) 
     return text
 
 
-def _archive_title(date_parts: Tuple[str, ...]) -> str:
+def _archive_title(date_parts: tuple[str, ...]) -> str:
     """'2024', 'January 2024' or 'January 5, 2024' for a year/month/day archive."""
     if len(date_parts) == 1:
         return date_parts[0]
@@ -1129,7 +1130,7 @@ def _archive_title(date_parts: Tuple[str, ...]) -> str:
     return f"{month} {int(date_parts[2])}, {year}"
 
 
-def _local_image_refs(post: Dict[str, Any]) -> Iterator[Tuple[str, dict]]:
+def _local_image_refs(post: dict[str, Any]) -> Iterator[tuple[str, dict]]:
     """Yield (image_ref, transforms) for each local raster image the post references.
 
     Markdown images come first, then <img> tags. Remote, root-relative and
@@ -1204,7 +1205,7 @@ def _indent_columns(line: str) -> int:
     return columns
 
 
-def _source_image_path(post: Dict[str, Any], image_ref: str) -> str:
+def _source_image_path(post: dict[str, Any], image_ref: str) -> str:
     post_source_dir = os.path.dirname(post.get("source_path", ""))
     return os.path.normpath(os.path.join(post_source_dir, image_ref))
 
@@ -1263,7 +1264,7 @@ def _remove_if_present(path: str) -> None:
         os.remove(path)
 
 
-def _parse_transforms(title: str) -> Tuple[str, dict]:
+def _parse_transforms(title: str) -> tuple[str, dict]:
     """Split an image title into display text and transform directives.
 
     Format: "Display title | crop=16:9 rotate=90". Digit-only values become ints.

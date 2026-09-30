@@ -6,7 +6,6 @@ import textwrap
 
 import pytest
 
-
 import sonne
 from sonne.core.config import Config
 from sonne.core.variable_manager import VariableManager

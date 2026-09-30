@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from pathlib import PurePath
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import jinja2
 import markdown
@@ -50,7 +50,7 @@ GENERATED_PAGE_PREFIXES = tuple(prefix for prefix, *_ in TAXONOMY_PAGE_TEMPLATES
 TEMPLATE_EXTENSIONS = (".html", ".htm", ".xml", ".txt", ".j2", ".jinja2")
 
 
-def _load_yaml_front_matter(text: str) -> Dict[str, Any]:
+def _load_yaml_front_matter(text: str) -> dict[str, Any]:
     return yaml.safe_load(text) or {}
 
 
@@ -244,7 +244,7 @@ DITHER_JS = """
 class TemplateProcessor:
     """Processes templates and content files."""
 
-    def __init__(self, config, paths: Dict[str, str]):
+    def __init__(self, config, paths: dict[str, str]):
         """Initialize template processor.
 
         Args:
@@ -310,7 +310,7 @@ class TemplateProcessor:
             src=src, original_src=_original_image_src(src), alt=alt, loading=loading
         )
 
-    def validate_templates(self) -> List[str]:
+    def validate_templates(self) -> list[str]:
         """Validate all site templates for syntax and render errors.
 
         Each template is loaded (syntax check) and rendered with an empty
@@ -333,16 +333,16 @@ class TemplateProcessor:
         except TemplateSyntaxError as e:
             return f"{template_name}:{e.lineno}: Syntax error - {e.message}"
         except Exception as e:
-            return f"{template_name}: {str(e)}"
+            return f"{template_name}: {e!s}"
         try:
             template.render(site={}, page={}, content="")
         except UndefinedError as e:
             logger.debug(f"{template_name}: undefined variable with empty context ({e})")
         except Exception as e:
-            return f"{template_name}: Render error - {str(e)}"
+            return f"{template_name}: Render error - {e!s}"
         return None
 
-    def extract_front_matter(self, content: str) -> Tuple[Dict[str, Any], str]:
+    def extract_front_matter(self, content: str) -> tuple[dict[str, Any], str]:
         """Extract YAML (``---``) or JSON (``;;;``) front matter from content.
 
         Front matter that fails to parse is logged and treated as absent.
@@ -377,7 +377,7 @@ class TemplateProcessor:
                 "sonne_global()/sonne_filter() for Python."
             )
 
-    def register_extensions(self, filters: Dict[str, Any], globals_: Dict[str, Any]) -> None:
+    def register_extensions(self, filters: dict[str, Any], globals_: dict[str, Any]) -> None:
         """Register script-provided Jinja filters and globals.
 
         Called by SiteGenerator after data scripts run. Names that collide
@@ -398,7 +398,7 @@ class TemplateProcessor:
                 continue
             self.jinja_env.globals[name] = value
 
-    def render_content_jinja(self, content: str, context: Dict[str, Any], source: str) -> str:
+    def render_content_jinja(self, content: str, context: dict[str, Any], source: str) -> str:
         """Render a content body through Jinja before markdown conversion.
 
         Note: unlike .html templates, from_string templates are NOT
@@ -421,7 +421,7 @@ class TemplateProcessor:
             logger.error(f"Jinja error in content {source}: {e}; rendering without Jinja")
             return content
 
-    def build_content_context(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def build_content_context(self, variables: dict[str, Any]) -> dict[str, Any]:
         """Build the Jinja context for content rendering.
 
         Mirrors template rendering: global and site variables are available
@@ -440,7 +440,7 @@ class TemplateProcessor:
         context["site"] = merged_site
         return context
 
-    def content_jinja_enabled(self, front_matter: Dict[str, Any]) -> bool:
+    def content_jinja_enabled(self, front_matter: dict[str, Any]) -> bool:
         """Whether content Jinja applies to a file, honoring the override.
 
         Per-file front matter `jinja: true|false` beats the site-wide
@@ -455,9 +455,9 @@ class TemplateProcessor:
         self,
         content: str,
         rewrite_dithered: bool = True,
-        jinja_context: Optional[Dict[str, Any]] = None,
+        jinja_context: Optional[dict[str, Any]] = None,
         source: str = "<content>",
-    ) -> Tuple[Dict[str, Any], str]:
+    ) -> tuple[dict[str, Any], str]:
         """Process Markdown content.
 
         Args:
@@ -535,8 +535,8 @@ class TemplateProcessor:
         return str(soup)
 
     def process_page(
-        self, content: str, is_markdown: bool, source_path: str, variables: Dict[str, Any]
-    ) -> Tuple[Dict[str, Any], str]:
+        self, content: str, is_markdown: bool, source_path: str, variables: dict[str, Any]
+    ) -> tuple[dict[str, Any], str]:
         """Process a page: render its body, work out its URL, wrap it in a template.
 
         Args:
@@ -563,8 +563,8 @@ class TemplateProcessor:
         return front_matter, self.inject_dithering_assets(page_html)
 
     def _render_body(
-        self, content: str, is_markdown: bool, source_path: str, variables: Dict[str, Any]
-    ) -> Tuple[Dict[str, Any], str]:
+        self, content: str, is_markdown: bool, source_path: str, variables: dict[str, Any]
+    ) -> tuple[dict[str, Any], str]:
         """Split off front matter and render the body (Markdown, content Jinja).
 
         Regular pages must not have their images rewritten to blog-style
@@ -588,7 +588,7 @@ class TemplateProcessor:
                 html_content = self.render_content_jinja(html_content, context, str(source_path))
         return front_matter, html_content
 
-    def _page_url(self, source_path: str, is_markdown: bool, variables: Dict[str, Any]) -> str:
+    def _page_url(self, source_path: str, is_markdown: bool, variables: dict[str, Any]) -> str:
         """Site-relative URL of a page; "/" if it cannot be computed."""
         try:
             return self._compute_page_url(source_path, is_markdown, variables)
@@ -597,7 +597,7 @@ class TemplateProcessor:
             return "/"
 
     def _compute_page_url(
-        self, source_path: str, is_markdown: bool, variables: Dict[str, Any]
+        self, source_path: str, is_markdown: bool, variables: dict[str, Any]
     ) -> str:
         page_vars = variables.get("page", {}) if isinstance(variables, dict) else {}
         # Blog posts arrive with their permalink already computed; prefer it
@@ -639,7 +639,7 @@ class TemplateProcessor:
         return suffix in HTML_PAGE_EXTENSIONS and self.config.get_url_style() != "html"
 
     def _template_name(
-        self, front_matter: Dict[str, Any], variables: Dict[str, Any], source_path: str
+        self, front_matter: dict[str, Any], variables: dict[str, Any], source_path: str
     ):
         """Pick the page template: front matter, then page variables, then defaults.
 
@@ -683,10 +683,10 @@ class TemplateProcessor:
     def _render_with_template(
         self,
         template_name: str,
-        front_matter: Dict[str, Any],
+        front_matter: dict[str, Any],
         html_content: str,
         source_path: str,
-        variables: Dict[str, Any],
+        variables: dict[str, Any],
     ) -> str:
         """Render the page through its template, falling back to bare HTML on errors."""
         try:
@@ -712,11 +712,11 @@ class TemplateProcessor:
 
     def _template_context(
         self,
-        front_matter: Dict[str, Any],
+        front_matter: dict[str, Any],
         html_content: str,
         source_path: str,
-        variables: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        variables: dict[str, Any],
+    ) -> dict[str, Any]:
         """Build the page-template context.
 
         For regular pages the front matter becomes ``page``, filled in (in
@@ -854,7 +854,7 @@ def _directory_url(directory: PurePath) -> str:
     return "/" if posix == "." else f"/{posix}/"
 
 
-def _untemplated_page(front_matter: Dict[str, Any], html_content: str) -> str:
+def _untemplated_page(front_matter: dict[str, Any], html_content: str) -> str:
     """Minimal page used when no template applies or the template is missing."""
     title = front_matter.get("title", "Untitled")
     return f"<html><body><h1>{title}</h1>{html_content}</body></html>"
@@ -868,7 +868,7 @@ def _error_page(error: Exception, html_content: str) -> str:
     )
 
 
-def _template_names(templates_dir: str) -> List[str]:
+def _template_names(templates_dir: str) -> list[str]:
     """Jinja names (always "/"-separated) of every template file under a directory."""
     names = []
     for root, _dirs, files in os.walk(templates_dir):
@@ -889,7 +889,7 @@ def _dithered_src(src: str) -> str:
     """Blog-pipeline dithered path of an image: ``<dir>/dithered/<stem>.png``."""
     *dir_parts, filename = src.split("/")
     stem = filename.rsplit(".", 1)[0]
-    return "/".join(dir_parts + ["dithered", stem + ".png"])
+    return "/".join([*dir_parts, "dithered", stem + ".png"])
 
 
 def _wrap_in_dither_figure(soup: BeautifulSoup, img, image_id: str) -> None:

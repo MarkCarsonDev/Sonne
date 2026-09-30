@@ -1,8 +1,6 @@
 """Image pipeline: resizing, dithering, only_used, cache keys."""
 
 import logging
-
-
 from pathlib import Path
 
 from PIL import Image

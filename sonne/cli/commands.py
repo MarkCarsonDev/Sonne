@@ -3,21 +3,21 @@ Command-line interface for Sonne static site generator.
 Provides commands for creating, building, and serving static sites.
 """
 
-import click
 import functools
-import os
-import sys
-import time
-import logging
 import http.server
+import logging
+import os
 import socketserver
+import sys
+import threading
+import time
 import traceback
 import webbrowser
-import threading
 from pathlib import Path
 from shutil import copytree, ignore_patterns
-from typing import List, Optional
+from typing import Optional
 
+import click
 import yaml
 from rich.console import Console
 from rich.panel import Panel
@@ -27,7 +27,7 @@ from watchdog.observers.api import BaseObserver
 
 from sonne.core.config import Config
 from sonne.core.site_generator import SiteGenerator
-from sonne.utils.path_utils import is_sonne_directory, CONFIG_FILENAMES
+from sonne.utils.path_utils import CONFIG_FILENAMES, is_sonne_directory
 
 # Set up logging
 logging.basicConfig(
@@ -100,7 +100,7 @@ def check_sonne_directory(path: str) -> bool:
     return False
 
 
-def _report_problems(heading: str, problems: List[str], severity: int) -> None:
+def _report_problems(heading: str, problems: list[str], severity: int) -> None:
     """Print a headed list of problems (rich if available, else the log).
 
     Args:
@@ -343,7 +343,7 @@ def _set_site_title(config_path: Path, site_name: str) -> None:
     """
     if not config_path.exists():
         return
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         site_config = yaml.safe_load(f) or {}
     site_config.setdefault("site", {})["title"] = site_name
     with open(config_path, "w", encoding="utf-8") as f:
@@ -567,7 +567,7 @@ class SiteRebuilder:
             _print_traceback_if_verbose()
 
 
-def _paths_touched_by(event) -> List[str]:
+def _paths_touched_by(event) -> list[str]:
     """Paths a watchdog event affects.
 
     A move reports both ends: editors that save by writing a temp file and
@@ -596,7 +596,7 @@ def _start_watching(path: str, config: Config) -> Optional[BaseObserver]:
     observer = Observer()
     observer.schedule(_WatchdogAdapter(), path, recursive=True)
     observer.start()
-    click.echo(f"Watching: {', '.join(rebuilder.watch_dirs + ['config'])}")
+    click.echo(f"Watching: {', '.join([*rebuilder.watch_dirs, 'config'])}")
     return observer
 
 

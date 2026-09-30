@@ -3,19 +3,19 @@ Variable management for Sonne.
 Handles loading, processing, and substituting variables in templates.
 """
 
-import os
-import json
-import yaml
 import csv
 import importlib.machinery
 import importlib.util
+import json
+import logging
+import os
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
-import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
+import yaml
 from markupsafe import Markup
 
 from sonne.script_api import ScriptHooks, running_script
@@ -44,7 +44,7 @@ class VariableManager:
     # Derived state must never persist across builds: it is recomputed from
     # content every build, and stale copies were previously served when the
     # blog was later disabled or posts changed.
-    _NEVER_PERSIST = {"all_blog_posts", "tags", "categories", "build_time"}
+    _NEVER_PERSIST = frozenset({"all_blog_posts", "tags", "categories", "build_time"})
 
     def __init__(self, config, base_dir: str):
         """Initialize variable manager.
@@ -109,12 +109,12 @@ class VariableManager:
         self.custom_filters = {}
         self.custom_globals = {}
 
-    def _current_blog_variables(self) -> Dict[str, Any]:
+    def _current_blog_variables(self) -> dict[str, Any]:
         """Blog variables already set by BlogProcessor.collect_post_metadata()."""
         global_scope = self.variables.get("global", {})
         return {name: global_scope[name] for name in BLOG_VARIABLE_NAMES if name in global_scope}
 
-    def _fresh_scopes(self, blog_variables: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    def _fresh_scopes(self, blog_variables: dict[str, Any]) -> dict[str, dict[str, Any]]:
         now = datetime.now()
         site_scope = {
             "generator": "Sonne",
@@ -184,7 +184,7 @@ class VariableManager:
         else:
             self._store_data(data, Path(self.variable_file).stem, "global")
 
-    def _restore_blog_variables(self, blog_variables: Dict[str, Any]) -> None:
+    def _restore_blog_variables(self, blog_variables: dict[str, Any]) -> None:
         self.variables["global"].update(blog_variables)
         self.variables["site"].update(blog_variables)
 
@@ -217,7 +217,7 @@ class VariableManager:
         else:
             self.variables[scope][name] = data
 
-    def data_script_paths(self) -> List[Path]:
+    def data_script_paths(self) -> list[Path]:
         """Data scripts that load_variables() runs, in run order.
 
         Every ``*.py`` directly in the scripts directory except names
@@ -293,7 +293,7 @@ class VariableManager:
 
         def get_post(
             slug: Optional[str] = None, tag: Optional[str] = None
-        ) -> Optional[Dict[str, Any]]:
+        ) -> Optional[dict[str, Any]]:
             """Get a blog post by slug, or the first post with a tag; None if not found."""
             posts = self.variables.get("global", {}).get("all_blog_posts", [])
             if not posts:
@@ -361,7 +361,7 @@ class VariableManager:
                 logger.error(f"Error running footer script at {footer_path}: {e}")
         logger.debug("No footer.py script found")
 
-    def _footer_script_candidates(self) -> List[str]:
+    def _footer_script_candidates(self) -> list[str]:
         candidates = [os.path.join(self.base_dir, "data", "footer.py")]
         data_path = self.config.get("paths", "data")
         if data_path:
@@ -384,7 +384,7 @@ class VariableManager:
             if key not in self.variables.get("site", {}):
                 self.variables["site"][key] = value
 
-    def render_scopes(self) -> Dict[str, Dict[str, Any]]:
+    def render_scopes(self) -> dict[str, dict[str, Any]]:
         """Variable scopes for rendering one content page.
 
         Globals set since load_variables() (e.g. by the blog processor) are
@@ -420,7 +420,7 @@ class VariableManager:
 
         return default
 
-    def get_all(self) -> Dict[str, Any]:
+    def get_all(self) -> dict[str, Any]:
         """Get all variables merged into a single dictionary.
 
         Returns:
@@ -455,7 +455,7 @@ class VariableManager:
         if key == "footer_custom" and scope == "global":
             self.variables.setdefault("site", {}).setdefault("footer", {})["custom"] = value
 
-    def set_page_variables(self, variables: Dict[str, Any]) -> None:
+    def set_page_variables(self, variables: dict[str, Any]) -> None:
         """Set page-level variables.
 
         Args:
@@ -508,7 +508,7 @@ def _parse_data_file(file_path: str) -> Any:
         other extension.
     """
     ext = Path(file_path).suffix.lower()
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         if ext == ".json":
             return json.load(f)
         if ext in (".yaml", ".yml"):
@@ -528,7 +528,7 @@ def _is_legacy_wrapped(data: Any) -> bool:
     )
 
 
-def _find_post(posts: List[Dict], slug: Optional[str], tag: Optional[str]) -> Optional[Dict]:
+def _find_post(posts: list[dict], slug: Optional[str], tag: Optional[str]) -> Optional[dict]:
     """The post with this slug, else (when no slug is given) the first with this tag."""
     if slug:
         return next((post for post in posts if post.get("slug") == slug), None)

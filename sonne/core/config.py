@@ -4,12 +4,13 @@ Supports multiple configuration formats and provides validation.
 """
 
 import copy
-import os
 import json
-import yaml
-from pathlib import Path
 import logging
-from typing import Dict, Any, Optional, List, Tuple
+import os
+from pathlib import Path
+from typing import Any, Optional
+
+import yaml
 
 from sonne.core.deprecations import apply_config_deprecations
 from sonne.utils.path_utils import CONFIG_FILENAMES, CONFIG_SEARCH_DEPTH
@@ -145,7 +146,7 @@ class Config:
         """
         self.base_dir = base_dir or os.getcwd()
         self.config_path = config_path or self._find_config()
-        self.config: Dict[str, Any] = self._load_config()
+        self.config: dict[str, Any] = self._load_config()
 
     def _find_config(self) -> Optional[str]:
         """Search the base directory, then its parents, for a config file.
@@ -173,7 +174,7 @@ class Config:
         logger.info("No configuration file found, using defaults")
         return None
 
-    def _load_config(self) -> Dict[str, Any]:
+    def _load_config(self) -> dict[str, Any]:
         """Load configuration from file and merge with defaults.
 
         An unreadable or unsupported file is logged and the defaults are used.
@@ -192,13 +193,13 @@ class Config:
             logger.warning("Using default configuration")
         return config
 
-    def _merge_user_config(self, config: Dict[str, Any], config_path: str) -> None:
+    def _merge_user_config(self, config: dict[str, Any], config_path: str) -> None:
         ext = Path(config_path).suffix.lower()
         if ext not in YAML_EXTENSIONS + JSON_EXTENSIONS:
             logger.warning(f"Unsupported config format: {ext}")
             return
 
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             user_config = yaml.safe_load(f) if ext in YAML_EXTENSIONS else json.load(f)
 
         if isinstance(user_config, dict):
@@ -278,7 +279,7 @@ class Config:
 
         logger.debug(f"Configuration saved to {save_path}")
 
-    def normalize_paths(self, base_dir: str) -> Dict[str, str]:
+    def normalize_paths(self, base_dir: str) -> dict[str, str]:
         """Normalize all path configurations to absolute paths.
 
         Output and cache directories are created if missing.
@@ -301,7 +302,7 @@ class Config:
             paths[key] = full_path
         return paths
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """Validate the configuration and return a list of warnings/errors.
 
         Returns:
@@ -317,7 +318,7 @@ class Config:
             + self._environment_problems()
         )
 
-    def _shape_problems(self) -> List[str]:
+    def _shape_problems(self) -> list[str]:
         """Report settings given a scalar where a mapping (section) belongs.
 
         Such a value replaces the whole default section when merged, and
@@ -329,7 +330,7 @@ class Config:
             if not isinstance(value, SCALARS_ALLOWED_FOR_SECTION.get(keys, ()))
         ]
 
-    def _site_problems(self) -> List[str]:
+    def _site_problems(self) -> list[str]:
         site_config = self.get("site")
         if not site_config:
             return ["Missing 'site' configuration section"]
@@ -342,7 +343,7 @@ class Config:
             problems.append("Site base_url is not set")
         return problems
 
-    def _path_problems(self) -> List[str]:
+    def _path_problems(self) -> list[str]:
         paths = self.get("paths")
         if not paths:
             return ["Missing 'paths' configuration section"]
@@ -354,7 +355,7 @@ class Config:
             if not paths.get(path_key)
         ]
 
-    def _image_problems(self) -> List[str]:
+    def _image_problems(self) -> list[str]:
         images = self.get("images")
         if not isinstance(images, dict):
             return []
@@ -369,7 +370,7 @@ class Config:
             problems.append("images.sizes should contain only positive integers")
         return problems
 
-    def _blog_problems(self) -> List[str]:
+    def _blog_problems(self) -> list[str]:
         blog = self.get("blog")
         if not isinstance(blog, dict) or not blog.get("enabled"):
             return []
@@ -383,13 +384,13 @@ class Config:
             problems.append("blog.posts_per_page must be a positive integer")
         return problems
 
-    def _serve_problems(self) -> List[str]:
+    def _serve_problems(self) -> list[str]:
         port = self.get("serve", "port")
         if port is not None and (not _is_strict_int(port) or not 0 <= port <= MAX_PORT):
             return [f"serve.port must be an integer between 0 and {MAX_PORT}"]
         return []
 
-    def _environment_problems(self) -> List[str]:
+    def _environment_problems(self) -> list[str]:
         environment = self.get("environment", default="prod")
         url_style = self.get("url_style")
         if isinstance(url_style, dict) and environment not in url_style:
@@ -498,7 +499,7 @@ class Config:
         return f'<meta http-equiv="Content-Security-Policy" content="{csp_header}">'
 
 
-def _self_and_ancestors(directory: str, depth: int) -> List[str]:
+def _self_and_ancestors(directory: str, depth: int) -> list[str]:
     """directory followed by up to depth-1 of its ancestors (stopping at the root)."""
     directories = [directory]
     while len(directories) < depth:
@@ -519,8 +520,8 @@ def _config_file_in(directory: str) -> Optional[str]:
 
 
 def _scalars_in_place_of_sections(
-    config: Dict[str, Any], defaults: Dict[str, Any], prefix: Tuple[str, ...] = ()
-) -> List[Tuple[Tuple[str, ...], Any]]:
+    config: dict[str, Any], defaults: dict[str, Any], prefix: tuple[str, ...] = ()
+) -> list[tuple[tuple[str, ...], Any]]:
     """(key path, value) wherever config has a non-mapping for a non-empty default section.
 
     A null value is not reported here: it reads as an absent section.
@@ -531,13 +532,13 @@ def _scalars_in_place_of_sections(
             continue
         value = config[key]
         if isinstance(value, dict):
-            found += _scalars_in_place_of_sections(value, default, prefix + (key,))
+            found += _scalars_in_place_of_sections(value, default, (*prefix, key))
         elif value is not None:
-            found.append((prefix + (key,), value))
+            found.append(((*prefix, key), value))
     return found
 
 
-def _deep_merge(source: Dict[str, Any], destination: Dict[str, Any]) -> None:
+def _deep_merge(source: dict[str, Any], destination: dict[str, Any]) -> None:
     """Recursively merge source dictionary into destination.
 
     Nested dicts are merged; lists and scalars from source replace the

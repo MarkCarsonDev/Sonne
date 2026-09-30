@@ -11,10 +11,11 @@ import re
 import shutil
 import threading
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any, Callable, Optional
 
 import numpy as np
 from PIL import Image, ImageOps
@@ -90,8 +91,8 @@ IMAGE_REF_PATTERN = re.compile(
 class ImageWorkload:
     """Source images one process_all() run handles, in processing order."""
 
-    content: List[str]
-    static: List[str]
+    content: list[str]
+    static: list[str]
 
     def __len__(self) -> int:
         return len(self.content) + len(self.static)
@@ -103,14 +104,14 @@ class VariantSettings:
 
     dither: bool
     optimize: bool
-    formats: List[str]
-    sizes: List[int]
+    formats: list[str]
+    sizes: list[int]
     dither_method: str
     dither_colors: int
     webp_method: int
     webp_method_original: int
-    dither_formats: List[str]
-    dither_sizes: Set[int]
+    dither_formats: list[str]
+    dither_sizes: set[int]
 
     def cache_key(self, source_path: str, file_hash: Optional[str]) -> str:
         """Cache key covering the source file and every output-affecting setting.
@@ -130,7 +131,7 @@ class VariantSettings:
 class ImageProcessor:
     """Processes and optimizes images."""
 
-    def __init__(self, config, paths: Dict[str, str]):
+    def __init__(self, config, paths: dict[str, str]):
         """Initialize image processor.
 
         Args:
@@ -142,8 +143,8 @@ class ImageProcessor:
         self.cache = {}
         self.cache_file = None
         self.stats: Optional[BuildStatistics] = None  # Injected by SiteGenerator
-        self._warned_dither_methods: Set[str] = set()
-        self._used_images_by_content_dir: Dict[Optional[str], Set[str]] = {}
+        self._warned_dither_methods: set[str] = set()
+        self._used_images_by_content_dir: dict[Optional[str], set[str]] = {}
         # Images are processed in a thread pool; guards warnings and stats.
         self._lock = threading.Lock()
 
@@ -161,7 +162,7 @@ class ImageProcessor:
             return
 
         try:
-            with open(self.cache_file, "r", encoding="utf-8") as f:
+            with open(self.cache_file, encoding="utf-8") as f:
                 self.cache = json.load(f)
         except Exception as e:
             logger.error(f"Error loading image cache: {e}")
@@ -193,7 +194,7 @@ class ImageProcessor:
                 for chunk in iter(lambda: f.read(HASH_CHUNK_BYTES), b""):
                     digest.update(chunk)
             return digest.hexdigest()
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"Error reading file for hashing {file_path}: {e}")
             # Return a deterministic fallback based on path and mtime
             return hashlib.sha256(f"{file_path}:{os.path.getmtime(file_path)}".encode()).hexdigest()
@@ -260,7 +261,7 @@ class ImageProcessor:
         used_paths = self._used_image_paths(self.paths.get("content"))
         return _is_processable_image(file_path, root, used_paths)
 
-    def _used_image_paths(self, content_dir: Optional[str]) -> Optional[Set[str]]:
+    def _used_image_paths(self, content_dir: Optional[str]) -> Optional[set[str]]:
         """Referenced image paths when images.only_used is on, else None (use all).
 
         Memoised per content dir: the static copy and process_all() must
@@ -280,7 +281,7 @@ class ImageProcessor:
         static_images_dir = os.path.join(static_dir, "images")
         return static_images_dir if os.path.exists(static_images_dir) else None
 
-    def _collect_used_images(self, content_dir: Optional[str]) -> Set[str]:
+    def _collect_used_images(self, content_dir: Optional[str]) -> set[str]:
         """Scan content and template files for image references.
 
         Returns a set of resolved absolute source paths. Absolute references
@@ -293,7 +294,7 @@ class ImageProcessor:
         scan_dirs = [content_dir, self.paths.get("templates")]
         for file_path in _files_to_scan_for_refs(scan_dirs):
             try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                with open(file_path, encoding="utf-8", errors="ignore") as f:
                     text = f.read()
                 for match in IMAGE_REF_PATTERN.finditer(text):
                     ref = match.group(1) or match.group(2) or match.group(3)
@@ -327,7 +328,7 @@ class ImageProcessor:
             logger.debug(f"Could not resolve image reference {ref}: {e}")
             return None
 
-    def _run_for_each(self, process: Callable[[str], Any], image_paths: List[str]) -> None:
+    def _run_for_each(self, process: Callable[[str], Any], image_paths: list[str]) -> None:
         """Run ``process`` on every path, in a thread pool when enabled; log failures."""
         if self.config.get("images", "parallel", default=True) and len(image_paths) > 1:
             with ThreadPoolExecutor(max_workers=self.worker_count()) as executor:
@@ -388,7 +389,7 @@ class ImageProcessor:
                 original_image_size=os.path.getsize(source_path),
                 processed_image_size=os.path.getsize(output_path),
             )
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"I/O error processing static image {source_path}: {e}")
             self._copy_static_image(source_path)
         except Exception as e:
@@ -444,7 +445,7 @@ class ImageProcessor:
         try:
             shutil.copy2(source_path, output_path)
             logger.debug(f"Copied static image: {source_path} -> {output_path}")
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.error(f"Error copying static image {source_path} to {output_path}: {e}")
 
     def _static_output_path(self, source_path: str) -> str:
@@ -457,9 +458,9 @@ class ImageProcessor:
         self,
         source_path: str,
         output_filename: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None,
+        options: Optional[dict[str, Any]] = None,
         skip_cache: bool = False,
-    ) -> Dict[str, Dict[str, str]]:
+    ) -> dict[str, dict[str, str]]:
         """Write resized originals and dithered variants of a content image.
 
         Args:
@@ -488,7 +489,7 @@ class ImageProcessor:
                 return cached
 
         os.makedirs(os.path.join(self.paths["output"], VARIANTS_DIR), exist_ok=True)
-        results: Dict[Any, Dict[str, str]] = {}
+        results: dict[Any, dict[str, str]] = {}
         width = height = 0
         try:
             with Image.open(source_path) as opened:
@@ -517,7 +518,7 @@ class ImageProcessor:
             )
         return results
 
-    def _variant_settings(self, options: Optional[Dict[str, Any]]) -> VariantSettings:
+    def _variant_settings(self, options: Optional[dict[str, Any]]) -> VariantSettings:
         """Resolve image settings: per-call options, then config, then defaults.
 
         List-valued settings of the wrong type fall back to their defaults.
@@ -569,7 +570,7 @@ class ImageProcessor:
 
     def _write_variants(
         self, image: "Image.Image", stem: str, settings: VariantSettings
-    ) -> Iterator[Tuple[Any, str, str]]:
+    ) -> Iterator[tuple[Any, str, str]]:
         """Write every size/format variant; yield (variant key, format, path) per file."""
         if image.mode not in ("RGB", "RGBA"):
             image = image.convert("RGB")
@@ -602,11 +603,11 @@ class ImageProcessor:
         self,
         image: "Image.Image",
         name_stem: str,
-        formats: List[str],
+        formats: list[str],
         webp_method: int,
         optimize: bool,
         variant_kind: str,
-    ) -> Iterator[Tuple[str, str]]:
+    ) -> Iterator[tuple[str, str]]:
         """Save ``image`` in each format; yield (format, output-relative path) per success.
 
         A format that fails to save is logged and skipped.
@@ -677,25 +678,24 @@ class ImageProcessor:
 
         if method == "bayer":
             return _bayer_dither(img, colors)
-        elif method in ("grayscale", "palette"):
+        if method in ("grayscale", "palette"):
             return _grayscale_palette_dither(img, colors)
-        elif method in ("1bit", "halftone", "floyd_steinberg"):
+        if method in ("1bit", "halftone", "floyd_steinberg"):
             return img.convert("L").convert("1", dither=Image.Dither.FLOYDSTEINBERG)
-        elif method == "threshold":
+        if method == "threshold":
             return img.convert("L").convert("1", dither=Image.Dither.NONE)
-        elif method == "color_median":
+        if method == "color_median":
             return img.convert("RGB").quantize(
                 colors=colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG
             )
-        elif method == "color_octree":
+        if method == "color_octree":
             return img.convert("RGB").quantize(
                 colors=colors, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.FLOYDSTEINBERG
             )
-        elif method == "color_lab":
+        if method == "color_lab":
             return _lab_kmeans_dither(img, colors)
-        else:
-            self._warn_unknown_dither_method(method)
-            return _bayer_dither(img, colors)
+        self._warn_unknown_dither_method(method)
+        return _bayer_dither(img, colors)
 
     def _count(self, **increments: int) -> None:
         """Add to BuildStatistics counters, if statistics are being collected.
@@ -766,7 +766,7 @@ def _joined(values) -> str:
     return "-".join(map(str, values))
 
 
-def _list_or_default(value, default: List) -> List:
+def _list_or_default(value, default: list) -> list:
     return value if isinstance(value, list) else default
 
 
@@ -795,7 +795,7 @@ def _save_image(
         image.save(path, format=fmt.upper())
 
 
-def _files_to_scan_for_refs(directories: List[Optional[str]]) -> Iterator[str]:
+def _files_to_scan_for_refs(directories: list[Optional[str]]) -> Iterator[str]:
     """Files under the existing directories that may reference images, skipping dot-dirs."""
     for directory in directories:
         if not directory or not os.path.exists(directory):
@@ -807,7 +807,7 @@ def _files_to_scan_for_refs(directories: List[Optional[str]]) -> Iterator[str]:
                     yield os.path.join(root, file_name)
 
 
-def _find_images(directory: str, used_paths: Optional[Set[str]]) -> List[str]:
+def _find_images(directory: str, used_paths: Optional[set[str]]) -> list[str]:
     """Image files under a directory (sorted), minus hidden and (optionally) unused ones."""
     root = Path(directory)
     return [
@@ -817,7 +817,7 @@ def _find_images(directory: str, used_paths: Optional[Set[str]]) -> List[str]:
     ]
 
 
-def _is_processable_image(file_path: Path, root: Path, used_paths: Optional[Set[str]]) -> bool:
+def _is_processable_image(file_path: Path, root: Path, used_paths: Optional[set[str]]) -> bool:
     """A non-hidden raster image under root, and referenced if used_paths is given."""
     if file_path.suffix.lower() not in IMAGE_EXTENSIONS or not file_path.is_file():
         return False
@@ -964,13 +964,13 @@ def _diffuse_to_palette(
     return np.array(indices, dtype=np.uint8).reshape(height, width)
 
 
-def _add_scaled(pixel: List[float], err: List[float], sixteenths: int) -> None:
+def _add_scaled(pixel: list[float], err: list[float], sixteenths: int) -> None:
     """Diffuse ``sixteenths``/16 of the error into a neighbouring pixel."""
     for ch in range(3):
         pixel[ch] += err[ch] * sixteenths / 16
 
 
-def _nearest_centre(lab: Tuple[float, float, float], centres: List[List[float]]) -> int:
+def _nearest_centre(lab: tuple[float, float, float], centres: list[list[float]]) -> int:
     """Index of the closest centre (squared Euclidean); first wins on ties."""
     best, best_distance = 0, None
     for i, centre in enumerate(centres):
@@ -983,7 +983,7 @@ def _nearest_centre(lab: Tuple[float, float, float], centres: List[List[float]])
     return best
 
 
-def _pixel_to_lab(pixel: List[float]) -> Tuple[float, float, float]:
+def _pixel_to_lab(pixel: list[float]) -> tuple[float, float, float]:
     """Scalar twin of _srgb_to_lab for one (possibly out-of-range) RGB pixel."""
     linear = [_channel_to_linear(min(max(v / 255.0, 0.0), 1.0)) for v in pixel]
     x, y, z = (
@@ -1049,7 +1049,7 @@ def _save_in_source_format(image: "Image.Image", path: str) -> None:
     image.save(path, optimize=True)
 
 
-def _file_signature(path: str) -> Optional[Dict[str, int]]:
+def _file_signature(path: str) -> Optional[dict[str, int]]:
     """Size and modification time of a file, or None if it does not exist."""
     try:
         stat = os.stat(path)

@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-
 import sonne.processors.blog_processor as blog_processor
 
 

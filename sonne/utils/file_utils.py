@@ -3,10 +3,10 @@ File utility functions for Sonne.
 Provides utilities for file operations like copying, ensuring directories exist, etc.
 """
 
+import glob
+import logging
 import os
 import shutil
-import logging
-import glob
 from typing import Callable, Optional, Union
 
 logger = logging.getLogger("sonne")
