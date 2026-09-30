@@ -1,6 +1,7 @@
 """Full builds of the minimal fixture site."""
 
 import logging
+import shutil
 
 
 class TestMinimalBuild:
@@ -21,6 +22,16 @@ class TestMinimalBuild:
     def test_no_dithering_assets_when_dither_disabled(self, site_factory, builder):
         site = site_factory("minimal")  # minimal config sets images.dither: false
         _, out = builder(site)
+        assert not (out / "css" / "dithering.css").exists()
+        assert not (out / "js" / "dithering.js").exists()
+
+    def test_site_without_static_dir_gets_template_assets_only(self, site_factory, builder):
+        site = site_factory("minimal")  # dither disabled
+        shutil.rmtree(site / "static")
+
+        _, out = builder(site)
+
+        assert (out / "css" / "style.css").exists()  # bundled template fallback
         assert not (out / "css" / "dithering.css").exists()
         assert not (out / "js" / "dithering.js").exists()
 

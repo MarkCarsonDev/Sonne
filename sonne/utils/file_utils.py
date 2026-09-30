@@ -50,7 +50,11 @@ def copy_core_static_files(output_dir: str) -> None:
 
 
 def copy_static_files(static_dir: str, output_dir: str) -> None:
-    """Copy static files to the output directory.
+    """Copy static files to the output directory, skipping hidden entries.
+
+    A missing static directory only warns: SiteGenerator then falls back to
+    the template's static files (copy_template_static_files), and emits the
+    package's dithering assets only when dithering is enabled.
 
     Args:
         static_dir: Path to the static directory.
@@ -58,29 +62,7 @@ def copy_static_files(static_dir: str, output_dir: str) -> None:
     """
     if not static_dir or not os.path.exists(static_dir):
         logger.warning(f"Static directory does not exist or is not specified: {static_dir}")
-
-        # Look for common static files in standard locations
-        fallback_dirs = [
-            # Check if there's a default static directory next to the executable
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "static"),
-            # Check for static in templates/minimal directory
-            os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), "templates", "minimal", "static"
-            ),
-            # Check current directory
-            os.path.join(os.getcwd(), "static"),
-        ]
-
-        # Try each fallback directory
-        for fallback_dir in fallback_dirs:
-            if os.path.exists(fallback_dir):
-                logger.info(f"Using fallback static directory: {fallback_dir}")
-                static_dir = fallback_dir
-                break
-
-        if not static_dir or not os.path.exists(static_dir):
-            logger.error("No static directory found. CSS and JS files will be missing.")
-            return
+        return
 
     # Copy all files from static directory to output directory
     for root, dirs, files in os.walk(static_dir):
