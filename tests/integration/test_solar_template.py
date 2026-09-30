@@ -89,6 +89,23 @@ class TestSolarTemplate:
         assert (output / "images" / "vogel.jpg").exists()
         assert (output / "images" / "dithered" / "vogel.png").exists()
 
+    def test_a_cover_next_to_its_post_names_its_original(self, solar_site, builder, image_factory):
+        post_dir = solar_site / "content" / "blog" / "local-cover"
+        image_factory(post_dir / "photo.jpg", size=(64, 40))
+        (post_dir / "index.md").write_text(
+            "---\ntitle: Local Cover\ndate: 2025-02-01\ncover_img: photo.jpg\n---\nBody.\n",
+            encoding="utf-8",
+        )
+        _, output = builder(solar_site)
+        page = read_page(output, "blog", "local-cover")
+        # dithering.js adds the toggle to images that name their original
+        cover = re.search(r"<img[^>]*alt=\"Local Cover\"[^>]*>", page)
+        assert cover is not None
+        assert 'data-original-src="photo.jpg"' in cover.group(0)
+        assert 'src="dithered/photo.png"' in cover.group(0)
+        assert (output / "blog" / "local-cover" / "photo.jpg").is_file()
+        assert (output / "blog" / "local-cover" / "dithered" / "photo.png").is_file()
+
     def test_scripts_do_not_replace_site_config_values(self, solar_site, builder, caplog):
         with caplog.at_level(logging.WARNING, logger="sonne"):
             builder(solar_site)
