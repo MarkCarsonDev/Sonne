@@ -20,6 +20,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 from PIL import Image, ImageOps
 
+from sonne.processors.dithered_images import DitheredImages
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import IMAGE_EXTENSIONS, PAGE_EXTENSIONS
 
@@ -32,9 +33,6 @@ DEFAULT_DITHER_FORMATS = ["webp"]
 # Where sized variants are written, relative to the output root.
 VARIANTS_DIR = "assets/images"
 
-# Image modes JPEG can store (dithered palette/1-bit images must convert).
-JPEG_MODES = ("L", "RGB", "CMYK")
-
 # Lossy quality for WebP and JPEG variants.
 LOSSY_QUALITY = 85
 
@@ -42,6 +40,17 @@ LOSSY_QUALITY = 85
 BICUBIC_MAX_WIDTH = 400
 
 HASH_CHUNK_BYTES = 8192
+
+# Where a static image's dithered copy lives, relative to the image's directory.
+DITHERED_DIR_NAME = "dithered"
+
+# Logged once per build that dithers static images. The "_original" part goes
+# away with the compatibility copy in Sonne 0.5.0 (_write_legacy_original_copy).
+STATIC_LAYOUT_NOTICE = (
+    "Static images keep their original at their own URL; the dithered copy is "
+    "<dir>/dithered/<name>.png. The <name>_original copies are still written for "
+    "compatibility and will be removed in Sonne 0.5.0."
+)
 
 DEFAULT_DITHER_COLORS = 4
 MIN_PALETTE_SIZE = 2
@@ -147,6 +156,8 @@ class ImageProcessor:
         self._used_images_by_content_dir: dict[Optional[str], set[str]] = {}
         # Images are processed in a thread pool; guards warnings and stats.
         self._lock = threading.Lock()
+        # Filled while processing; TemplateProcessor marks <img> tags from it.
+        self.dithered_images = DitheredImages()
 
         # Setup cache if a cache directory is configured
         if "cache" in self.paths:
@@ -216,6 +227,8 @@ class ImageProcessor:
             logger.info(
                 f"Processing images in static/images directory: {self._static_images_dir()}"
             )
+            if self.config.get("images", "dither", default=True):
+                logger.info(STATIC_LAYOUT_NOTICE)
             self._run_for_each(
                 lambda path: self._process_static_image(path, skip_cache=skip_cache), images.static
             )
@@ -351,88 +364,108 @@ class ImageProcessor:
         return int(workers) if workers else min(DEFAULT_MAX_WORKERS, (os.cpu_count() or 1))
 
     def _process_static_image(self, source_path: str, skip_cache: bool = False) -> None:
-        """Dither a static/images image in place, keeping the original as ``*_original``.
+        """Publish a static/images image: the original at its own URL, plus a dithered copy.
 
-        Falls back to a plain copy when dithering is disabled or fails.
+        The dithered PNG goes to ``<dir>/dithered/<stem>.png`` and is recorded
+        in dithered_images, so pages can show it and toggle to the original.
+        Without dithering (or if it fails) only the original is published.
 
         Args:
             source_path: Path to the source image.
             skip_cache: Whether to skip cache and reprocess.
         """
+        self._copy_static_image(source_path)
         dither = self.config.get("images", "dither", default=True)
         if not dither:
-            self._copy_static_image(source_path)
             return
 
-        output_path = self._static_output_path(source_path)
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        original_path = _with_original_suffix(output_path)
+        original_path = self._static_output_path(source_path)
+        dithered_path = _dithered_path_for(original_path)
+        self._write_legacy_original_copy(source_path, original_path)
         dither_method = self.config.get("images", "dither_method", default="bayer")
         dither_colors = self.config.get("images", "dither_colors", default=4)
         file_hash = self._file_hash(source_path) if not skip_cache else None
-        cache_key = f"static:{source_path}:{file_hash}:{dither}:{dither_method}:{dither_colors}"
+        # "static-v2": the dithered copy moved from the image's own URL to dithered/.
+        cache_key = f"static-v2:{source_path}:{file_hash}:{dither}:{dither_method}:{dither_colors}"
 
-        if not skip_cache and self._static_cache_hit(cache_key, output_path, original_path):
+        if not skip_cache and self._static_cache_hit(cache_key, dithered_path):
             logger.debug(f"Using cached version of static image: {source_path}")
+            self._register_static_pair(original_path, dithered_path)
             self._count(images_cached=1, cache_hits=1)
             return
 
         try:
-            self._write_static_pair(
-                source_path, output_path, original_path, dither_method, dither_colors
-            )
+            self._write_static_dithered(source_path, dithered_path, dither_method, dither_colors)
             if not skip_cache:
-                self.cache[cache_key] = _file_signature(output_path)
+                self.cache[cache_key] = _file_signature(dithered_path)
+            self._register_static_pair(original_path, dithered_path)
             self._count(
                 images_processed=1,
                 cache_misses=0 if skip_cache else 1,
                 original_image_size=os.path.getsize(source_path),
-                processed_image_size=os.path.getsize(output_path),
+                processed_image_size=os.path.getsize(dithered_path),
             )
-        except OSError as e:
-            logger.error(f"I/O error processing static image {source_path}: {e}")
-            self._copy_static_image(source_path)
         except Exception as e:
+            # The original is already published, so the page just shows it.
             logger.error(
-                f"Unexpected error processing static image {source_path}: {e}",
+                f"Error dithering static image {source_path}: {e}",
                 exc_info=logger.isEnabledFor(logging.DEBUG),
             )
-            self._copy_static_image(source_path)
 
-    def _static_cache_hit(self, cache_key: str, output_path: str, original_path: str) -> bool:
-        """Whether the cached dithered output is still the file in the output dir.
+    def _static_cache_hit(self, cache_key: str, dithered_path: str) -> bool:
+        """Whether the cached dithered copy is still the file in the output dir.
 
-        The entry records the dithered file's size and mtime. Anything else
-        at the output path (--clean wiped it, or the static copy replaced it
-        with the raw source) is a miss, as is an entry from before signatures
-        were recorded.
+        The entry records the dithered file's size and mtime; anything else
+        at that path (e.g. --clean wiped it) is a miss, as is an entry from
+        an older cache layout.
         """
         cached_signature = self.cache.get(cache_key)
-        if not isinstance(cached_signature, dict) or not os.path.exists(original_path):
+        if not isinstance(cached_signature, dict):
             return False
-        if _file_signature(output_path) == cached_signature:
+        if _file_signature(dithered_path) == cached_signature:
             return True
-        logger.debug(
-            f"Static image output changed since it was cached; reprocessing: {output_path}"
-        )
+        logger.debug(f"Dithered static image changed since it was cached: {dithered_path}")
         return False
 
-    def _write_static_pair(
-        self,
-        source_path: str,
-        output_path: str,
-        original_path: str,
-        dither_method: str,
-        dither_colors: int,
+    def _write_static_dithered(
+        self, source_path: str, dithered_path: str, dither_method: str, dither_colors: int
     ) -> None:
-        """Copy the original beside the output, then write the dithered image."""
-        shutil.copy2(source_path, original_path)
-        logger.debug(f"Copied original image: {source_path} -> {original_path}")
+        os.makedirs(os.path.dirname(dithered_path), exist_ok=True)
         with Image.open(source_path) as opened:
-            image = upright_image(opened)
-            dithered = self._apply_dither(image, dither_method, dither_colors)
-            _save_in_source_format(dithered, output_path)
-        logger.debug(f"Saved dithered image: {source_path} -> {output_path}")
+            dithered = self._apply_dither(upright_image(opened), dither_method, dither_colors)
+            dithered.save(dithered_path, format="PNG", optimize=True)
+        logger.debug(f"Saved dithered image: {source_path} -> {dithered_path}")
+
+    def _write_legacy_original_copy(self, source_path: str, original_path: str) -> None:
+        """Also publish the original as ``<name>_original<ext>``, its URL before 0.5.0.
+
+        Compatibility bridge for one release, so pages and links built by
+        earlier versions keep resolving. REMOVE in Sonne 0.5.0, together with
+        the mention in STATIC_LAYOUT_NOTICE.
+        """
+        legacy_path = _with_original_suffix(original_path)
+        try:
+            shutil.copy2(source_path, legacy_path)
+        except OSError as e:
+            logger.error(f"Error copying static image {source_path} to {legacy_path}: {e}")
+
+    def _register_static_pair(self, original_path: str, dithered_path: str) -> None:
+        self.dithered_images.add(self._site_url(original_path), self._site_url(dithered_path))
+
+    def _register_variants(self, results: dict[Any, dict[str, str]]) -> None:
+        """Record each dithered sized variant with its same-size, same-format original."""
+        for key, dithered_by_format in results.items():
+            if not isinstance(key, int):
+                continue
+            originals_by_format = results.get(f"{key}_original", {})
+            for fmt, dithered_rel in dithered_by_format.items():
+                original_rel = originals_by_format.get(fmt)
+                if original_rel:
+                    self.dithered_images.add("/" + original_rel, "/" + dithered_rel)
+
+    def _site_url(self, output_path: str) -> str:
+        """Root-relative URL of a file in the output directory."""
+        return "/" + Path(os.path.relpath(output_path, self.paths["output"])).as_posix()
 
     def _copy_static_image(self, source_path: str) -> None:
         """Copy a static image to the output directory unchanged.
@@ -486,6 +519,7 @@ class ImageProcessor:
                 self._count(images_cached=1, cache_hits=1)
                 if self.stats:
                     self.stats.record_image(source_path, time.perf_counter() - started, cached=True)
+                self._register_variants(cached)
                 return cached
 
         os.makedirs(os.path.join(self.paths["output"], VARIANTS_DIR), exist_ok=True)
@@ -500,6 +534,7 @@ class ImageProcessor:
                     results.setdefault(key, {})[fmt] = rel_path
             if not skip_cache and self.cache_file:
                 self.cache[cache_key] = results
+            self._register_variants(results)
             self._count(images_processed=1, cache_misses=0 if skip_cache else 1)
         except Exception as e:
             logger.error(
@@ -828,6 +863,13 @@ def _is_processable_image(file_path: Path, root: Path, used_paths: Optional[set[
     return used_paths is None or str(file_path.resolve()) in used_paths
 
 
+def _dithered_path_for(original_path: str) -> str:
+    """``<dir>/a.jpg`` -> ``<dir>/dithered/a.png``."""
+    directory, file_name = os.path.split(original_path)
+    stem = os.path.splitext(file_name)[0]
+    return os.path.join(directory, DITHERED_DIR_NAME, stem + ".png")
+
+
 def _with_original_suffix(path: str) -> str:
     """``x.png`` -> ``x_original.png``."""
     stem, ext = os.path.splitext(path)
@@ -1034,19 +1076,6 @@ def _lab_to_srgb(lab: np.ndarray) -> np.ndarray:
     xyz *= D65_WHITE
     rgb_linear = np.clip(xyz @ XYZ_TO_SRGB.T, 0, 1)
     return np.clip(_linear_to_srgb(rgb_linear), 0, 1)
-
-
-def _save_in_source_format(image: "Image.Image", path: str) -> None:
-    """Save under the source's own file name, in the format its extension names.
-
-    The static pipeline keeps the dithered image at the original URL (the
-    client-side toggle derives ``*_original`` from it), so a JPEG stays a
-    JPEG. JPEG cannot store the palette or 1-bit modes dithering produces.
-    """
-    extension = os.path.splitext(path)[1].lower()
-    if Image.registered_extensions().get(extension) == "JPEG" and image.mode not in JPEG_MODES:
-        image = image.convert("RGB")
-    image.save(path, optimize=True)
 
 
 def _file_signature(path: str) -> Optional[dict[str, int]]:

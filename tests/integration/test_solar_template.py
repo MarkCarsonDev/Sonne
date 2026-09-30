@@ -81,8 +81,13 @@ class TestSolarTemplate:
     def test_post_cover_image_points_at_a_real_file(self, solar_site, builder):
         _, output = builder(solar_site)
         page = read_page(output, "blog", "energy-efficient-web-design-principles")
-        assert '<img alt="Energy-Efficient Web Design Principles" src="/images/vogel.jpg"' in page
+        # A static image the build dithered: shown dithered, original recorded for the toggle
+        assert (
+            '<img alt="Energy-Efficient Web Design Principles" '
+            'data-original-src="/images/vogel.jpg" src="/images/dithered/vogel.png"'
+        ) in page
         assert (output / "images" / "vogel.jpg").exists()
+        assert (output / "images" / "dithered" / "vogel.png").exists()
 
     def test_scripts_do_not_replace_site_config_values(self, solar_site, builder, caplog):
         with caplog.at_level(logging.WARNING, logger="sonne"):

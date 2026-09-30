@@ -1,6 +1,7 @@
 """Image pipeline: resizing, dithering, only_used, cache keys."""
 
 import logging
+import re
 from pathlib import Path
 
 from PIL import Image
@@ -144,33 +145,104 @@ class TestPostImageFormats:
             assert saved.format == "JPEG"
 
 
+DITHER_ON = {("images", "dither"): True}
+
+
 class TestStaticImages:
-    def test_static_jpeg_is_dithered_in_place(self, site_factory, builder, image_factory):
+    """static/images: the original at its own URL, a dithered PNG in dithered/."""
+
+    def test_original_keeps_its_url_and_dithered_png_sits_beside_it(
+        self, site_factory, builder, image_factory
+    ):
         site = site_factory("blog", overlay="blog_site")
         source = image_factory(site / "static" / "images" / "vogel.jpg", size=(32, 32), fmt="JPEG")
-        _, out = builder(site, config_overrides={("images", "dither"): True})
-        dithered = out / "images" / "vogel.jpg"
-        with Image.open(dithered) as saved:
-            assert saved.format == "JPEG"
-        # A failed dither falls back to copying the source unchanged
-        assert dithered.read_bytes() != source.read_bytes()
+
+        _, out = builder(site, config_overrides=DITHER_ON)
+
+        assert (out / "images" / "vogel.jpg").read_bytes() == source.read_bytes()
+        with Image.open(out / "images" / "dithered" / "vogel.png") as dithered:
+            assert dithered.format == "PNG"
+
+    def test_legacy_original_copy_is_still_written(self, site_factory, builder, image_factory):
+        # Compatibility bridge for pages and links from before this layout;
+        # remove this test together with the bridge in Sonne 0.5.0.
+        site = site_factory("blog", overlay="blog_site")
+        source = image_factory(site / "static" / "images" / "vogel.jpg", size=(32, 32), fmt="JPEG")
+
+        _, out = builder(site, config_overrides=DITHER_ON)
+
+        assert (out / "images" / "vogel_original.jpg").read_bytes() == source.read_bytes()
 
     def test_skip_cache_reprocesses_static_images(self, site_factory, builder, image_factory):
         site = site_factory("blog", overlay="blog_site")
         image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
-        generator, out = builder(site, config_overrides={("images", "dither"): True})
-        target = out / "images" / "logo.png"
+        generator, out = builder(site, config_overrides=DITHER_ON)
+        target = out / "images" / "dithered" / "logo.png"
         target.write_bytes(b"stale")
         generator.image_processor.process_all(generator.paths["content"], skip_cache=True)
         assert target.read_bytes() != b"stale"
 
-    def test_rebuild_keeps_static_images_dithered(self, site_factory, builder, image_factory):
+    def test_rebuild_keeps_the_dithered_copy_and_registers_it(
+        self, site_factory, builder, image_factory
+    ):
         site = site_factory("blog", overlay="blog_site")
         source = image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
-        overrides = {("images", "dither"): True}
-        builder(site, config_overrides=overrides)
-        _, out = builder(site, config_overrides=overrides)  # warm cache
-        assert (out / "images" / "logo.png").read_bytes() != source.read_bytes()
+        builder(site, config_overrides=DITHER_ON)
+
+        generator, out = builder(site, config_overrides=DITHER_ON)  # warm cache
+
+        assert (out / "images" / "logo.png").read_bytes() == source.read_bytes()
+        assert (out / "images" / "dithered" / "logo.png").is_file()
+        assert generator.image_processor.dithered_images.pair_for("/images/logo.png") == (
+            "/images/logo.png",
+            "/images/dithered/logo.png",
+        )
+
+
+class TestDitheredImageRegistry:
+    """The registry holds exactly the images the build dithered."""
+
+    def test_static_and_content_variant_pairs_are_registered(
+        self, site_factory, builder, image_factory
+    ):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+
+        generator, _ = builder(site, config_overrides=DITHER_ON)
+
+        registry = generator.image_processor.dithered_images
+        assert registry.pair_for("/images/dithered/logo.png") == (
+            "/images/logo.png",
+            "/images/dithered/logo.png",
+        )
+        assert registry.pair_for("/assets/images/photo_400.webp") == (
+            "/assets/images/photo_400_original.webp",
+            "/assets/images/photo_400.webp",
+        )
+
+    def test_nothing_is_registered_without_dithering(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+
+        generator, out = builder(site, config_overrides={("images", "dither"): False})
+
+        assert len(generator.image_processor.dithered_images) == 0
+        assert (out / "images" / "logo.png").is_file()
+        assert not (out / "images" / "dithered").exists()
+
+    def test_image_that_fails_to_dither_is_not_registered(
+        self, site_factory, builder, image_factory
+    ):
+        site = site_factory("blog", overlay="blog_site")
+        broken = site / "static" / "images" / "broken.png"
+        broken.parent.mkdir(parents=True, exist_ok=True)
+        broken.write_bytes(b"not really a png")
+
+        generator, out = builder(site, config_overrides=DITHER_ON)
+
+        assert generator.image_processor.dithered_images.pair_for("/images/broken.png") is None
+        assert (out / "images" / "broken.png").read_bytes() == b"not really a png"
 
 
 class TestStaticFileOwnership:
@@ -317,3 +389,58 @@ class TestImageWorkload:
             builder(site)
 
         assert any("Processing images  (2 images," in r.message for r in caplog.records)
+
+
+class TestPagesShowDitheredImages:
+    """Built pages point dithered images at the dithered copy and record the original."""
+
+    PAGE = (
+        "---\ntitle: Gallery\n---\n"
+        "![logo](/images/logo.png)\n\n"
+        '<img src="/images/icon.svg" alt="icon">\n\n'
+        '<img src="/assets/images/photo_400.webp" alt="photo">\n'
+    )
+
+    def build(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        (site / "static" / "images" / "icon.svg").write_text("<svg/>", encoding="utf-8")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        (site / "content" / "gallery.md").write_text(self.PAGE, encoding="utf-8")
+        _, out = builder(site, config_overrides=DITHER_ON)
+        page = next((out / "gallery").rglob("index.html"))
+        return out, page.read_text(encoding="utf-8")
+
+    def img_tag(self, html, alt):
+        match = re.search(rf'<img[^>]*alt="{alt}"[^>]*>', html)
+        assert match, f"no <img alt={alt!r}> in page"
+        return match.group(0)
+
+    def test_static_image_is_marked(self, site_factory, builder, image_factory):
+        _out, html = self.build(site_factory, builder, image_factory)
+
+        tag = self.img_tag(html, "logo")
+        assert 'src="/images/dithered/logo.png"' in tag
+        assert 'data-original-src="/images/logo.png"' in tag
+
+    def test_sized_variant_is_marked(self, site_factory, builder, image_factory):
+        _out, html = self.build(site_factory, builder, image_factory)
+
+        tag = self.img_tag(html, "photo")
+        assert 'src="/assets/images/photo_400.webp"' in tag
+        assert 'data-original-src="/assets/images/photo_400_original.webp"' in tag
+
+    def test_image_the_build_did_not_dither_is_not_marked(
+        self, site_factory, builder, image_factory
+    ):
+        _out, html = self.build(site_factory, builder, image_factory)
+
+        assert "data-original-src" not in self.img_tag(html, "icon")
+
+    def test_every_marked_url_is_a_real_file(self, site_factory, builder, image_factory):
+        out, html = self.build(site_factory, builder, image_factory)
+
+        urls = re.findall(r'(?:src|data-original-src)="(/[^"]+)"', html)
+        assert urls
+        missing = [url for url in urls if not (out / url.lstrip("/")).is_file()]
+        assert missing == []

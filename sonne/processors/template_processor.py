@@ -18,6 +18,7 @@ from jinja2 import TemplateSyntaxError, UndefinedError
 from markupsafe import Markup
 
 from sonne.processors.blog_urls import BlogUrls
+from sonne.processors.dithered_images import DitheredImages
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import MARKDOWN_EXTENSIONS
 from sonne.utils.page_location import page_output_path, page_url
@@ -79,32 +80,8 @@ DITHER_ICON_CELL_SIZE = "24.28"
 # render literally, so the author is warned once per file.
 LEGACY_MARKER_RE = re.compile(r"\{\+\}\{|\{-\}\{|\{p\}\{#")
 
-# Blog content directory (under content/) when blog.directory is unset.
-
 # Markup.format escapes every interpolated value.
 PLAIN_IMAGE_MARKUP = Markup('<img src="{src}" alt="{alt}" loading="{loading}">')
-# Must match the container dithering.js builds (wrapWithToggle/createToggle):
-# a real button whose aria-pressed tells whether the original is showing, and
-# only the image on show exposed to assistive technology.
-DITHERED_IMAGE_MARKUP = Markup("""
-            <div class="dithered-image-container">
-                <img src="{src}" alt="{alt}" loading="{loading}" class="dithered">
-                <img src="{original_src}" alt="{alt}" loading="{loading}" class="original" aria-hidden="true">
-                <button type="button" class="dither-toggle" aria-pressed="false"
-                        aria-label="Show original image" title="Show original image">
-                    <span class="dither-toggle-dot" aria-hidden="true"></span>
-                    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
-                    <span class="dither-toggle-dot" aria-hidden="true"></span>
-                    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
-                    <span class="dither-toggle-dot" aria-hidden="true"></span>
-                    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
-                    <span class="dither-toggle-dot" aria-hidden="true"></span>
-                    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
-                    <span class="dither-toggle-dot" aria-hidden="true"></span>
-                </button>
-            </div>
-            """)
-
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 # Last on the search path: tag/tags/category/categories/archive pages for
 # sites that do not ship their own.
@@ -112,133 +89,10 @@ FALLBACK_TEMPLATES_DIR = os.path.join(BUILTIN_TEMPLATES_DIR, "_fallback")
 SITE_BASE_TEMPLATE = "base.html"
 FALLBACK_BASE_TEMPLATE = "sonne_fallback_base.html"
 
-# Markers identify Sonne's injected assets so they are never added twice.
-DITHER_CSS_MARKER = "Dithered image styling - injected by Sonne"
-DITHER_JS_MARKER = "Dithered image functionality - injected by Sonne"
-
-DITHER_CSS = """
-/* Dithered image styling - injected by Sonne */
-.dithered-image-figure {
-    margin: 2rem 0;
-}
-
-.dithered-image-figure img {
-    width: 100%;
-    height: auto;
-    display: block;
-}
-
-.dithered-image-figure figcaption {
-    margin-top: 0.5rem;
-    font-family: monospace;
-    font-size: 0.75rem;
-    opacity: 0.6;
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-}
-
-.caption-text {
-    font-style: italic;
-}
-
-.request-original-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35em;
-    padding: 0.2em 0.6em;
-    font-size: 0.8rem;
-    background: transparent;
-    /* currentColor fallback: the button inherits the page's text color when
-       the theme doesn't define --text-color (a #fff fallback made the button
-       invisible on light themes) */
-    border: 1px solid var(--text-color, currentColor);
-    border-radius: 0.4em;
-    cursor: pointer;
-    color: var(--text-color, currentColor);
-    opacity: 0.5;
-    transition: opacity 0.1s, background-color 0.1s;
-    font-family: inherit;
-}
-
-.request-original-btn:hover {
-    opacity: 1;
-    background-color: var(--bg-hover, rgba(128,128,128,0.15));
-}
-
-.request-original-btn.showing-original {
-    opacity: 1;
-}
-
-/* Dithering toggle icon (LTM quincunx pattern) */
-.dither-icon-svg {
-    width: 0.85em;
-    height: 0.85em;
-    flex-shrink: 0;
-    vertical-align: middle;
-}
-
-/* Light mode: mix-blend-mode on the figure, not the img,
-   so toggling to original disables multiply cleanly */
-[data-theme="light"] .dithered-image-figure {
-    mix-blend-mode: multiply;
-}
-[data-theme="light"] .dithered-image-figure.showing-original {
-    mix-blend-mode: normal;
-}
-"""
-
-DITHER_JS = """
-// Dithered image functionality - injected by Sonne
-(function() {
-    'use strict';
-
-    function initializeDitheredImages() {
-        const buttons = document.querySelectorAll('.request-original-btn');
-
-        buttons.forEach(function(button) {
-            // Track state on button itself
-            let showingDithered = true;
-
-            button.addEventListener('click', function() {
-                const figure = this.closest('.dithered-image-figure');
-                if (!figure) return;
-
-                const img = figure.querySelector('img');
-                if (!img) return;
-
-                const ditheredSrc = img.getAttribute('data-dithered-src');
-                const originalSrc = img.getAttribute('data-original-src');
-
-                const btnText = this.querySelector('.btn-text');
-                // Toggle based on current state
-                if (showingDithered) {
-                    img.src = originalSrc;
-                    const origSize = this.getAttribute('data-original-size');
-                    if (btnText) btnText.textContent = origSize ? 'dithered (' + origSize + ')' : 'dithered';
-                    this.classList.add('showing-original');
-                    figure.classList.add('showing-original');
-                    showingDithered = false;
-                } else {
-                    img.src = ditheredSrc;
-                    if (btnText) btnText.textContent = 'view original';
-                    this.classList.remove('showing-original');
-                    figure.classList.remove('showing-original');
-                    showingDithered = true;
-                }
-            });
-        });
-    }
-
-    // Initialize when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeDitheredImages);
-    } else {
-        initializeDitheredImages();
-    }
-})();
-"""
+# The shared dithering assets (sonne/static, copied to the output by the build).
+# A page that does not link them gets them added; bundled templates link them.
+DITHERING_STYLESHEET_URL = "/css/dithering.css"
+DITHERING_SCRIPT_URL = "/js/dithering.js"
 
 
 class TemplateProcessor:
@@ -254,6 +108,8 @@ class TemplateProcessor:
         self.config = config
         self.paths = paths
         self.stats: Optional[BuildStatistics] = None  # Injected by SiteGenerator
+        # The images this build dithered; SiteGenerator shares the ImageProcessor's.
+        self.dithered_images = DitheredImages()
         self.dithering_enabled = self.config.get("images", "dither", default=True)
         logger.info(f"Dithering enabled: {self.dithering_enabled}")
         self.jinja_env = self._create_jinja_env()
@@ -314,23 +170,21 @@ class TemplateProcessor:
         return env
 
     def _image_markup(self, src, alt="Image", loading="lazy"):
-        """Jinja ``process_image`` filter: an <img>, or a dithered/original pair.
+        """Jinja ``process_image`` filter: an escaped <img> tag.
+
+        If the build dithered the image, finishing the page points the tag at
+        the dithered copy and records the original for the toggle, as for any
+        other <img>.
 
         Args:
-            src: Image source URL (a sized variant such as ``x_400.webp`` or a
-                plain static image).
+            src: Image source URL (a static image or a sized variant).
             alt: Image alt text.
             loading: Loading attribute value.
 
         Returns:
-            Markup for the image, with the dithering toggle when dithering is
-            enabled. All arguments are HTML-escaped.
+            Markup for the image. All arguments are HTML-escaped.
         """
-        if not self.dithering_enabled:
-            return PLAIN_IMAGE_MARKUP.format(src=src, alt=alt, loading=loading)
-        return DITHERED_IMAGE_MARKUP.format(
-            src=src, original_src=_original_image_src(src), alt=alt, loading=loading
-        )
+        return PLAIN_IMAGE_MARKUP.format(src=src, alt=alt, loading=loading)
 
     def validate_templates(self) -> list[str]:
         """Validate all site templates for syntax and render errors.
@@ -587,7 +441,7 @@ class TemplateProcessor:
             )
         else:
             page_html = _untemplated_page(front_matter, html_content)
-        return front_matter, self.inject_dithering_assets(page_html)
+        return front_matter, self.finish_page(page_html)
 
     def render_generated_page(
         self,
@@ -615,7 +469,7 @@ class TemplateProcessor:
         page_html = self._render_with_template(
             template_name, {}, placeholder_html, variables, page_factory=lambda: page
         )
-        return self.inject_dithering_assets(page_html)
+        return self.finish_page(page_html)
 
     def _render_body(
         self, content: str, is_markdown: bool, source_path: str, variables: dict[str, Any]
@@ -755,24 +609,44 @@ class TemplateProcessor:
         context["content"] = Markup(html_content)
         return context
 
-    def inject_dithering_assets(self, html_content: str) -> str:
-        """Inject dithering CSS and JS inline into HTML content if dithering is enabled.
+    def finish_page(self, html_content: str) -> str:
+        """Apply dithering to a rendered page, when dithering is enabled.
 
-        Each asset is added at most once, so re-injecting is harmless.
+        Every <img> whose root-relative src the build dithered is pointed at
+        the dithered copy, with the original in data-original-src; only those
+        images get a toggle from dithering.js. The page is also made to load
+        the shared dithering stylesheet and script if it does not already.
+        Blog post figures are marked by the blog pipeline and left as they are.
 
         Args:
-            html_content: HTML content to inject into.
+            html_content: A complete rendered page.
 
         Returns:
-            HTML content with dithering assets injected.
+            The page HTML.
         """
         if not self.dithering_enabled:
             return html_content
-
         soup = BeautifulSoup(html_content, "html.parser")
-        _append_once(soup, _ensure_head(soup), "style", DITHER_CSS, DITHER_CSS_MARKER)
-        _append_once(soup, _ensure_body(soup), "script", DITHER_JS, DITHER_JS_MARKER)
+        for img in soup.find_all("img"):
+            self._mark_if_dithered(img)
+        _ensure_stylesheet_link(soup, DITHERING_STYLESHEET_URL)
+        _ensure_script(soup, DITHERING_SCRIPT_URL)
         return str(soup)
+
+    def _mark_if_dithered(self, img: Tag) -> None:
+        """Point an <img> at its dithered copy and record the original, if dithered."""
+        if img.has_attr("data-original-src"):
+            return
+        src = _attribute_text(img, "src")
+        if not src.startswith("/") or src.startswith("//"):
+            return
+        path, suffix = _split_url_suffix(src)
+        pair = self.dithered_images.pair_for(path)
+        if pair is None:
+            return
+        original_url, dithered_url = pair
+        img["src"] = dithered_url + suffix
+        img["data-original-src"] = original_url + suffix
 
 
 def _ensure_head(soup: BeautifulSoup) -> Tag:
@@ -802,14 +676,26 @@ def _html_root(soup: BeautifulSoup) -> Tag:
     return html
 
 
-def _append_once(soup: BeautifulSoup, parent: Tag, tag_name: str, text: str, marker: str) -> None:
-    """Append an inline <style>/<script> unless one carrying ``marker`` is already there."""
-    for existing in parent.find_all(tag_name):
-        if existing.string and marker in existing.string:
+def _ensure_stylesheet_link(soup: BeautifulSoup, href: str) -> None:
+    """Add <link rel="stylesheet" href=...> to <head> unless a link to it is present."""
+    for link in soup.find_all("link"):
+        if _attribute_text(link, "href") == href:
             return
-    tag = soup.new_tag(tag_name)
-    tag.string = text
-    parent.append(tag)
+    _ensure_head(soup).append(soup.new_tag("link", attrs={"rel": "stylesheet", "href": href}))
+
+
+def _ensure_script(soup: BeautifulSoup, src: str) -> None:
+    """Add <script src=... defer> to <body> unless a script with that src is present."""
+    for script in soup.find_all("script"):
+        if _attribute_text(script, "src") == src:
+            return
+    _ensure_body(soup).append(soup.new_tag("script", attrs={"src": src, "defer": ""}))
+
+
+def _split_url_suffix(url: str) -> tuple[str, str]:
+    """``/a.png?v=2#x`` -> (``/a.png``, ``?v=2#x``)."""
+    split = re.search(r"[?#]", url)
+    return (url[: split.start()], url[split.start() :]) if split else (url, "")
 
 
 def _format_date(value, fmt="%B %d, %Y") -> str:
@@ -831,23 +717,6 @@ def _truncate_words(text: str, length: int = 30) -> str:
     """Jinja ``truncate_words`` filter: first ``length`` words, "..." if cut."""
     words = text.split()
     return " ".join(words[:length]) + ("..." if len(words) > length else "")
-
-
-def _original_image_src(src: str) -> str:
-    """Map a displayed image URL to its undithered original.
-
-    ``_original`` goes before the file name's extension, leaving
-    directories, query string and fragment untouched (``x_400.webp`` ->
-    ``x_400_original.webp``, ``q.png?v=1.2`` -> ``q_original.png?v=1.2``).
-    Must match ``originalSrcFor`` in sonne/static/js/dithering.js.
-    """
-    split = re.search(r"[?#]", src)
-    path, suffix = (src[: split.start()], src[split.start() :]) if split else (src, "")
-    file_name_start = path.rfind("/") + 1
-    extension_start = path.rfind(".")
-    if extension_start < file_name_start:
-        return f"{path}_original{suffix}"
-    return f"{path[:extension_start]}_original{path[extension_start:]}{suffix}"
 
 
 def _is_html_source_file(source_path) -> bool:

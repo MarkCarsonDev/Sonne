@@ -59,6 +59,8 @@ class SiteGenerator:
         self.variable_manager = VariableManager(config, self.base_dir)
         self.template_processor = TemplateProcessor(config, self.paths)
         self.image_processor = ImageProcessor(config, self.paths)
+        # Pages point <img> tags at the dithered copies the image pipeline made.
+        self.template_processor.dithered_images = self.image_processor.dithered_images
         self.blog_processor = BlogProcessor(
             config, self.paths, self.template_processor, self.variable_manager, self.image_processor
         )
