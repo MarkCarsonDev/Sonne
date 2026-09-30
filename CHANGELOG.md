@@ -46,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README documents that `footer.py` (in `data/`, `paths.data` or
   `scripts/`) runs as trusted code and that data scripts run in
   alphabetical order; `blog.rss` may be a boolean.
+- The "Processing images (N images)" progress line counts exactly the
+  images the build processes: `static/images` files are included, hidden
+  files and (with `images.only_used`) unreferenced images are left out. It
+  counted every image file under `content/`.
 - An image referenced more than once in a post is resized and dithered once.
 - Blog errors from content Jinja are reported as such instead of as "Error
   processing images"; those posts' images are still published.
