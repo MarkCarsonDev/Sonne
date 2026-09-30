@@ -100,7 +100,6 @@ class TestIsPostLocalRasterImage:
 
 
 class TestValidatePathWithinRootErrors:
-    @pytest.mark.xfail(strict=True, reason="B51: OSError from resolve() escapes")
     def test_os_error_while_resolving_means_not_within(self, tmp_path, monkeypatch):
         from pathlib import Path
 

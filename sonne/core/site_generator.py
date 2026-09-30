@@ -24,6 +24,7 @@ from sonne.utils.file_utils import (
 )
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import IMAGE_EXTENSIONS, MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
+from sonne.utils.path_utils import validate_path_within_root
 from sonne.utils.page_size import inject_page_size_labels
 
 logger = logging.getLogger("sonne")
@@ -241,21 +242,8 @@ class SiteGenerator:
             file_path
             for file_path in Path(content_dir).glob("**/*.*")
             if file_path.suffix.lower() in PAGE_EXTENSIONS
-            and not (blog_dir and self._is_within(file_path, blog_dir))
+            and not (blog_dir and validate_path_within_root(file_path, blog_dir))
         ]
-
-    @staticmethod
-    def _is_within(path, ancestor) -> bool:
-        """Whether path is ancestor or inside it, by path components.
-
-        String-prefix comparison is never acceptable here: it treated
-        'content/blog-archive' as part of the 'content/blog' directory.
-        """
-        try:
-            Path(path).resolve().relative_to(Path(ancestor).resolve())
-            return True
-        except (ValueError, OSError):
-            return False
 
     def _process_page_logging_errors(self, file_path: Path) -> None:
         try:

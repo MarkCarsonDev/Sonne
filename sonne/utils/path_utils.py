@@ -87,9 +87,10 @@ def validate_path_within_root(path: Union[str, Path], root: Union[str, Path]) ->
         # Check if path is relative to root
         path.relative_to(root)
         return True
-    except (ValueError, RuntimeError):
-        # ValueError: path is not relative to root
+    except (ValueError, RuntimeError, OSError):
+        # ValueError: path is not relative to root (or has a NUL byte)
         # RuntimeError: infinite loop in resolution (symlink loops)
+        # OSError: the path cannot be resolved (e.g. unavailable drive)
         return False
 
 
