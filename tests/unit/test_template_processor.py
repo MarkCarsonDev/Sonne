@@ -77,7 +77,6 @@ class TestPostTemplate:
 
 
 class TestMarkdownSuffixes:
-    @pytest.mark.xfail(strict=True, reason="B30: .markdown pages get no default template")
     @pytest.mark.parametrize("file_name", ["notes.markdown", "NOTES.MD"])
     def test_markdown_pages_use_page_template(self, site, file_name):
         write(site / "templates" / "page.html", "PAGE-TEMPLATE {{ content }}")
@@ -86,7 +85,6 @@ class TestMarkdownSuffixes:
         _, html = processor.process_page("# Notes\n", True, str(source), EMPTY_SCOPES)
         assert "PAGE-TEMPLATE" in html
 
-    @pytest.mark.xfail(strict=True, reason="B30: .markdown posts get no default template")
     def test_markdown_posts_use_post_template(self, site):
         write(site / "templates" / "custom_post.html", "CUSTOM-POST {{ content }}")
         source = write(site / "content" / "blog" / "hello.markdown", "# Hello\n")
