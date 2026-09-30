@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 from xml.sax.saxutils import escape
 
 from sonne.utils.path_utils import (
+    is_post_local_raster_image,
     normalize_web_path,
     strip_relative_prefix,
     validate_path_within_root,
@@ -580,7 +581,7 @@ class BlogProcessor:
     def _publish_cover_image(self, post: Dict[str, Any], output_dir: str) -> None:
         """Publish the cover image and record its web paths and sizes on the post."""
         cover_img = post.get("cover_img")
-        if not cover_img or _is_external_or_vector(cover_img):
+        if not cover_img or not is_post_local_raster_image(cover_img):
             return
         source_path = self._publishable_source(post, cover_img, output_dir, "Cover image")
         if source_path is None:
@@ -1128,7 +1129,7 @@ def _local_image_refs(post: Dict[str, Any]) -> Iterator[Tuple[str, dict]]:
     image_refs.extend(match.group(1) for match in HTML_IMAGE_SRC.finditer(content))
 
     for image_ref in image_refs:
-        if not _is_external_or_vector(image_ref):
+        if is_post_local_raster_image(image_ref):
             yield image_ref, transforms_by_ref.get(image_ref, {})
 
 
@@ -1178,10 +1179,6 @@ def _indent_columns(line: str) -> int:
         else:
             break
     return columns
-
-
-def _is_external_or_vector(image_ref: str) -> bool:
-    return image_ref.startswith(("http://", "https://", "/")) or image_ref.endswith(".svg")
 
 
 def _source_image_path(post: Dict[str, Any], image_ref: str) -> str:

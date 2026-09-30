@@ -10,6 +10,9 @@ import logging
 
 logger = logging.getLogger("sonne")
 
+# "scheme:" at the start of a URL (RFC 3986), e.g. https:, data:, mailto:.
+URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+
 # Config filenames Sonne recognizes, in discovery order. Single source of
 # truth for config discovery, project detection, AND the serve watcher —
 # these previously kept three diverging copies.
@@ -88,6 +91,28 @@ def validate_path_within_root(path: Union[str, Path], root: Union[str, Path]) ->
         # ValueError: path is not relative to root
         # RuntimeError: infinite loop in resolution (symlink loops)
         return False
+
+
+def is_post_local_raster_image(src: str) -> bool:
+    """Whether an image reference is a raster file relative to its page or post.
+
+    Only these get the blog pipeline's resized and dithered copies. The
+    template processor (which rewrites <img> markup to the dithered copy)
+    and the blog processor (which writes that copy) must agree exactly,
+    so both call this.
+
+    Args:
+        src: Image reference as written (URL, path, or data: URI).
+
+    Returns:
+        False for anything with a URL scheme (http:, https:, data:, ...),
+        root-absolute and protocol-relative paths (served from static/), and
+        SVGs (checked case-insensitively, ignoring any query or fragment).
+    """
+    if not src or src.startswith("/") or URL_SCHEME.match(src):
+        return False
+    path = re.split(r"[?#]", src, maxsplit=1)[0]
+    return not path.lower().endswith(".svg")
 
 
 def strip_relative_prefix(path: str) -> str:

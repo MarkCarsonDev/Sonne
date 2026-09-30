@@ -237,3 +237,26 @@ class TestDitherFailure:
         post_dir = out / "blog" / "2025" / "06" / "05" / "photo"
         assert not (post_dir / "dithered" / "red.png").exists()
         assert 'src="red.jpg"' in (post_dir / "index.html").read_text(encoding="utf-8")
+
+
+class TestNonLocalImagesInPosts:
+    @pytest.fixture
+    def mixed_image_build(self, site_factory, builder, caplog):
+        site = site_factory("blog", overlay="blog_site")
+        body = '![Dot](data:image/png;base64,iVBORw0KGgo=)\n\n<img src="Logo.SVG" alt="Logo">\n'
+        write_post(site, "mixed.md", "title: Mixed\ndate: 2025-06-06", body)
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            _, out = builder(site, {("images", "dither"): True})
+        html = (out / "blog" / "2025" / "06" / "06" / "mixed" / "index.html").read_text("utf-8")
+        return html, [record.getMessage() for record in caplog.records]
+
+    def test_no_missing_image_warnings(self, mixed_image_build):
+        _, messages = mixed_image_build
+
+        assert not any("not found" in message for message in messages)
+
+    def test_markup_keeps_their_sources(self, mixed_image_build):
+        html, _ = mixed_image_build
+
+        assert 'src="Logo.SVG"' in html
+        assert "dithered/Logo.png" not in html
