@@ -64,11 +64,4 @@ url_style:
 
 # Solar template specific settings
 solar:
-  theme: dark  # dark or light
-  contrast: low  # low, medium, high
-  battery_simulation: true  # true to simulate, false to use real data (if available)
-  weather_update_interval: 3600  # in seconds
-  font_size: 14  # base font size in px
-  reduce_motion: true  # reduce animations for better energy efficiency
-  minimize_images: true  # aggressively optimize images for bandwidth
-  data_saver: true  # use techniques to minimize data usage
+  battery_simulation: true  # false reads the build machine's battery (psutil or Linux sysfs)

@@ -15,15 +15,7 @@
         <article class="project-card">
             {% if project.image %}
             <div class="project-image">
-                <picture>
-                    {% if site.images.dither | default(true) %}
-                    <source srcset="{{ project.image | replace('.jpg', '_400_dithered.webp') | replace('.png', '_400_dithered.webp') }}" type="image/webp">
-                    <img src="{{ project.image | replace('.jpg', '_400_dithered.png') | replace('.png', '_400_dithered.png') }}" alt="{{ project.title }}" class="dithered" loading="lazy">
-                    {% else %}
-                    <source srcset="{{ project.image | replace('.jpg', '_400.webp') | replace('.png', '_400.webp') }}" type="image/webp">
-                    <img src="{{ project.image | replace('.jpg', '_400.png') | replace('.png', '_400.png') }}" alt="{{ project.title }}" loading="lazy">
-                    {% endif %}
-                </picture>
+                <img src="{{ project.image }}" alt="{{ project.title }}" loading="lazy">
             </div>
             {% endif %}
             
