@@ -35,6 +35,134 @@ except ImportError:
 
 logger = logging.getLogger("sonne")
 
+# Markers identify Sonne's injected assets so they are never added twice.
+DITHER_CSS_MARKER = "Dithered image styling - injected by Sonne"
+DITHER_JS_MARKER = "Dithered image functionality - injected by Sonne"
+
+DITHER_CSS = """
+/* Dithered image styling - injected by Sonne */
+.dithered-image-figure {
+    margin: 2rem 0;
+}
+
+.dithered-image-figure img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.dithered-image-figure figcaption {
+    margin-top: 0.5rem;
+    font-family: monospace;
+    font-size: 0.75rem;
+    opacity: 0.6;
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.caption-text {
+    font-style: italic;
+}
+
+.request-original-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    padding: 0.2em 0.6em;
+    font-size: 0.8rem;
+    background: transparent;
+    /* currentColor fallback: the button inherits the page's text color when
+       the theme doesn't define --text-color (a #fff fallback made the button
+       invisible on light themes) */
+    border: 1px solid var(--text-color, currentColor);
+    border-radius: 0.4em;
+    cursor: pointer;
+    color: var(--text-color, currentColor);
+    opacity: 0.5;
+    transition: opacity 0.1s, background-color 0.1s;
+    font-family: inherit;
+}
+
+.request-original-btn:hover {
+    opacity: 1;
+    background-color: var(--bg-hover, rgba(128,128,128,0.15));
+}
+
+.request-original-btn.showing-original {
+    opacity: 1;
+}
+
+/* Dithering toggle icon (LTM quincunx pattern) */
+.dither-icon-svg {
+    width: 0.85em;
+    height: 0.85em;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+
+/* Light mode: mix-blend-mode on the figure, not the img,
+   so toggling to original disables multiply cleanly */
+[data-theme="light"] .dithered-image-figure {
+    mix-blend-mode: multiply;
+}
+[data-theme="light"] .dithered-image-figure.showing-original {
+    mix-blend-mode: normal;
+}
+"""
+
+DITHER_JS = """
+// Dithered image functionality - injected by Sonne
+(function() {
+    'use strict';
+
+    function initializeDitheredImages() {
+        const buttons = document.querySelectorAll('.request-original-btn');
+
+        buttons.forEach(function(button) {
+            // Track state on button itself
+            let showingDithered = true;
+
+            button.addEventListener('click', function() {
+                const figure = this.closest('.dithered-image-figure');
+                if (!figure) return;
+
+                const img = figure.querySelector('img');
+                if (!img) return;
+
+                const ditheredSrc = img.getAttribute('data-dithered-src');
+                const originalSrc = img.getAttribute('data-original-src');
+
+                const btnText = this.querySelector('.btn-text');
+                // Toggle based on current state
+                if (showingDithered) {
+                    img.src = originalSrc;
+                    const origSize = this.getAttribute('data-original-size');
+                    if (btnText) btnText.textContent = origSize ? 'dithered (' + origSize + ')' : 'dithered';
+                    this.classList.add('showing-original');
+                    figure.classList.add('showing-original');
+                    showingDithered = false;
+                } else {
+                    img.src = ditheredSrc;
+                    if (btnText) btnText.textContent = 'view original';
+                    this.classList.remove('showing-original');
+                    figure.classList.remove('showing-original');
+                    showingDithered = true;
+                }
+            });
+        });
+    }
+
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeDitheredImages);
+    } else {
+        initializeDitheredImages();
+    }
+})();
+"""
+
 
 class TemplateProcessor:
     """Processes templates and content files."""
@@ -787,197 +915,49 @@ class TemplateProcessor:
     def inject_dithering_assets(self, html_content: str) -> str:
         """Inject dithering CSS and JS inline into HTML content if dithering is enabled.
 
+        Each asset is added at most once, so re-injecting is harmless.
+
         Args:
             html_content: HTML content to inject into.
 
         Returns:
             HTML content with dithering assets injected.
         """
-        # Skip if dithering is disabled
         if not self.dithering_enabled:
             return html_content
 
-        # Use html.parser explicitly for consistency and to avoid warnings
         soup = BeautifulSoup(html_content, "html.parser")
-
-        # Check if head tag exists
-        head = soup.head
-        if not head:
-            # Create head if it doesn't exist
-            head = soup.new_tag("head")
-            if soup.html:
-                soup.html.insert(0, head)
-            else:
-                # Create html tag if it doesn't exist
-                html = soup.new_tag("html")
-                soup.append(html)
-                html.append(head)
-
-        # Check if body tag exists
-        body = soup.body
-        if not body:
-            # Create body if it doesn't exist
-            body = soup.new_tag("body")
-            if soup.html:
-                soup.html.append(body)
-            else:
-                # Create html tag if it doesn't exist
-                html = soup.new_tag("html")
-                soup.append(html)
-                html.append(body)
-
-        # Inline CSS for dithered images
-        css_content = """
-/* Dithered image styling - injected by Sonne */
-.dithered-image-figure {
-    margin: 2rem 0;
-}
-
-.dithered-image-figure img {
-    width: 100%;
-    height: auto;
-    display: block;
-}
-
-.dithered-image-figure figcaption {
-    margin-top: 0.5rem;
-    font-family: monospace;
-    font-size: 0.75rem;
-    opacity: 0.6;
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-}
-
-.caption-text {
-    font-style: italic;
-}
-
-.request-original-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35em;
-    padding: 0.2em 0.6em;
-    font-size: 0.8rem;
-    background: transparent;
-    /* currentColor fallback: the button inherits the page's text color when
-       the theme doesn't define --text-color (a #fff fallback made the button
-       invisible on light themes) */
-    border: 1px solid var(--text-color, currentColor);
-    border-radius: 0.4em;
-    cursor: pointer;
-    color: var(--text-color, currentColor);
-    opacity: 0.5;
-    transition: opacity 0.1s, background-color 0.1s;
-    font-family: inherit;
-}
-
-.request-original-btn:hover {
-    opacity: 1;
-    background-color: var(--bg-hover, rgba(128,128,128,0.15));
-}
-
-.request-original-btn.showing-original {
-    opacity: 1;
-}
-
-/* Dithering toggle icon (LTM quincunx pattern) */
-.dither-icon-svg {
-    width: 0.85em;
-    height: 0.85em;
-    flex-shrink: 0;
-    vertical-align: middle;
-}
-
-/* Light mode: mix-blend-mode on the figure, not the img,
-   so toggling to original disables multiply cleanly */
-[data-theme="light"] .dithered-image-figure {
-    mix-blend-mode: multiply;
-}
-[data-theme="light"] .dithered-image-figure.showing-original {
-    mix-blend-mode: normal;
-}
-"""
-
-        # Check if the CSS is already included
-        css_exists = False
-        for style in head.find_all("style"):
-            if style.string and "Dithered image styling - injected by Sonne" in style.string:
-                css_exists = True
-                break
-
-        if not css_exists:
-            style_tag = soup.new_tag("style")
-            style_tag.string = css_content
-            head.append(style_tag)
-
-        # Inline JavaScript for image swapping
-        js_content = """
-// Dithered image functionality - injected by Sonne
-(function() {
-    'use strict';
-
-    function initializeDitheredImages() {
-        const buttons = document.querySelectorAll('.request-original-btn');
-
-        buttons.forEach(function(button) {
-            // Track state on button itself
-            let showingDithered = true;
-
-            button.addEventListener('click', function() {
-                const figure = this.closest('.dithered-image-figure');
-                if (!figure) return;
-
-                const img = figure.querySelector('img');
-                if (!img) return;
-
-                const ditheredSrc = img.getAttribute('data-dithered-src');
-                const originalSrc = img.getAttribute('data-original-src');
-
-                const btnText = this.querySelector('.btn-text');
-                // Toggle based on current state
-                if (showingDithered) {
-                    img.src = originalSrc;
-                    const origSize = this.getAttribute('data-original-size');
-                    if (btnText) btnText.textContent = origSize ? 'dithered (' + origSize + ')' : 'dithered';
-                    this.classList.add('showing-original');
-                    figure.classList.add('showing-original');
-                    showingDithered = false;
-                } else {
-                    img.src = ditheredSrc;
-                    if (btnText) btnText.textContent = 'view original';
-                    this.classList.remove('showing-original');
-                    figure.classList.remove('showing-original');
-                    showingDithered = true;
-                }
-            });
-        });
-    }
-
-    // Initialize when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeDitheredImages);
-    } else {
-        initializeDitheredImages();
-    }
-})();
-"""
-
-        # Check if the JS is already included
-        js_exists = False
-        for script in body.find_all("script"):
-            if (
-                script.string
-                and "Dithered image functionality - injected by Sonne" in script.string
-            ):
-                js_exists = True
-                break
-
-        if not js_exists:
-            script_tag = soup.new_tag("script")
-            script_tag.string = js_content
-            body.append(script_tag)
-
-        # Return the modified HTML
+        _append_once(soup, _ensure_head(soup), "style", DITHER_CSS, DITHER_CSS_MARKER)
+        _append_once(soup, _ensure_body(soup), "script", DITHER_JS, DITHER_JS_MARKER)
         return str(soup)
+
+
+def _ensure_head(soup: BeautifulSoup):
+    """Return the document's <head>, creating it as the first child of <html>."""
+    if not soup.head:
+        _html_root(soup).insert(0, soup.new_tag("head"))
+    return soup.head
+
+
+def _ensure_body(soup: BeautifulSoup):
+    """Return the document's <body>, creating it as the last child of <html>."""
+    if not soup.body:
+        _html_root(soup).append(soup.new_tag("body"))
+    return soup.body
+
+
+def _html_root(soup: BeautifulSoup):
+    """Return the <html> element, appending one to fragment documents."""
+    if not soup.html:
+        soup.append(soup.new_tag("html"))
+    return soup.html
+
+
+def _append_once(soup: BeautifulSoup, parent, tag_name: str, text: str, marker: str) -> None:
+    """Append an inline <style>/<script> unless one carrying ``marker`` is already there."""
+    for existing in parent.find_all(tag_name):
+        if existing.string and marker in existing.string:
+            return
+    tag = soup.new_tag(tag_name)
+    tag.string = text
+    parent.append(tag)
