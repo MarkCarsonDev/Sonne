@@ -12,6 +12,7 @@ pip install -e ".[dev]"       # setup
 pytest                        # full suite (unit + integration)
 pytest tests/unit             # fast tests only
 ruff check . && ruff format --check .   # lint / format
+pyright                       # type check (standard mode, same as VS Code/Pylance)
 sonne new -p <dir> -t blog && (cd <dir> && sonne build && sonne serve)
 ```
 
