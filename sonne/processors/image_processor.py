@@ -60,6 +60,8 @@ XYZ_TO_SRGB = np.array(
     ]
 )
 D65_WHITE = np.array([0.95047, 1.0, 1.08883])
+_SRGB_TO_XYZ_ROWS = SRGB_TO_XYZ.tolist()
+_D65_WHITE_VALUES = D65_WHITE.tolist()
 
 # k-means is seeded so builds are reproducible.
 KMEANS_SEED = 42
@@ -808,28 +810,75 @@ def _diffuse_to_palette(
 ) -> np.ndarray:
     """Floyd-Steinberg in RGB, choosing each pixel's palette entry by LAB distance.
 
+    Error diffusion is inherently serial, so this runs per pixel on plain
+    Python floats: numpy's per-call overhead on 3-element arrays made it
+    thousands of times slower than the other dither methods.
+
     Returns:
         (H, W) uint8 array of palette indices.
     """
     height, width, _ = rgb.shape
-    working = rgb.astype(float)
-    indices = np.zeros((height, width), dtype=np.uint8)
+    working = rgb.astype(float).tolist()
+    centres = centres_lab.tolist()
+    palette = palette_rgb.astype(float).tolist()
+    indices = []
     for r in range(height):
+        row = working[r]
+        below = working[r + 1] if r + 1 < height else None
+        index_row = []
         for c in range(width):
-            old = working[r, c]
-            old_lab = _srgb_to_lab(old.reshape(1, 1, 3)).reshape(3)
-            best = int(np.argmin(np.sum((centres_lab - old_lab) ** 2, axis=-1)))
-            indices[r, c] = best
-            err = old - palette_rgb[best].astype(float)
+            old = row[c]
+            best = _nearest_centre(_pixel_to_lab(old), centres)
+            index_row.append(best)
+            err = [old[ch] - palette[best][ch] for ch in range(3)]
             if c + 1 < width:
-                working[r, c + 1] += err * 7 / 16
-            if r + 1 < height and c - 1 >= 0:
-                working[r + 1, c - 1] += err * 3 / 16
-            if r + 1 < height:
-                working[r + 1, c] += err * 5 / 16
-            if r + 1 < height and c + 1 < width:
-                working[r + 1, c + 1] += err * 1 / 16
-    return indices
+                _add_scaled(row[c + 1], err, 7)
+            if below is not None:
+                if c - 1 >= 0:
+                    _add_scaled(below[c - 1], err, 3)
+                _add_scaled(below[c], err, 5)
+                if c + 1 < width:
+                    _add_scaled(below[c + 1], err, 1)
+        indices.append(index_row)
+    return np.array(indices, dtype=np.uint8).reshape(height, width)
+
+
+def _add_scaled(pixel: List[float], err: List[float], sixteenths: int) -> None:
+    """Diffuse ``sixteenths``/16 of the error into a neighbouring pixel."""
+    for ch in range(3):
+        pixel[ch] += err[ch] * sixteenths / 16
+
+
+def _nearest_centre(lab: Tuple[float, float, float], centres: List[List[float]]) -> int:
+    """Index of the closest centre (squared Euclidean); first wins on ties."""
+    best, best_distance = 0, None
+    for i, centre in enumerate(centres):
+        d0 = centre[0] - lab[0]
+        d1 = centre[1] - lab[1]
+        d2 = centre[2] - lab[2]
+        distance = d0 * d0 + d1 * d1 + d2 * d2
+        if best_distance is None or distance < best_distance:
+            best, best_distance = i, distance
+    return best
+
+
+def _pixel_to_lab(pixel: List[float]) -> Tuple[float, float, float]:
+    """Scalar twin of _srgb_to_lab for one (possibly out-of-range) RGB pixel."""
+    linear = [_channel_to_linear(min(max(v / 255.0, 0.0), 1.0)) for v in pixel]
+    x, y, z = (
+        (row[0] * linear[0] + row[1] * linear[1] + row[2] * linear[2]) / white
+        for row, white in zip(_SRGB_TO_XYZ_ROWS, _D65_WHITE_VALUES)
+    )
+    fx, fy, fz = _lab_f(x), _lab_f(y), _lab_f(z)
+    return 116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)
+
+
+def _channel_to_linear(c: float) -> float:
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _lab_f(t: float) -> float:
+    return t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
 
 
 def _srgb_to_linear(c):
