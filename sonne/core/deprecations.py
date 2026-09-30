@@ -20,14 +20,14 @@ KeyPath = tuple[str, ...]
 _MISSING = object()
 
 # (old key path) -> (new key path). The code-facing names are canonical.
-DEPRECATED_CONFIG_KEYS = {
+DEPRECATED_CONFIG_KEYS: dict[KeyPath, KeyPath] = {
     ("images", "parallel_processing"): ("images", "parallel"),
     ("images", "max_workers"): ("images", "parallel_workers"),
 }
 
 # (key path) -> guidance. Keys that no longer exist at all; their presence
 # gets a once-per-process warning and the key is dropped from the config.
-REMOVED_CONFIG_KEYS = {
+REMOVED_CONFIG_KEYS: dict[KeyPath, str] = {
     ("security", "allow_embedded_python"): (
         "embedded Python blocks ({p}{#...#}) were removed; use a data script "
         "with sonne_global()/sonne_filter() plus Jinja in content "
@@ -37,7 +37,7 @@ REMOVED_CONFIG_KEYS = {
 
 # (key path) -> hint. Keys that are still accepted but never did anything;
 # they warn once, are dropped, and will be removed in a later release.
-NO_EFFECT_CONFIG_KEYS = {
+NO_EFFECT_CONFIG_KEYS: dict[KeyPath, str] = {
     ("build", "incremental"): "every build is a full build",
     ("build", "show_progress"): "use `sonne build --no-progress` instead",
     ("build", "statistics"): "use `sonne build --perf` for the build report",
@@ -65,7 +65,7 @@ class ConfigChange:
 # per Config load: `sonne serve --watch` reloads the config on every
 # rebuild, and repeating the same warning on each save would bury real
 # output. Tests reset this set (see tests/unit/test_deprecations.py).
-_warned = set()
+_warned: set[KeyPath] = set()
 
 
 def apply_config_deprecations(user_config: dict[str, Any]) -> None:

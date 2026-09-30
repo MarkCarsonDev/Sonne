@@ -782,6 +782,25 @@ Options:
 - `--browser/--no-browser`: Open in browser (default: open)
 - `--watch/--no-watch`: Watch for changes (default: watch)
 
+### Update an old config file
+
+```bash
+sonne migrate [-p PATH] [-c CONFIG] [--write]
+```
+
+Renames deprecated keys to their replacements (e.g. `images.max_workers` → `images.parallel_workers`) and removes keys that no longer exist or have no effect (e.g. `build.statistics`, `security.csp`). Sonne keeps accepting those keys, with a warning, until they are removed for good; `migrate` makes the warnings go away.
+
+It prints each change and a diff. Nothing is written unless you pass `--write`; then the original is kept next to it as `sonne.yaml.bak` (or `.bak.1`, `.bak.2`, ... if a backup already exists).
+
+- YAML configs are edited in place, so comments and layout are kept. If a file can't be edited that way (for example, a section written in `{flow: style}`), Sonne rewrites the whole file instead and says clearly that comments and formatting will be lost, so you can review the diff or edit the listed keys by hand.
+- JSON configs are rewritten with 2-space indentation.
+
+Options:
+
+- `-p, --path`: Site directory (default: current directory); only the config file in that directory is migrated
+- `-c, --config`: Migrate this config file instead
+- `--write`: Apply the changes (default: dry run)
+
 ## Troubleshooting
 
 ### Common Issues

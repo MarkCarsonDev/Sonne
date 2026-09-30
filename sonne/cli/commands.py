@@ -5,6 +5,7 @@ Provides commands for creating, building, and serving static sites.
 
 import functools
 import http.server
+import json
 import logging
 import os
 import socketserver
@@ -25,7 +26,8 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from sonne.core.config import Config
+from sonne.cli.migrate import MigrationPlan, plan_migration, write_migration
+from sonne.core.config import Config, config_file_in
 from sonne.core.site_generator import SiteGenerator
 from sonne.utils.path_utils import CONFIG_FILENAMES, is_sonne_directory
 
@@ -348,6 +350,82 @@ def _set_site_title(config_path: Path, site_name: str) -> None:
     site_config.setdefault("site", {})["title"] = site_name
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(site_config, f, default_flow_style=False, sort_keys=False)
+
+
+@cli.command()
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True, file_okay=False),
+    default=None,
+    help="Path to the site directory (default: the current directory).",
+)
+@click.option(
+    "--config",
+    "-c",
+    "config_file",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Config file to migrate (default: the one in the site directory).",
+)
+@click.option(
+    "--write", is_flag=True, help="Apply the changes, keeping a .bak backup. Default: dry run."
+)
+def migrate(path, config_file, write):
+    """Update a site's config file for this version of Sonne.
+
+    Renames deprecated keys to their replacements and removes keys that no
+    longer exist or have no effect, then shows the changes as a diff. Nothing
+    is written unless --write is given; then the original is kept as
+    <file>.bak (or .bak.1, .bak.2, ...).
+
+    Examples:
+        sonne migrate                 # show what would change
+        sonne migrate --write         # apply it
+    """
+    site_dir = path or os.getcwd()
+    target = Path(config_file) if config_file else _site_config_file(site_dir)
+    if target is None:
+        click.echo(f"No Sonne config file found in {site_dir}", err=True)
+        sys.exit(1)
+
+    try:
+        plan = plan_migration(target)
+    except (ValueError, yaml.YAMLError, json.JSONDecodeError) as e:
+        click.echo(f"Cannot migrate {target}: {e}", err=True)
+        sys.exit(1)
+
+    if not plan.needed:
+        click.echo(f"{target}: already up to date, nothing to migrate.")
+        return
+    _report_migration_plan(plan)
+    if not write:
+        click.echo("Dry run: nothing was written. Run again with --write to apply it.")
+        return
+    backup = write_migration(plan)
+    click.echo(f"Updated {target} (original saved as {backup.name}).")
+
+
+def _site_config_file(site_dir: str) -> Optional[Path]:
+    """The config file in site_dir itself (parents are not searched here)."""
+    found = config_file_in(os.path.abspath(site_dir))
+    return Path(found) if found else None
+
+
+def _report_migration_plan(plan: MigrationPlan) -> None:
+    click.echo(f"{plan.config_path}:")
+    for description in plan.descriptions():
+        click.echo(f"  - {description}")
+    click.echo()
+    _echo_degrading_unencodable(plan.diff())
+    if plan.is_json:
+        click.echo("Note: the JSON file is rewritten with 2-space indentation.")
+    elif not plan.edited_in_place:
+        click.echo(
+            "WARNING: this file could not be edited in place, so it is rewritten as a "
+            "whole: its comments and formatting will NOT be kept. Review the diff, or "
+            "edit the listed keys by hand instead."
+        )
 
 
 class QuietHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):

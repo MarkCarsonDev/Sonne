@@ -147,7 +147,7 @@ class Config:
         """
         start_dir = os.path.abspath(self.base_dir)
         for level, directory in enumerate(_self_and_ancestors(start_dir, CONFIG_SEARCH_DEPTH)):
-            config_path = _config_file_in(directory)
+            config_path = config_file_in(directory)
             if not config_path:
                 continue
             if level == 0:
@@ -465,7 +465,7 @@ def _self_and_ancestors(directory: str, depth: int) -> list[str]:
     return directories
 
 
-def _config_file_in(directory: str) -> Optional[str]:
+def config_file_in(directory: str) -> Optional[str]:
     """The first recognized config file in directory, in discovery order."""
     for filename in CONFIG_FILENAMES:
         candidate = os.path.join(directory, filename)
