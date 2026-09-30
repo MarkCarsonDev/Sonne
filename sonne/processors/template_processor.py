@@ -33,6 +33,15 @@ MARKDOWN_EXTENSIONS = [
     "markdown.extensions.sane_lists",
 ]
 
+# (source-key prefix, taxonomy, template config key, default template)
+TAXONOMY_PAGE_TEMPLATES = [
+    ("tags_", "tags", "list_template", "tags.html"),
+    ("tag_", "tags", "template", "tag.html"),
+    ("categories_", "categories", "list_template", "categories.html"),
+    ("category_", "categories", "template", "category.html"),
+]
+GENERATED_PAGE_PREFIXES = ("tag_", "tags_", "category_", "categories_")
+
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 
 # Markers identify Sonne's injected assets so they are never added twice.
@@ -633,210 +642,169 @@ class TemplateProcessor:
     def process_page(
         self, content: str, is_markdown: bool, source_path: str, variables: Dict[str, Any]
     ) -> Tuple[Dict[str, Any], str]:
-        """Process a page.
+        """Process a page: render its body, work out its URL, wrap it in a template.
 
         Args:
             content: Page content.
             is_markdown: Whether the content is Markdown.
-            source_path: Path to the source file.
-            variables: Variables to use for substitution.
+            source_path: Path to the source file, or a generated-page key such
+                as ``blog_index`` or ``tag_<slug>``.
+            variables: Variable scopes (``global``, ``site``, ``page``).
 
         Returns:
             Tuple of (front_matter, processed_content).
         """
-        # Extract front matter and convert Markdown if needed.
-        # Regular pages must not have their images rewritten to blog-style
-        # dithered paths — only the blog pipeline generates those files.
+        front_matter, html_content = self._render_body(content, is_markdown, source_path, variables)
+        front_matter["source_path"] = source_path
+        front_matter["url"] = self._page_url(source_path, is_markdown, variables)
+        template_name = self._template_name(front_matter, variables, source_path)
+        logger.debug(f"Template for {source_path}: {template_name}")
+        if template_name:
+            page_html = self._render_with_template(
+                template_name, front_matter, html_content, source_path, variables
+            )
+        else:
+            page_html = _untemplated_page(front_matter, html_content)
+        return front_matter, self.inject_dithering_assets(page_html)
+
+    def _render_body(
+        self, content: str, is_markdown: bool, source_path: str, variables: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], str]:
+        """Split off front matter and render the body (Markdown, content Jinja).
+
+        Regular pages must not have their images rewritten to blog-style
+        dithered paths; only the blog pipeline generates those files.
+        """
         if is_markdown:
-            front_matter, html_content = self.process_markdown(
+            return self.process_markdown(
                 content,
                 rewrite_dithered=False,
                 jinja_context=self.build_content_context(variables),
                 source=str(source_path),
             )
-        else:
-            front_matter, html_content = self.extract_front_matter(content)
-            # Content Jinja for real HTML pages only. Blog posts also come
-            # through here (pre-rendered, is_markdown=False, .md source) and
-            # must not get a second Jinja pass.
-            if (
-                isinstance(source_path, str)
-                and source_path.lower().endswith((".html", ".htm"))
-                and os.path.exists(source_path)
-            ):
-                self._warn_legacy_markers(html_content, str(source_path))
-                if self.content_jinja_enabled(front_matter):
-                    context = self.build_content_context(variables)
-                    context.setdefault("page", front_matter)
-                    html_content = self.render_content_jinja(
-                        html_content, context, str(source_path)
-                    )
+        front_matter, html_content = self.extract_front_matter(content)
+        # Blog posts also arrive here (pre-rendered, is_markdown=False, .md
+        # source) and must not get a second Jinja pass.
+        if _is_html_source_file(source_path):
+            self._warn_legacy_markers(html_content, str(source_path))
+            if self.content_jinja_enabled(front_matter):
+                context = self.build_content_context(variables)
+                context.setdefault("page", front_matter)
+                html_content = self.render_content_jinja(html_content, context, str(source_path))
+        return front_matter, html_content
 
-        # Add source path to front matter
-        front_matter["source_path"] = source_path
-
-        # Add relative URL
+    def _page_url(self, source_path: str, is_markdown: bool, variables: Dict[str, Any]) -> str:
+        """Site-relative URL of a page; "/" if it cannot be computed."""
         try:
-            page_vars = variables.get("page", {}) if isinstance(variables, dict) else {}
-            # Blog posts arrive with their permalink already computed —
-            # prefer it over the content-relative path (which pointed
-            # canonical/self links at a URL that is never generated).
-            if isinstance(page_vars, dict) and page_vars.get("full_url"):
-                front_matter["url"] = page_vars["full_url"]
-            # For special sources like blog_index, tags_index, etc.
-            elif isinstance(source_path, str) and not os.path.exists(source_path):
-                front_matter["url"] = (
-                    page_vars.get("url", "/") if isinstance(page_vars, dict) else "/"
-                )
-            else:
-                rel_url = os.path.relpath(source_path, self.paths.get("content", ""))
-
-                # Convert to web path format
-                if is_markdown:
-                    rel_url = rel_url.replace("\\", "/").replace(".md", "").replace(".markdown", "")
-                else:
-                    rel_url = rel_url.replace("\\", "/")
-
-                front_matter["url"] = "/" + rel_url
-
-                # Format URL according to URL style configuration
-                if hasattr(self.config, "format_url"):
-                    url_before = front_matter["url"]
-                    front_matter["url"] = self.config.format_url(front_matter["url"])
-                    logger.debug(f"Formatted URL: {url_before} -> {front_matter['url']}")
-
+            return self._compute_page_url(source_path, is_markdown, variables)
         except Exception as e:
             logger.warning(f"Error calculating relative URL for {source_path}: {e}")
-            front_matter["url"] = "/"
+            return "/"
 
-        # Process template
-        template_name = None
+    def _compute_page_url(
+        self, source_path: str, is_markdown: bool, variables: Dict[str, Any]
+    ) -> str:
+        page_vars = variables.get("page", {}) if isinstance(variables, dict) else {}
+        # Blog posts arrive with their permalink already computed; prefer it
+        # over the content-relative path, which is never generated for them.
+        if isinstance(page_vars, dict) and page_vars.get("full_url"):
+            return page_vars["full_url"]
+        if isinstance(source_path, str) and not os.path.exists(source_path):
+            # Generated pages (blog_index, tag_<slug>, ...) have no file.
+            return page_vars.get("url", "/") if isinstance(page_vars, dict) else "/"
+        return self._content_file_url(source_path, is_markdown)
 
-        # First check if there's a template specified in the front matter,
-        # or in the page variables dict (used for programmatically generated pages
-        # like date archives where front_matter is empty)
+    def _content_file_url(self, source_path: str, is_markdown: bool) -> str:
+        """URL for a file under the content directory, styled per ``url_style``."""
+        rel_url = os.path.relpath(source_path, self.paths.get("content", "")).replace("\\", "/")
+        if is_markdown:
+            rel_url = rel_url.replace(".md", "").replace(".markdown", "")
+        url = "/" + rel_url
+        if hasattr(self.config, "format_url"):
+            formatted = self.config.format_url(url)
+            logger.debug(f"Formatted URL: {url} -> {formatted}")
+            url = formatted
+        return url
+
+    def _template_name(
+        self, front_matter: Dict[str, Any], variables: Dict[str, Any], source_path: str
+    ):
+        """Pick the page template: front matter, then page variables, then defaults.
+
+        Page variables carry the template for generated pages (e.g. date
+        archives) whose front matter is empty.
+        """
         if "template" in front_matter:
-            template_name = front_matter["template"]
-        elif variables.get("page", {}).get("template"):
-            template_name = variables["page"]["template"]
-        elif isinstance(source_path, str):
-            if source_path.endswith(".md"):
-                # For blog posts or markdown pages, use appropriate template
-                if "/blog/" in source_path:
-                    template_name = self.config.get("blog", "template", default="blog_post.html")
-                else:
-                    template_name = "page.html"
-            # Special cases for index pages
-            elif source_path == "blog_index":
-                template_name = self.config.get("blog", "list_template", default="blog_list.html")
-            elif source_path.startswith("tags_"):
-                taxonomies = self.config.get("blog", "taxonomies", default={})
-                tags_config = taxonomies.get("tags", {}) if isinstance(taxonomies, dict) else {}
-                template_name = tags_config.get("list_template", "tags.html")
-            elif source_path.startswith("tag_"):
-                taxonomies = self.config.get("blog", "taxonomies", default={})
-                tags_config = taxonomies.get("tags", {}) if isinstance(taxonomies, dict) else {}
-                template_name = tags_config.get("template", "tag.html")
-            elif source_path.startswith("categories_"):
-                taxonomies = self.config.get("blog", "taxonomies", default={})
-                categories_config = (
-                    taxonomies.get("categories", {}) if isinstance(taxonomies, dict) else {}
-                )
-                template_name = categories_config.get("list_template", "categories.html")
-            elif source_path.startswith("category_"):
-                taxonomies = self.config.get("blog", "taxonomies", default={})
-                categories_config = (
-                    taxonomies.get("categories", {}) if isinstance(taxonomies, dict) else {}
-                )
-                template_name = categories_config.get("template", "category.html")
+            return front_matter["template"]
+        page_template = variables.get("page", {}).get("template")
+        if page_template:
+            return page_template
+        if isinstance(source_path, str):
+            return self._default_template_name(source_path)
+        return None
 
-        logger.debug(f"Template for {source_path}: {template_name}")
+    def _default_template_name(self, source_path: str):
+        """Default template for a Markdown source or a generated-page key."""
+        if source_path.endswith(".md"):
+            if "/blog/" in source_path:
+                return self.config.get("blog", "template", default="blog_post.html")
+            return "page.html"
+        if source_path == "blog_index":
+            return self.config.get("blog", "list_template", default="blog_list.html")
+        for prefix, taxonomy, template_key, default in TAXONOMY_PAGE_TEMPLATES:
+            if source_path.startswith(prefix):
+                taxonomy_config = self.config.get("blog", "taxonomies", taxonomy, default={})
+                return taxonomy_config.get(template_key, default)
+        return None
 
-        if template_name:
-            try:
-                # Try to get the template
-                template = self.jinja_env.get_template(template_name)
-                logger.debug(f"Found template: {template_name}")
+    def _render_with_template(
+        self,
+        template_name: str,
+        front_matter: Dict[str, Any],
+        html_content: str,
+        source_path: str,
+        variables: Dict[str, Any],
+    ) -> str:
+        """Render the page through its template, falling back to bare HTML on errors."""
+        try:
+            template = self.jinja_env.get_template(template_name)
+            context = self._template_context(front_matter, html_content, source_path, variables)
+            rendered = template.render(**context)
+            logger.debug(f"Rendered template {template_name} for {source_path}")
+            return rendered
+        except jinja2.TemplateNotFound:
+            logger.warning(f"Template not found: {template_name}")
+            return _untemplated_page(front_matter, html_content)
+        except Exception as e:
+            logger.error(f"Error rendering template {template_name}: {e}")
+            return _error_page(e, html_content)
 
-                # Copy all global variables to both root and site for maximum compatibility
-                variables_for_template = {}
+    def _template_context(
+        self,
+        front_matter: Dict[str, Any],
+        html_content: str,
+        source_path: str,
+        variables: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Build the page-template context.
 
-                # First, add all global variables to root level
-                for key, value in variables.get("global", {}).items():
-                    variables_for_template[key] = value
-
-                # Then add site variables, which might override some globals
-                for key, value in variables.get("site", {}).items():
-                    variables_for_template[key] = value
-
-                # Also ensure site has all global variables
-                site_vars = dict(variables.get("site", {}))
-                for key, value in variables.get("global", {}).items():
-                    if key not in site_vars:
-                        site_vars[key] = value
-
-                # Make sure 'images' configuration is available at site level
-                if (
-                    "images" not in site_vars
-                    and hasattr(self.config, "config")
-                    and "images" in self.config.config
-                ):
-                    site_vars["images"] = self.config.config["images"]
-
-                # Add structured namespaces
-                variables_for_template["site"] = site_vars
-
-                # For index or taxonomy pages, use the page data from variables
-                if isinstance(source_path, str) and (
-                    source_path == "blog_index"
-                    or source_path.startswith("tag_")
-                    or source_path.startswith("tags_")
-                    or source_path.startswith("category_")
-                    or source_path.startswith("categories_")
-                ):
-                    variables_for_template["page"] = variables.get("page", {})
-                else:
-                    # For regular pages, use the front matter as page variables
-                    # but also copy anything from the variables['page'] that doesn't exist in front_matter
-                    for key, value in variables.get("page", {}).items():
-                        if key not in front_matter:
-                            front_matter[key] = value
-                    variables_for_template["page"] = front_matter
-
-                variables_for_template["content"] = Markup(html_content)  # Mark as safe
-
-                # Debug: Print out variables that should be available
-                logger.debug(f"Template variables (keys): {list(variables_for_template.keys())}")
-                logger.debug(
-                    f"Site variables (keys): {list(variables_for_template['site'].keys())}"
-                )
-
-                # Render the template
-                processed_content = template.render(**variables_for_template)
-                logger.debug(f"Rendered template {template_name} for {source_path}")
-
-                # Inject dithering assets if enabled
-                processed_content = self.inject_dithering_assets(processed_content)
-
-                return front_matter, processed_content
-
-            except jinja2.TemplateNotFound:
-                logger.warning(f"Template not found: {template_name}")
-                # Fall back to direct HTML content
-                processed_content = f"<html><body><h1>{front_matter.get('title', 'Untitled')}</h1>{html_content}</body></html>"
-                processed_content = self.inject_dithering_assets(processed_content)
-
-            except Exception as e:
-                logger.error(f"Error rendering template {template_name}: {e}")
-                # Fall back to simple content
-                processed_content = f"<html><body><h1>Error rendering template</h1><p>{e}</p><div>{html_content}</div></body></html>"
-                processed_content = self.inject_dithering_assets(processed_content)
+        For regular pages the front matter becomes ``page``, filled in (in
+        place, so the caller's front matter matches what the template saw)
+        with page variables it does not set. Generated pages use the page
+        variables as-is.
+        """
+        context = self.build_content_context(variables)
+        site_images = self.config.get("images")
+        if "images" not in context["site"] and site_images is not None:
+            context["site"]["images"] = site_images
+        if _is_generated_page(source_path):
+            context["page"] = variables.get("page", {})
         else:
-            # No template or Jinja not available - use simple HTML
-            processed_content = f"<html><body><h1>{front_matter.get('title', 'Untitled')}</h1>{html_content}</body></html>"
-            processed_content = self.inject_dithering_assets(processed_content)
-
-        return front_matter, processed_content
+            for key, value in variables.get("page", {}).items():
+                front_matter.setdefault(key, value)
+            context["page"] = front_matter
+        context["content"] = Markup(html_content)
+        return context
 
     def inject_dithering_assets(self, html_content: str) -> str:
         """Inject dithering CSS and JS inline into HTML content if dithering is enabled.
@@ -922,3 +890,33 @@ def _original_image_src(src: str) -> str:
         return src.replace(f"_{size}.", f"_{size}_original.")
     filename, ext = os.path.splitext(src)
     return f"{filename}_original{ext}"
+
+
+def _is_html_source_file(source_path) -> bool:
+    """Whether a page comes from an existing .html/.htm file under content."""
+    return (
+        isinstance(source_path, str)
+        and source_path.lower().endswith((".html", ".htm"))
+        and os.path.exists(source_path)
+    )
+
+
+def _is_generated_page(source_path) -> bool:
+    """Whether a source key names a generated blog index or taxonomy page."""
+    return isinstance(source_path, str) and (
+        source_path == "blog_index" or source_path.startswith(GENERATED_PAGE_PREFIXES)
+    )
+
+
+def _untemplated_page(front_matter: Dict[str, Any], html_content: str) -> str:
+    """Minimal page used when no template applies or the template is missing."""
+    title = front_matter.get("title", "Untitled")
+    return f"<html><body><h1>{title}</h1>{html_content}</body></html>"
+
+
+def _error_page(error: Exception, html_content: str) -> str:
+    """Minimal page used when rendering the template failed."""
+    return (
+        "<html><body><h1>Error rendering template</h1>"
+        f"<p>{error}</p><div>{html_content}</div></body></html>"
+    )
