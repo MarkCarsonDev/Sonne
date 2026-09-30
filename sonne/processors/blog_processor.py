@@ -1024,8 +1024,9 @@ def _local_image_refs(post: Dict[str, Any]) -> Iterator[Tuple[str, dict]]:
     """Yield (image_ref, transforms) for each local raster image the post references.
 
     Markdown images come first, then <img> tags. Remote, root-relative and
-    SVG images, and anything inside code samples, are skipped. When a path appears more than once, the last
-    Markdown title's transforms apply to every occurrence.
+    SVG images, and anything inside code samples, are skipped. When a path
+    appears more than once, the last Markdown title's transforms apply to
+    every occurrence.
     """
     content = _without_code(post.get("raw_content", post.get("content", "")))
     image_refs = []
