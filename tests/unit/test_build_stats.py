@@ -1,5 +1,7 @@
 """BuildStatistics: the human-readable build report (pinned verbatim)."""
 
+import pytest
+
 from sonne.utils.build_stats import BuildStatistics
 
 RULE = "=" * 60
@@ -138,3 +140,15 @@ class TestFormatReport:
                 RULE,
             ]
         )
+
+
+class TestPerformanceHints:
+    @pytest.mark.xfail(strict=True, reason="B47: slow-image hint checks a method name never used")
+    def test_slow_color_lab_images_suggest_bayer(self):
+        stats = BuildStatistics(start_time=0.0, end_time=5.0)
+        stats.record_phase("images", 4.0)
+        stats.record_image("photo.png", 3.5, method="color_lab")
+
+        report = stats.format_report(perf=True)
+
+        assert "with color_lab — try images.dither_method: bayer" in report

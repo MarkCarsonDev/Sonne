@@ -48,6 +48,26 @@ class TestPageUrls:
         processor = make_processor(site)
         assert page_url(processor, source) == processor.config.format_url("/v1.mdnotes/page")
 
+    B40 = pytest.mark.xfail(strict=True, reason="B40: .html page url ignores its output path")
+
+    @pytest.mark.parametrize(
+        "file_name, url_style, expected_url",
+        [
+            pytest.param("about.html", "clean", "/about", marks=B40),
+            pytest.param("about.html", "directory", "/about/", marks=B40),
+            ("about.html", "html", "/about.html"),
+            pytest.param("docs/index.htm", "clean", "/docs", marks=B40),
+            pytest.param("docs/index.htm", "directory", "/docs/", marks=B40),
+        ],
+    )
+    def test_html_page_url_matches_where_it_is_written(
+        self, site, file_name, url_style, expected_url
+    ):
+        source = write(site / "content" / file_name, "<p>Page</p>")
+        processor = make_processor(site, {("url_style",): url_style})
+        front_matter, _ = processor.process_page("<p>Page</p>", False, str(source), EMPTY_SCOPES)
+        assert front_matter["url"] == expected_url
+
 
 class TestPostTemplate:
     def test_posts_in_configured_blog_directory_use_post_template(self, site):

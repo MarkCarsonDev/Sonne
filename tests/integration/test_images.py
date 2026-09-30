@@ -2,6 +2,8 @@
 
 import logging
 
+import pytest
+
 from PIL import Image
 
 from sonne.core.config import Config
@@ -162,6 +164,15 @@ class TestStaticImages:
         target.write_bytes(b"stale")
         generator.image_processor.process_all(generator.paths["content"], skip_cache=True)
         assert target.read_bytes() != b"stale"
+
+    @pytest.mark.xfail(strict=True, reason="B39: rebuild ships the raw static image")
+    def test_rebuild_keeps_static_images_dithered(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        source = image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        overrides = {("images", "dither"): True}
+        builder(site, config_overrides=overrides)
+        _, out = builder(site, config_overrides=overrides)  # warm cache
+        assert (out / "images" / "logo.png").read_bytes() != source.read_bytes()
 
 
 class TestImageDiscovery:
