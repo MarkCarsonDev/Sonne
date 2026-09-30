@@ -285,6 +285,7 @@ class SiteGenerator:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(processed_content)
 
+        self.stats.pages_processed += 1
         logger.debug(f"Processed page: {file_path} -> {output_path}")
 
     def _output_path_for(self, file_path: Path) -> Path:

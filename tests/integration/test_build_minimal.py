@@ -96,3 +96,12 @@ class TestPageSizeLabel:
         _, out = builder(site)
 
         assert "page-size-label" not in (out / "index.html").read_text(encoding="utf-8")
+
+
+class TestBuildStatistics:
+    def test_rendered_pages_are_counted(self, site_factory, builder):
+        site = site_factory("minimal")  # index.md + about.md
+
+        generator, _ = builder(site)
+
+        assert generator.stats.pages_processed == 2
