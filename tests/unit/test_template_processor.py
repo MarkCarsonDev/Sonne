@@ -32,13 +32,11 @@ def site(site_factory):
 
 
 class TestPageUrls:
-    @pytest.mark.xfail(strict=True, reason="B27: content/index.md gets url /index, not /")
     def test_root_index_page_is_site_root(self, site):
         source = write(site / "content" / "index.md", "# Home\n")
         processor = make_processor(site)
         assert page_url(processor, source) == processor.config.format_url("/")
 
-    @pytest.mark.xfail(strict=True, reason="B27: dir/index.md gets url /dir/index, not /dir/")
     def test_nested_index_page_is_its_directory(self, site):
         source = write(site / "content" / "projects" / "index.md", "# Projects\n")
         processor = make_processor(site)

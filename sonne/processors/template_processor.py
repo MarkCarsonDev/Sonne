@@ -598,11 +598,18 @@ class TemplateProcessor:
         return self._content_file_url(source_path, is_markdown)
 
     def _content_file_url(self, source_path: str, is_markdown: bool) -> str:
-        """URL for a file under the content directory, styled per ``url_style``."""
+        """URL for a file under the content directory, styled per ``url_style``.
+
+        Markdown ``index`` pages (index.md, dir/index.md) are their directory's URL.
+        """
         rel_path = PurePath(os.path.relpath(source_path, self.paths.get("content", "")))
         if is_markdown and rel_path.suffix.lower() in MARKDOWN_EXTENSIONS:
             rel_path = rel_path.with_suffix("")
-        url = "/" + rel_path.as_posix()
+        url = (
+            _directory_url(rel_path.parent)
+            if rel_path.name == "index"
+            else "/" + rel_path.as_posix()
+        )
         if hasattr(self.config, "format_url"):
             formatted = self.config.format_url(url)
             logger.debug(f"Formatted URL: {url} -> {formatted}")
@@ -789,6 +796,12 @@ def _is_generated_page(source_path) -> bool:
     return isinstance(source_path, str) and (
         source_path == "blog_index" or source_path.startswith(GENERATED_PAGE_PREFIXES)
     )
+
+
+def _directory_url(directory: PurePath) -> str:
+    """URL of a directory's index page: "/" for the content root, else "/dir/"."""
+    posix = directory.as_posix()
+    return "/" if posix == "." else f"/{posix}/"
 
 
 def _untemplated_page(front_matter: Dict[str, Any], html_content: str) -> str:
