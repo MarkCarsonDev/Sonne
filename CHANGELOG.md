@@ -53,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `blog` and `portfolio` scaffolds shipped without `archive.html` (and
   portfolio without tag/category templates), so date archives and taxonomy
   pages rendered the fallback page. Both scaffolds now include them (B16).
+- Image syntax inside fenced code blocks or inline code in a blog post
+  (e.g. a Markdown tutorial) is no longer treated as a real image, which
+  logged a spurious "Image not found" warning per sample (B26).
 - `blog.rss.path` pointing into a subdirectory (e.g. `feeds/blog.xml`)
   failed because the directory was never created.
 - `solar` scaffold (affects new `sonne new -t solar` sites): the battery

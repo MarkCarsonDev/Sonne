@@ -110,9 +110,6 @@ class TestPostImagesInCode:
         out, _ = code_sample_build
         assert (out / "blog" / "2025" / "05" / "01" / "code-sample" / "red.png").exists()
 
-    @pytest.mark.xfail(
-        strict=True, reason="B26: image syntax inside code samples is treated as a real image"
-    )
     def test_image_syntax_in_code_is_ignored(self, code_sample_build):
         _, messages = code_sample_build
         assert not any("Image not found" in message for message in messages)

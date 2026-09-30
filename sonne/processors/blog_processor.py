@@ -59,6 +59,8 @@ MARKDOWN_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 HTML_IMAGE_SRC = re.compile(r'<img[^>]+src=["\'](([^"\']+))["\']')
 QUOTED_IMAGE_TITLE = re.compile(r'\s+"([^"]*)"')
 FILENAME_DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})-")
+FENCED_CODE_BLOCK = re.compile(r"^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$", re.DOTALL | re.MULTILINE)
+INLINE_CODE = re.compile(r"`[^`\n]+`")
 
 
 @dataclass
@@ -1022,10 +1024,10 @@ def _local_image_refs(post: Dict[str, Any]) -> Iterator[Tuple[str, dict]]:
     """Yield (image_ref, transforms) for each local raster image the post references.
 
     Markdown images come first, then <img> tags. Remote, root-relative and
-    SVG images are skipped. When a path appears more than once, the last
+    SVG images, and anything inside code samples, are skipped. When a path appears more than once, the last
     Markdown title's transforms apply to every occurrence.
     """
-    content = post.get("raw_content", post.get("content", ""))
+    content = _without_code(post.get("raw_content", post.get("content", "")))
     image_refs = []
     transforms_by_ref = {}
     for match in MARKDOWN_IMAGE.finditer(content):
@@ -1042,6 +1044,11 @@ def _local_image_refs(post: Dict[str, Any]) -> Iterator[Tuple[str, dict]]:
     for image_ref in image_refs:
         if not _is_external_or_vector(image_ref):
             yield image_ref, transforms_by_ref.get(image_ref, {})
+
+
+def _without_code(markdown: str) -> str:
+    """Remove fenced code blocks and inline code spans, whose image syntax is only sample text."""
+    return INLINE_CODE.sub("", FENCED_CODE_BLOCK.sub("", markdown))
 
 
 def _is_external_or_vector(image_ref: str) -> bool:
