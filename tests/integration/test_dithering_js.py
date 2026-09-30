@@ -153,7 +153,6 @@ class TestToggle:
     def test_server_rendered_toggle_works(self, harness_results):
         assert harness_results["serverToggled"] is True
 
-    @pytest.mark.xfail(strict=True, reason="toggle click inside a link follows the link")
     def test_toggle_inside_link_does_not_navigate(self, harness_results):
         assert harness_results["linkedToggled"] is True
         assert harness_results["hash"] == ""

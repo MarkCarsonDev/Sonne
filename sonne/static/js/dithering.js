@@ -126,6 +126,9 @@
 			if (container) {
 				container.classList.toggle(SHOW_ORIGINAL_CLASS);
 			}
+			// A toggle inside a link must not also follow the link, nor
+			// trigger click handlers (e.g. lightboxes) around the image.
+			event.preventDefault();
 			event.stopPropagation();
 		});
 		toggle.setAttribute(BOUND_ATTRIBUTE, "true");
