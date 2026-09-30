@@ -1,53 +1,29 @@
 """
-Custom footer generation for Sonne showcase site.
+Custom footer for the Sonne showcase site.
 
-This script demonstrates how to create a custom footer that will be
-inserted into all pages of the site.
+Demonstrates building HTML in a data script: base.html renders the
+`footer_custom` variable set here at the bottom of every page.
 """
 
 from datetime import datetime
-import os
+from pathlib import Path
 
-# Get the current year
-current_year = datetime.now().year
+import sonne
 
-# Count files to get a rough idea of site size
-def count_files():
-    """Count the number of content files."""
-    try:
-        content_dir = os.path.join(os.getcwd(), 'content')
-        if not os.path.exists(content_dir):
-            return 0
-            
-        count = 0
-        for root, _, files in os.walk(content_dir):
-            count += len(files)
-                
-        return count
-    except Exception as e:
-        print(f"Error counting files: {e}")
-        return 0
+content_file_count = sum(1 for path in (Path.cwd() / "content").rglob("*") if path.is_file())
+now = datetime.now()
 
-# Get the last build time
-build_time = datetime.now().strftime("%B %d, %Y at %H:%M")
-
-# Get the Sonne version (single-sourced in sonne/__init__.py)
-try:
-    import sonne
-    version = getattr(sonne, '__version__', 'unknown')
-except ImportError:
-    version = 'unknown'
-
-# Generate the custom footer HTML
-footer_html = f"""
+sonne_var(
+    "footer_custom",
+    f"""
 <div class="custom-footer">
     <div class="footer-info">
         <div class="footer-section">
             <h4>About This Site</h4>
-            <p>This showcase site demonstrates the capabilities of Sonne {version}.</p>
-            <p>Last built: {build_time}</p>
+            <p>This showcase site demonstrates the capabilities of Sonne {sonne.__version__}.</p>
+            <p>Last built: {now.strftime("%B %d, %Y at %H:%M")}</p>
         </div>
-        
+
         <div class="footer-section">
             <h4>Connect</h4>
             <ul class="social-links">
@@ -56,7 +32,7 @@ footer_html = f"""
                 <li><a href="/contact/">Contact Us</a></li>
             </ul>
         </div>
-        
+
         <div class="footer-section">
             <h4>Resources</h4>
             <ul class="resource-links">
@@ -66,13 +42,11 @@ footer_html = f"""
             </ul>
         </div>
     </div>
-    
+
     <div class="footer-credits">
-        <p>&copy; {current_year} Sonne Team. Built with <a href="https://github.com/MarkCarsonDev/Sonne">Sonne {version}</a>.</p>
-        <p class="small">Contains approximately {count_files()} files and pages. All images are from Unsplash.</p>
+        <p>&copy; {now.year} Sonne Team. Built with <a href="https://github.com/MarkCarsonDev/Sonne">Sonne {sonne.__version__}</a>.</p>
+        <p class="small">Contains {content_file_count} content files. All images are from Unsplash.</p>
     </div>
 </div>
-"""
-
-# Set the custom footer
-sonne_var("footer_custom", footer_html)
+""",
+)
