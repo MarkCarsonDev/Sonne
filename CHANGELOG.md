@@ -34,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   e.g. `sonne_config("site", "base_url")`, instead of locating and
   re-reading the config file themselves. Values include defaults, and the
   result is a copy, so scripts can't change the build's configuration.
+- `sonne migrate` updates a site's config file for deprecated keys: renames
+  them, removes no-effect or removed ones, and shows a diff. Dry run by
+  default; `--write` applies it and keeps a `.bak` backup. YAML comments and
+  layout are preserved when possible (it says clearly when they can't be);
+  JSON configs are supported.
+- `sonne serve --dev` serves the development environment, like
+  `sonne build --dev`.
+- `sonne serve --watch` warns you to restart it when Sonne itself was
+  upgraded or edited while the server was running.
 - All starter templates (blog, portfolio, minimal, solar) load
   `dithering.css`/`dithering.js` when `images.dither` is on, so visitors
   can switch between dithered and original images.
@@ -48,7 +57,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dither in-memory images with the site's `images.dither_*` settings.
   (`_apply_dither` keeps working.)
 
+### Deprecated
+- `build.incremental`, `build.show_progress` and `build.statistics` have no
+  effect and will be removed. They still load, with a warning; use
+  `sonne build --no-progress` / `--perf` instead.
+- `security.csp` (`enabled`/`directives`) has no effect and will be
+  removed; Sonne never added the policy to pages. Send a
+  `Content-Security-Policy` header from your web server instead.
+- Run `sonne migrate` to see (and with `--write`, apply) the config
+  changes for deprecated keys.
+
 ### Removed
+- `Config.generate_csp_header()` and `Config.get_csp_meta_tag()` (unused).
 - The `{+}{variable}` / `{-}{variable}` substitution syntax and the
   `{p}{# ... #}` embedded-Python blocks. These were dead code — nothing in
   the build pipeline ever invoked them, so the markers already rendered
@@ -62,6 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- README: the URL Configuration section now describes `url_style` and the
+  environments accurately (it described a default that no longer exists).
 - The dithered/original image toggle is a keyboard-operable button
   (labelled "Show original image", state in `aria-pressed`) with a visible
   focus ring; only the image on show is exposed to screen readers. Toggles
