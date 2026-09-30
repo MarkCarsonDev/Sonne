@@ -179,7 +179,7 @@ Any other key under `site` is passed through to templates unchanged.
 | `blog.taxonomies.categories.enabled` | `true` | Generate category pages. |
 | `blog.taxonomies.categories.template` | `category.html` | Template for one category's page. |
 | `blog.taxonomies.categories.list_template` | `categories.html` | Template for the list of all categories. |
-| `blog.rss.enabled` | `true` | Write an RSS feed. |
+| `blog.rss.enabled` | `true` | Write an RSS feed. `blog.rss: false` (or `true`) is shorthand for this. |
 | `blog.rss.path` | `feed.xml` | Feed path inside the output directory. |
 | `blog.rss.max_items` | `20` | Maximum number of posts in the feed. |
 | `blog.date_archives` | `true` | Generate year and month archive pages. |

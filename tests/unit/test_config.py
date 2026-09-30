@@ -216,7 +216,6 @@ class TestBlogDirectory:
 
 
 class TestSectionShapes:
-    @pytest.mark.xfail(strict=True, reason="B46: a scalar where a mapping belongs is not flagged")
     @pytest.mark.parametrize("keys", [("images",), ("blog", "taxonomies"), ("serve",)])
     def test_scalar_for_a_mapping_section_warns(self, tmp_path, keys):
         cfg = config_with(tmp_path, (*keys, "yes"))

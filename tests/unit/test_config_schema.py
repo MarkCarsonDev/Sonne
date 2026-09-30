@@ -172,10 +172,10 @@ class TestSchemaAcceptsWhatSonneAccepts:
 
 
 README = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+# Sections (nodes with properties, whatever else their type allows, e.g.
+# blog.rss is also a boolean shorthand) are documented through their keys.
 DOCUMENTED_LEAF_KEYS = sorted(
-    key
-    for key, node in SCHEMA_KEYS.items()
-    if not (node.get("type") == "object" and node.get("properties"))
+    key for key, node in SCHEMA_KEYS.items() if not node.get("properties")
 )
 
 

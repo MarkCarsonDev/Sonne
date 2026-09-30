@@ -289,7 +289,6 @@ def test_image_referenced_twice_is_processed_once(
 
 
 class TestBlogConfigShapes:
-    @pytest.mark.xfail(strict=True, reason="B46: blog.rss: false is ignored")
     def test_rss_false_writes_no_feed(self, site_factory, builder):
         site = site_factory("blog", overlay="blog_site")
 
