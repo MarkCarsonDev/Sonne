@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 from xml.sax.saxutils import escape
 
+from sonne.processors.blog_urls import BlogUrls
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.path_utils import (
     is_post_local_raster_image,
@@ -136,6 +137,7 @@ class BlogProcessor:
         self.stats: Optional[BuildStatistics] = None  # Injected by SiteGenerator
 
         self.blog_dir = self.config.blog_directory()
+        self.urls = BlogUrls(config)
         self.blog_content_dir = os.path.join(self.paths.get("content") or "", self.blog_dir)
         self.blog_output_dir = os.path.join(self.paths.get("output") or "", self.blog_dir)
         os.makedirs(self.blog_output_dir, exist_ok=True)
@@ -779,10 +781,10 @@ class BlogProcessor:
                     "total": total_pages,
                     "has_prev": page_num > 1,
                     "has_next": has_next,
-                    "prev_url": self._index_page_url(page_num - 1) if page_num > 1 else None,
-                    "next_url": self._index_page_url(page_num + 1) if has_next else None,
+                    "prev_url": self.urls.index(page_num - 1) if page_num > 1 else None,
+                    "next_url": self.urls.index(page_num + 1) if has_next else None,
                 },
-                "url": self._index_page_url(page_num),
+                "url": self.urls.index(page_num),
             }
             # Index templates read globals (e.g. battery status) from page scope.
             for key, value in global_vars.items():
@@ -822,10 +824,6 @@ class BlogProcessor:
         )
         return DEFAULT_POSTS_PER_PAGE
 
-    def _index_page_url(self, page_num: int) -> str:
-        blog_url = f"/{self.blog_dir}".rstrip("/")
-        return self._format_url(blog_url if page_num == 1 else f"{blog_url}/page/{page_num}")
-
     def _generate_taxonomy_pages(self) -> None:
         """Generate term and index pages for each enabled taxonomy."""
         for taxonomy_type in TAXONOMY_TYPES:
@@ -857,7 +855,7 @@ class BlogProcessor:
             singular: term["name"],
             f"{singular}_slug": term["slug"],
             "posts": term["posts"],
-            "url": self._format_url(f"/{self.blog_dir}/{taxonomy_type}/{term['slug']}"),
+            "url": self.urls.term_page(taxonomy_type, term["slug"]),
         }
         output_path = self._render_generated_page(
             _GeneratedPage(
@@ -874,7 +872,7 @@ class BlogProcessor:
             "title": taxonomy_type.capitalize(),
             "description": f"All {taxonomy_type}",
             taxonomy_type: self.taxonomies[taxonomy_type],
-            "url": self._format_url(f"/{self.blog_dir}/{taxonomy_type}"),
+            "url": self.urls.taxonomy_index(taxonomy_type),
         }
         output_path = self._render_generated_page(
             _GeneratedPage(
@@ -935,7 +933,7 @@ class BlogProcessor:
         page_data = {
             "title": title,
             "posts": posts,
-            "url": self._format_url(f"/{self.blog_dir}/{'/'.join(date_parts)}/"),
+            "url": self.urls.archive(*date_parts),
             "template": archive_template,
             "archive_type": archive_type,
             "archive_year": year,

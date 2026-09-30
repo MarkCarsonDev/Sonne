@@ -344,3 +344,67 @@ class TestGeneratedPageTemplates:
         html = (out / "blog" / "tags" / "alpha" / "index.html").read_text(encoding="utf-8")
         expected_url = generator.config.format_url("/blog/tags/alpha")
         assert f"TAG=alpha SLUG=alpha URL={expected_url}" in html
+
+
+class TestBlogUrlHelpers:
+    """Jinja blog_url/tag_url/category_url/archive_url link to the pages the blog writes."""
+
+    HELPERS = (
+        "{{ blog_url() }}|{{ blog_url(2) }}|{{ tag_url('Snake Case') }}|{{ tag_url() }}"
+        "|{{ category_url('General') }}|{{ category_url() }}"
+        "|{{ archive_url(2025) }}|{{ archive_url(2025, 2) }}|{{ archive_url('2025', '02', 1) }}"
+    )
+
+    @pytest.mark.parametrize("url_style", ["clean", "directory", "html"])
+    def test_helpers_follow_blog_directory_and_url_style(self, site_factory, builder, url_style):
+        site = site_factory("blog", overlay="blog_site")
+        (site / "templates" / "helpers.html").write_text(self.HELPERS, encoding="utf-8")
+        generator, _ = builder(
+            site,
+            {("blog", "directory"): "journal", ("url_style",): url_style},
+            skip_images=True,
+        )
+        template = generator.template_processor.jinja_env.get_template("helpers.html")
+
+        rendered = template.render()
+
+        expected = [
+            "/journal",
+            "/journal/page/2",
+            "/journal/tags/snake-case",
+            "/journal/tags",
+            "/journal/categories/general",
+            "/journal/categories",
+            "/journal/2025/",
+            "/journal/2025/02/",
+            "/journal/2025/02/01/",
+        ]
+        assert rendered.split("|") == [generator.config.format_url(url) for url in expected]
+
+    @pytest.mark.parametrize("url_style", ["clean", "directory", "html"])
+    def test_helpers_match_the_generated_page_urls(self, site_factory, builder, url_style):
+        site = site_factory("blog", overlay="blog_site")
+        probes = {
+            "tag.html": "SAME={{ page.url == tag_url(page.tag) }}",
+            "tags.html": "SAME={{ page.url == tag_url() }}",
+            "category.html": "SAME={{ page.url == category_url(page.category) }}",
+            "categories.html": "SAME={{ page.url == category_url() }}",
+            "blog_list.html": "SAME={{ page.url == blog_url(page.pagination.current) }}",
+            "archive.html": (
+                "SAME={{ page.url == archive_url(page.archive_year, page.archive_month, "
+                "page.archive_day) }}"
+            ),
+        }
+        for name, probe in probes.items():
+            (site / "templates" / name).write_text(probe, encoding="utf-8")
+
+        _, out = builder(site, {("url_style",): url_style}, skip_images=True)
+
+        pages = [
+            path
+            for path in (out / "blog").rglob("*.html")
+            if "SAME=" in path.read_text(encoding="utf-8")
+        ]
+        assert len(pages) >= 6
+        for path in pages:
+            assert "SAME=True" in path.read_text(encoding="utf-8"), path

@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup, Tag
 from jinja2 import TemplateSyntaxError, UndefinedError
 from markupsafe import Markup
 
+from sonne.processors.blog_urls import BlogUrls
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import MARKDOWN_EXTENSIONS
 from sonne.utils.page_location import page_output_path, page_url
@@ -282,6 +283,17 @@ class TemplateProcessor:
             }
         )
         env.globals["dithering_enabled"] = self.dithering_enabled
+        blog_urls = BlogUrls(self.config)
+        env.globals.update(
+            {
+                # Links to generated blog pages; they follow blog.directory
+                # and url_style, and slugify terms like the pages themselves.
+                "blog_url": blog_urls.index,
+                "tag_url": blog_urls.tag,
+                "category_url": blog_urls.category,
+                "archive_url": blog_urls.archive,
+            }
+        )
         logger.info("Jinja environment initialized successfully")
         return env
 
