@@ -334,7 +334,7 @@ class VariableManager:
         candidates = [os.path.join(self.base_dir, "data", "footer.py")]
         data_path = self.config.get("paths", "data")
         if data_path:
-            candidates.append(os.path.join(data_path, "footer.py"))
+            candidates.append(os.path.join(self.base_dir, data_path, "footer.py"))
         candidates.append(os.path.join(self.base_dir, "scripts", "footer.py"))
         return candidates
 

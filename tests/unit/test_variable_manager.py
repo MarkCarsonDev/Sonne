@@ -93,6 +93,19 @@ class TestDataScripts:
         vm.load_variables()
         assert counter.read_text().count("run") == 1
 
+    def test_footer_in_custom_data_path_found_from_any_cwd(self, tmp_path, monkeypatch):
+        (tmp_path / "sonne.yaml").write_text("paths:\n  data: mydata\n", encoding="utf-8")
+        (tmp_path / "mydata").mkdir()
+        (tmp_path / "mydata" / "footer.py").write_text(
+            "sonne_var('footer_custom', '<b>mine</b>')\n", encoding="utf-8"
+        )
+        monkeypatch.chdir(tmp_path.parent)
+        vm = make_vm(tmp_path)
+
+        vm.load_variables()
+
+        assert str(vm.get("footer_custom")) == "<b>mine</b>"
+
     def test_footer_in_data_dir_runs_and_is_html_safe(self, tmp_path):
         data = tmp_path / "data"
         data.mkdir()
