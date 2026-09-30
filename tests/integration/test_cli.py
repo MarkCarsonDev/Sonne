@@ -53,6 +53,17 @@ class TestBuild:
         result = runner.invoke(cli, ["build", "-p", str(empty)])
         assert result.exit_code != 0
 
+    def test_perf_report_survives_non_utf8_output(self, tmp_path):
+        """--perf on a cp1252 pipe (Windows redirect) must not fail the build."""
+        target = tmp_path / "perf"
+        CliRunner().invoke(cli, ["new", "-p", str(target), "-t", "minimal"])
+        cp1252_runner = CliRunner(charset="cp1252")
+
+        result = cp1252_runner.invoke(cli, ["build", "-p", str(target), "--no-progress", "--perf"])
+
+        assert result.exit_code == 0, result.output
+        assert "Performance Breakdown" in result.output
+
     def test_build_has_yes_flag(self, runner):
         result = runner.invoke(cli, ["build", "--help"])
         assert "--yes" in result.output

@@ -236,7 +236,7 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
 
         # Show performance report if requested
         if perf and stats:
-            click.echo(stats.format_report(verbose=True, perf=True))
+            _echo_degrading_unencodable(stats.format_report(verbose=True, perf=True))
 
     except SystemExit:
         raise
@@ -252,6 +252,17 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
 
             traceback.print_exc()
         sys.exit(1)
+
+
+def _echo_degrading_unencodable(text: str) -> None:
+    """Echo text, replacing characters stdout's encoding cannot represent.
+
+    Reports use glyphs (✓, █, ⚡) that a cp1252 pipe or redirect on Windows
+    cannot encode; printing them must never turn a finished build into a
+    failed one.
+    """
+    encoding = getattr(click.get_text_stream("stdout"), "encoding", None) or "utf-8"
+    click.echo(text.encode(encoding, errors="replace").decode(encoding))
 
 
 @cli.command()
