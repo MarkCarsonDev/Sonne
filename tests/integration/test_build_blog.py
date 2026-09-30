@@ -260,3 +260,29 @@ class TestNonLocalImagesInPosts:
 
         assert 'src="Logo.SVG"' in html
         assert "dithered/Logo.png" not in html
+
+
+def test_image_referenced_twice_is_processed_once(
+    site_factory, builder, image_factory, monkeypatch
+):
+    from sonne.processors.blog_processor import BlogProcessor
+
+    dithered_sources = []
+    original_save_dithered = BlogProcessor._save_dithered
+
+    def counting_save_dithered(self, source_path, *args):
+        dithered_sources.append(source_path)
+        return original_save_dithered(self, source_path, *args)
+
+    monkeypatch.setattr(BlogProcessor, "_save_dithered", counting_save_dithered)
+    site = site_factory("blog", overlay="blog_site")
+    write_post(
+        site, "twice.md", "title: Twice\ndate: 2025-06-07", "![a](red.png)\n\n![b](red.png)\n"
+    )
+    image_factory(site / "content" / "blog" / "red.png")
+
+    builder(site, {("images", "dither"): True})
+
+    assert [path for path in dithered_sources if path.endswith("red.png")] == [
+        str(site / "content" / "blog" / "red.png")
+    ]
