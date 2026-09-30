@@ -42,6 +42,17 @@ class TestDefaults:
             builder(jinja_site)
         assert any("removed Sonne/Mond markers" in r.message for r in caplog.records)
 
+    def test_legacy_markers_warn_on_every_build(self, jinja_site, builder, caplog):
+        write(
+            jinja_site / "content" / "old.md",
+            "---\ntitle: Old\n---\nValue: {+}{color}\n",
+        )
+        builder(jinja_site)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            builder(jinja_site)
+        assert any("removed Sonne/Mond markers" in r.message for r in caplog.records)
+
     def test_removed_security_key_warns(self, site_factory, builder, caplog):
         site = site_factory("minimal")
         config = site / "sonne.yaml"

@@ -1,6 +1,11 @@
 """Image pipeline: resizing, dithering, only_used, cache keys."""
 
+import logging
+
 from PIL import Image
+
+from sonne.core.config import Config
+from sonne.processors.image_processor import ImageProcessor
 
 
 class TestContentImages:
@@ -136,3 +141,92 @@ class TestPostImageFormats:
         _, out = builder(site)
         with Image.open(_post_copy(out, "photo.jpg")) as saved:
             assert saved.format == "JPEG"
+
+
+class TestStaticImages:
+    def test_static_jpeg_is_dithered_in_place(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        source = image_factory(site / "static" / "images" / "vogel.jpg", size=(32, 32), fmt="JPEG")
+        _, out = builder(site, config_overrides={("images", "dither"): True})
+        dithered = out / "images" / "vogel.jpg"
+        with Image.open(dithered) as saved:
+            assert saved.format == "JPEG"
+        # A failed dither falls back to copying the source unchanged
+        assert dithered.read_bytes() != source.read_bytes()
+
+    def test_skip_cache_reprocesses_static_images(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        generator, out = builder(site, config_overrides={("images", "dither"): True})
+        target = out / "images" / "logo.png"
+        target.write_bytes(b"stale")
+        generator.image_processor.process_all(generator.paths["content"], skip_cache=True)
+        assert target.read_bytes() != b"stale"
+
+
+class TestImageDiscovery:
+    def test_uppercase_extensions_are_processed(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "CAMERA.JPG", size=(64, 64), fmt="JPEG")
+        _, out = builder(site)
+        assert (out / "assets" / "images" / "CAMERA_400_original.webp").exists()
+
+
+class TestSiteLocation:
+    def test_site_inside_dot_directory_processes_images(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site", name=".sites/blog")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        _, out = builder(site)
+        assert (out / "assets" / "images" / "photo_400_original.webp").exists()
+
+
+class TestUnknownDitherMethod:
+    def processor(self):
+        config = Config()
+        config.set("images", "dither_method", value="bogus")
+        config.set("images", "dither_colors", value=2)
+        return ImageProcessor(config, {})
+
+    def test_fallback_uses_configured_colors(self):
+        processor = self.processor()
+        gradient = Image.linear_gradient("L").resize((32, 32))
+        expected = processor._apply_dither(gradient, "bayer", 2)
+        assert processor.dither(gradient).tobytes() == expected.tobytes()
+
+    def test_warns_once_naming_method_and_fallback(self, caplog):
+        processor = self.processor()
+        image = Image.new("RGB", (8, 8))
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            processor.dither(image)
+            processor.dither(image)
+        warnings = [r.message for r in caplog.records if "bogus" in r.message]
+        assert len(warnings) == 1 and "bayer" in warnings[0]
+
+
+class TestBuildStatistics:
+    def build(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        overrides = {("images", "dither"): True}
+        generator, _ = builder(site, config_overrides=overrides)
+        return site, overrides, generator.stats
+
+    def test_first_build_counts_processed_images_as_cache_misses(
+        self, site_factory, builder, image_factory
+    ):
+        _, _, stats = self.build(site_factory, builder, image_factory)
+        assert stats.images_processed >= 2
+        assert (stats.images_cached, stats.cache_misses) == (0, stats.images_processed)
+
+    def test_rebuild_counts_cached_images_as_cache_hits(self, site_factory, builder, image_factory):
+        site, overrides, _ = self.build(site_factory, builder, image_factory)
+        generator, _ = builder(site, config_overrides=overrides)
+        stats = generator.stats
+        assert stats.images_cached >= 2
+        assert (stats.images_processed, stats.cache_hits) == (0, stats.images_cached)
+
+    def test_static_image_sizes_are_recorded(self, site_factory, builder, image_factory):
+        _, _, stats = self.build(site_factory, builder, image_factory)
+        assert stats.original_image_size > 0
+        assert stats.processed_image_size > 0
