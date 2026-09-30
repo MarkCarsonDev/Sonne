@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (shown with `-vv`/debug logging) instead of being printed straight to
   stderr.
 
+- `solar` scaffold: removed the unused `solar.*` keys (`theme`,
+  `contrast`, `font_size`, `reduce_motion`, `minimize_images`,
+  `data_saver`, `weather_update_interval`) — nothing read them. The theme
+  toggle is always in the header, the saved theme applies before first
+  paint, and the JS no longer polls the nonexistent `/api/battery-status`.
+
 ### Fixed
 - Category pages rendered as a bare "Untitled" fallback page: the singular
   of `categories` was computed as `categorie`, so no template matched
@@ -49,6 +55,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pages rendered the fallback page. Both scaffolds now include them (B16).
 - `blog.rss.path` pointing into a subdirectory (e.g. `feeds/blog.xml`)
   failed because the directory was never created.
+- `solar` scaffold (affects new `sonne new -t solar` sites): the battery
+  script no longer writes debug files to `/tmp` or prints on every build;
+  `solar.battery_simulation: false` now reads the real battery (psutil or
+  Linux sysfs); the weather script honours `site.weather` (location,
+  units) instead of always fetching Fahrenheit for a fixed location, and
+  no longer forces DEBUG logging for the whole build; cover, project and
+  portfolio images no longer point at nonexistent `*_800_dithered.*`
+  files; tag, category and archive pages list their posts.
 - Blog posts, related posts and image size annotations are cheaper to
   compute on large blogs (tag sets are precomputed; each post's HTML is
   parsed once rather than once per image).
