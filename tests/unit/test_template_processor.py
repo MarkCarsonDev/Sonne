@@ -80,14 +80,35 @@ class TestProcessImageFilter:
     ALT_WITH_MARKUP = 'say "hi" <b>'
     ESCAPED_ALT = 'alt="say &#34;hi&#34; &lt;b&gt;"'
 
-    def render(self, site, dither):
+    def render(self, site, dither, src="pic.png"):
         write(
             site / "templates" / "image_filter.html",
-            "{{ 'pic.png' | process_image(alt) }}",
+            "{{ src | process_image(alt) }}",
         )
         processor = make_processor(site, {("images", "dither"): dither})
         template = processor.jinja_env.get_template("image_filter.html")
-        return template.render(alt=self.ALT_WITH_MARKUP)
+        return template.render(src=src, alt=self.ALT_WITH_MARKUP)
+
+    @pytest.mark.parametrize(
+        "src, original_src",
+        [
+            ("/images/b_800.webp", "/images/b_800_original.webp"),
+            ("/images/a.png", "/images/a_original.png"),
+            pytest.param(
+                "/v_1.2/a.png",
+                "/v_1.2/a_original.png",
+                marks=pytest.mark.xfail(strict=True, reason="B29: _original put after _<digits>."),
+            ),
+            pytest.param(
+                "q.png?v=1.2",
+                "q_original.png?v=1.2",
+                marks=pytest.mark.xfail(strict=True, reason="B29: _original put in query string"),
+            ),
+        ],
+    )
+    def test_original_goes_before_the_file_extension(self, site, src, original_src):
+        html = self.render(site, dither=True, src=src)
+        assert f'src="{original_src}"' in html
 
     def test_plain_image_renders_as_markup_with_escaped_alt(self, site):
         html = self.render(site, dither=False)
