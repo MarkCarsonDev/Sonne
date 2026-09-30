@@ -170,7 +170,8 @@ class TestNoEffectKeys:
         with pytest.warns(DeprecationWarning, match="has no effect and will be removed"):
             cfg = Config(base_dir=str(tmp_path))
 
-        assert cfg.get("build") == {"show_page_size": True}
+        assert cfg.get("build", "show_page_size") is True
+        assert cfg.get("build", "incremental") is None
         assert cfg.get("security") == {}
         assert cfg.validate() == []
 

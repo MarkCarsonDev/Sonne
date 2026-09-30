@@ -17,6 +17,11 @@ from sonne.core.variable_manager import VariableManager
 from sonne.processors.blog_processor import BlogProcessor
 from sonne.processors.image_processor import ImageProcessor
 from sonne.processors.template_processor import TemplateProcessor
+from sonne.utils.a11y_check import (
+    AccessibilityCheckFailed,
+    AccessibilityReport,
+    check_output_dir,
+)
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
 from sonne.utils.file_utils import (
@@ -32,6 +37,10 @@ from sonne.utils.path_utils import sorted_paths, validate_path_within_root
 logger = logging.getLogger("sonne")
 
 # Steps every build runs: data scripts, static copy, pages, finalize.
+# Accessibility report size: pages listed, and findings shown per page.
+MAX_A11Y_PAGES_REPORTED = 10
+MAX_A11Y_FINDINGS_PER_PAGE = 5
+
 ALWAYS_RUN_STEP_COUNT = 5
 BLOG_STEP_COUNT = 2  # collect metadata + render posts
 IMAGE_STEP_COUNT = 1
@@ -73,6 +82,8 @@ class SiteGenerator:
         # (about.md vs about/index.md) warn instead of silently
         # last-writer-winning.
         self._written_outputs: dict[str, str] = {}
+        # Result of the last build's accessibility check (None when off).
+        self.accessibility_report: Optional[AccessibilityReport] = None
 
     def _fill_missing_paths(self) -> None:
         """Give every standard path key its default when unset or empty."""
@@ -145,6 +156,7 @@ class SiteGenerator:
         )
 
         self._written_outputs = {}
+        self.accessibility_report = None
 
         # Post and page metadata come first so data scripts can reference them.
         if blog_enabled:
@@ -265,6 +277,26 @@ class SiteGenerator:
             self.variable_manager.save()
             if self.config.get("build", "show_page_size", default=False):
                 inject_page_size_labels(self.paths["output"])
+            self._check_accessibility()
+
+    def _check_accessibility(self) -> None:
+        """Check every written page for machine-detectable WCAG failures.
+
+        Raises:
+            AccessibilityCheckFailed: With build.accessibility_checks: error,
+                after reporting, if any non-advisory issue was found.
+        """
+        mode = self.config.accessibility_check_mode()
+        if mode == "off":
+            return
+        report = check_output_dir(self.paths["output"])
+        self.accessibility_report = report
+        _log_accessibility_report(report)
+        if mode == "error" and report.blocking_count:
+            raise AccessibilityCheckFailed(
+                f"{report.blocking_count} accessibility issues found "
+                "(build.accessibility_checks: error); see the report above"
+            )
 
     def _page_files(self) -> list[Path]:
         """Content pages to render: page-type files outside the blog directory.
@@ -363,6 +395,26 @@ class _StepProgress:
     def detail(self, message: str) -> None:
         """An indented line under the current step."""
         logger.log(self.level, f"         {message}")
+
+
+def _log_accessibility_report(report: AccessibilityReport) -> None:
+    """Findings grouped per page, capped so a large site stays readable."""
+    if not report.issue_count:
+        logger.info(report.summary())
+        return
+    for page, findings in list(report.pages.items())[:MAX_A11Y_PAGES_REPORTED]:
+        level = logging.WARNING if any(not f.advisory for f in findings) else logging.INFO
+        logger.log(level, f"Accessibility: {page}")
+        for finding in findings[:MAX_A11Y_FINDINGS_PER_PAGE]:
+            prefix = "advisory: " if finding.advisory else ""
+            logger.log(level, f"  - {prefix}{finding.describe()}")
+        hidden_findings = len(findings) - MAX_A11Y_FINDINGS_PER_PAGE
+        if hidden_findings > 0:
+            logger.log(level, f"  ... and {hidden_findings} more on this page")
+    hidden_pages = len(report.pages) - MAX_A11Y_PAGES_REPORTED
+    if hidden_pages > 0:
+        logger.warning(f"Accessibility: ... and {hidden_pages} more pages with findings")
+    logger.warning(report.summary())
 
 
 def _count_build_steps(blog_enabled: bool, skip_images: bool) -> int:
