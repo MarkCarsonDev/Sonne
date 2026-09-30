@@ -567,6 +567,19 @@ class SiteRebuilder:
             _print_traceback_if_verbose()
 
 
+def _paths_touched_by(event) -> List[str]:
+    """Paths a watchdog event affects.
+
+    A move reports both ends: editors that save by writing a temp file and
+    renaming it over the original produce only a move whose destination is
+    the real file. Moves count for directories too (a folder of posts moved
+    into content/); other directory events are ignored.
+    """
+    if event.event_type == "moved":
+        return [path for path in (event.src_path, getattr(event, "dest_path", "")) if path]
+    return [] if event.is_directory else [event.src_path]
+
+
 def _start_watching(path: str, config: Config):
     """Start a watchdog observer that feeds a SiteRebuilder.
 
@@ -585,8 +598,8 @@ def _start_watching(path: str, config: Config):
 
     class _WatchdogAdapter(FileSystemEventHandler):
         def on_any_event(self, event):
-            if not event.is_directory:
-                rebuilder.file_changed(event.src_path)
+            for changed_path in _paths_touched_by(event):
+                rebuilder.file_changed(changed_path)
 
     observer = Observer()
     observer.schedule(_WatchdogAdapter(), path, recursive=True)

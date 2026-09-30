@@ -170,7 +170,6 @@ class TestWatchRebuilds:
 
         assert len(builds) == 2
 
-    @pytest.mark.xfail(strict=True, reason="B50: moved events ignore dest_path")
     def test_moved_file_reports_its_destination(self, tmp_path):
         from types import SimpleNamespace
 
