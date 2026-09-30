@@ -9,6 +9,11 @@
         {% endif %}
     </header>
     
+    {# Lists the other pages in this page's section, e.g. content/projects/*.md
+       for content/projects/index.md. #}
+    {% set this_page = all_pages | selectattr('source_path', 'equalto', page.source_path) | first %}
+    {% set projects = all_pages | selectattr('section', 'equalto', this_page.section)
+                                | rejectattr('source_path', 'equalto', page.source_path) | list %}
     {% if projects %}
     <div class="project-list">
         {% for project in projects %}
@@ -22,7 +27,7 @@
             <div class="project-content">
                 <h2 class="project-title">{{ project.title }}</h2>
                 <div class="project-category">{{ project.category }}</div>
-                <p class="project-description">{{ project.description }}</p>
+                <p class="project-description">{{ project.description or project.subtitle }}</p>
                 
                 {% if project.technologies %}
                 <div class="project-technologies">
@@ -41,7 +46,7 @@
     <p>No projects found.</p>
     {% endif %}
     
-    {% if page.content %}
+    {% if content %}
     <div class="page-content">
         {{ content }}
     </div>

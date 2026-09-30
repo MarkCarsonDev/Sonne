@@ -10,7 +10,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from sonne.core.config import DEFAULT_CONFIG, Config
 from sonne.core.variable_manager import VariableManager
@@ -25,13 +25,14 @@ from sonne.utils.file_utils import (
     copy_template_static_files,
     ensure_dir,
 )
+from sonne.utils.page_location import page_output_path, page_url
 from sonne.utils.page_size import inject_page_size_labels
 from sonne.utils.path_utils import sorted_paths, validate_path_within_root
 
 logger = logging.getLogger("sonne")
 
 # Steps every build runs: data scripts, static copy, pages, finalize.
-ALWAYS_RUN_STEP_COUNT = 4
+ALWAYS_RUN_STEP_COUNT = 5
 BLOG_STEP_COUNT = 2  # collect metadata + render posts
 IMAGE_STEP_COUNT = 1
 
@@ -143,16 +144,18 @@ class SiteGenerator:
 
         self._written_outputs = {}
 
-        # Post metadata comes first so data scripts can reference posts.
+        # Post and page metadata come first so data scripts can reference them.
         if blog_enabled:
             self._collect_post_metadata()
+        page_files = self._page_files()
+        self._collect_page_metadata(page_files)
         self._run_data_scripts()
         self._copy_static_files(skip_images)
         if not skip_images:
             self._process_images(skip_cache)
         if blog_enabled:
             self._render_posts()
-        self._render_pages()
+        self._render_pages(page_files)
         self._finalize()
 
     @contextmanager
@@ -168,6 +171,38 @@ class SiteGenerator:
         self._progress.step("Collecting post metadata")
         self.blog_processor.collect_post_metadata()
         self._progress.detail(f"{_count(len(self.blog_processor.posts), 'post')} found")
+
+    def _collect_page_metadata(self, page_files: list[Path]) -> None:
+        """Expose every content page to templates and scripts as ``all_pages``."""
+        self._progress.step("Collecting page metadata")
+        pages = [page for page in map(self._page_entry, page_files) if page is not None]
+        pages.sort(key=lambda page: page["url"])
+        self.variable_manager.set("all_pages", pages, "global")
+        self._progress.detail(f"{_count(len(pages), 'page')} found")
+
+    def _page_entry(self, file_path: Path) -> Optional[dict[str, Any]]:
+        """A page's front matter plus its title, url, section and source path.
+
+        The title defaults to the file name, or the folder name for an index
+        page. The section is the page's top-level folder under content/
+        ("" for pages at the root). None if the page can't be read.
+        """
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                front_matter, _body = self.template_processor.extract_front_matter(f.read())
+        except (OSError, UnicodeDecodeError) as e:
+            logger.error(f"Error reading page metadata from {file_path}: {e}")
+            return None
+        rel_source = file_path.relative_to(self.paths["content"])
+        output_path = page_output_path(rel_source, self.config.get_url_style())
+        default_title = rel_source.parent.name if rel_source.stem == "index" else rel_source.stem
+        return {
+            **front_matter,
+            "title": front_matter.get("title") or default_title,
+            "url": self.config.format_url(page_url(output_path)),
+            "section": rel_source.parts[0] if len(rel_source.parts) > 1 else "",
+            "source_path": str(file_path),
+        }
 
     def _run_data_scripts(self) -> None:
         script_count = len(self.variable_manager.data_script_paths())
@@ -216,8 +251,7 @@ class SiteGenerator:
         with self._timed_phase("blog"):
             self.blog_processor.process_all_posts()
 
-    def _render_pages(self) -> None:
-        page_files = self._page_files()
+    def _render_pages(self, page_files: list[Path]) -> None:
         self._progress.step(f"Rendering pages  ({_count(len(page_files), 'page')})")
         with self._timed_phase("pages"):
             for file_path in page_files:
@@ -288,25 +322,12 @@ class SiteGenerator:
         logger.debug(f"Processed page: {file_path} -> {output_path}")
 
     def _output_path_for(self, file_path: Path) -> Path:
-        """Where a content page is written, according to the URL style.
-
-        'html' keeps path/to/page.html; 'clean' and 'directory' both write
-        path/to/page/index.html (they differ only in how links are formatted).
-        """
-        rel_path = file_path.relative_to(self.paths["content"])
-        if file_path.suffix.lower() in MARKDOWN_EXTENSIONS:
-            rel_path = rel_path.with_suffix(".html")
-
-        url_style = self.config.get_url_style()
-        output_dir = Path(self.paths["output"])
-        if url_style == "html":
-            output_path = output_dir / rel_path
-        elif rel_path.stem == "index":
-            output_path = output_dir / rel_path.parent / "index.html"
-        else:
-            output_path = output_dir / rel_path.parent / rel_path.stem / "index.html"
-
-        logger.debug(f"Output path for {file_path}: {output_path} (URL style: {url_style})")
+        """Where a content page is written, according to the URL style."""
+        rel_source = file_path.relative_to(self.paths["content"])
+        output_path = Path(self.paths["output"]) / page_output_path(
+            rel_source, self.config.get_url_style()
+        )
+        logger.debug(f"Output path for {file_path}: {output_path}")
         return output_path
 
     def _record_output(self, output_path: Path, file_path: Path) -> None:

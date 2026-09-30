@@ -10,14 +10,12 @@ import json
 import logging
 import random
 from datetime import datetime, timedelta
-from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from sonne import __version__
-from sonne.core.config import Config
-from sonne.script_api import sonne_var
+from sonne.script_api import sonne_config, sonne_var
 
 logger = logging.getLogger("sonne")
 
@@ -82,8 +80,7 @@ def main():
 
 
 def weather_location():
-    site_config = Config(base_dir=str(Path(__file__).parent.parent))
-    return {**DEFAULT_LOCATION, **site_config.get("site", "weather", default={})}
+    return {**DEFAULT_LOCATION, **sonne_config("site", "weather", default={})}
 
 
 def fetch_open_meteo(location):

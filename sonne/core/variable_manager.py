@@ -31,7 +31,8 @@ DATA_FILE_PATTERNS = ["*.json", "*.yaml", "*.yml", "*.csv"]
 
 # Blog variables collected before load_variables() runs; they are carried
 # over each reload so data scripts can see posts.
-BLOG_VARIABLE_NAMES = ["all_blog_posts", "tags", "categories"]
+# Collected from content before data scripts run; carried into fresh scopes.
+CONTENT_VARIABLE_NAMES = ["all_blog_posts", "tags", "categories", "all_pages"]
 
 FALLBACK_SITE_TITLE = "My Sonne Site"
 
@@ -48,7 +49,7 @@ class VariableManager:
     # Derived state must never persist across builds: it is recomputed from
     # content every build, and stale copies were previously served when the
     # blog was later disabled or posts changed.
-    _NEVER_PERSIST = frozenset({"all_blog_posts", "tags", "categories", "build_time"})
+    _NEVER_PERSIST = frozenset({*CONTENT_VARIABLE_NAMES, "build_time"})
 
     def __init__(self, config, base_dir: str):
         """Initialize variable manager.
@@ -95,12 +96,12 @@ class VariableManager:
         data files, data scripts, then the footer script.
         """
         self._reset_script_state()
-        blog_variables = self._current_blog_variables()
-        self.variables = self._fresh_scopes(blog_variables)
+        content_variables = self._current_content_variables()
+        self.variables = self._fresh_scopes(content_variables)
         self._add_site_config()
         self._load_prior_variables()
-        # Saved variables may hold stale post data (old dates, old URLs).
-        self._restore_blog_variables(blog_variables)
+        # Saved variables may hold stale content data (old dates, old URLs).
+        self._restore_content_variables(content_variables)
         self._load_data_directory()
         self._run_data_scripts_logging_errors()
         self._run_footer_script()
@@ -113,12 +114,12 @@ class VariableManager:
         self.custom_filters = {}
         self.custom_globals = {}
 
-    def _current_blog_variables(self) -> dict[str, Any]:
-        """Blog variables already set by BlogProcessor.collect_post_metadata()."""
+    def _current_content_variables(self) -> dict[str, Any]:
+        """Content variables already collected (posts, taxonomies, pages)."""
         global_scope = self.variables.get("global", {})
-        return {name: global_scope[name] for name in BLOG_VARIABLE_NAMES if name in global_scope}
+        return {name: global_scope[name] for name in CONTENT_VARIABLE_NAMES if name in global_scope}
 
-    def _fresh_scopes(self, blog_variables: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    def _fresh_scopes(self, content_variables: dict[str, Any]) -> dict[str, dict[str, Any]]:
         now = datetime.now()
         site_scope = {
             "generator": "Sonne",
@@ -130,8 +131,8 @@ class VariableManager:
             "nav": [],
             "language": "en",
         }
-        site_scope.update(blog_variables)
-        return {"global": dict(blog_variables), "site": site_scope, "page": {}}
+        site_scope.update(content_variables)
+        return {"global": dict(content_variables), "site": site_scope, "page": {}}
 
     def _get_version(self) -> str:
         """Get the current version of Sonne (single-sourced in sonne/__init__.py)."""
@@ -188,9 +189,9 @@ class VariableManager:
         else:
             self._store_data(data, Path(self.variable_file).stem, "global")
 
-    def _restore_blog_variables(self, blog_variables: dict[str, Any]) -> None:
-        self.variables["global"].update(blog_variables)
-        self.variables["site"].update(blog_variables)
+    def _restore_content_variables(self, content_variables: dict[str, Any]) -> None:
+        self.variables["global"].update(content_variables)
+        self.variables["site"].update(content_variables)
 
     def _load_data_directory(self) -> None:
         if not self.data_dir:
