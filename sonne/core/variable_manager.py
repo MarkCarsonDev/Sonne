@@ -211,7 +211,7 @@ class VariableManager:
             return
         if _is_legacy_wrapped(data):
             for key, wrapped in data.items():
-                self._store_script_variable(key, wrapped.get("data"))
+                self._restore_saved_variable(key, wrapped.get("data"))
         else:
             self._store_data(data, Path(self.variable_file).stem, "global")
 
@@ -389,6 +389,18 @@ class VariableManager:
 
             self._image_processor = ImageProcessor(self.config, {})
         return self._image_processor
+
+    def _restore_saved_variable(self, name: str, value: Any) -> None:
+        """Bring back a variable saved by an earlier build (variables.preserve_prior).
+
+        It goes to data.<name> and, when flatten_data, the global scope only:
+        site config keeps precedence in site scope, and it does not count as
+        set by a script this build (so it is not re-saved unless a script
+        sets it again, and a script setting it still gets the B18 warning).
+        """
+        self.data[name] = value
+        if self.flatten_data:
+            self.variables["global"][name] = value
 
     def _store_script_variable(self, name: str, value: Any) -> None:
         """Store a script variable as data.<name>, and flat too when flatten_data."""

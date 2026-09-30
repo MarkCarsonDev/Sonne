@@ -135,3 +135,27 @@ def test_templates_read_the_namespace_in_a_real_build(site_factory, builder):
     )
     _, out = builder(site, config_overrides={("variables", "flatten_data"): False})
     assert "By Alice A." in (out / "probe" / "index.html").read_text(encoding="utf-8")
+
+
+class TestRestoredVariables:
+    """Variables restored from the variable file (preserve_prior) behave as before."""
+
+    def saved_site(self, tmp_path):
+        config = "site:\n  weather: sunny\nvariables:\n  preserve_prior: true\n"
+        site = make_site(tmp_path, config, scripts={"s.py": "sonne_var('weather', 'rain')\n"})
+        loaded(site).save()
+        return site
+
+    def test_restored_variable_does_not_replace_site_config(self, tmp_path):
+        site = self.saved_site(tmp_path)
+        (site / "scripts" / "s.py").unlink()
+        vm = loaded(site)
+        assert vm.variables["site"]["weather"] == "sunny"
+        assert data_namespace(vm)["weather"] == "rain"
+
+    def test_restored_variable_does_not_silence_the_shadowing_warning(self, tmp_path, caplog):
+        site = self.saved_site(tmp_path)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            loaded(site)
+        assert any("'weather' replaces the site variable" in r.getMessage() for r in caplog.records)
