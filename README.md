@@ -883,6 +883,22 @@ Elements hidden from assistive technology (`aria-hidden="true"`, `hidden`) are s
 - `error`: report them and fail the build (exit code 1) if there are any, apart from advisories. Use this in CI, or pass `sonne build --a11y-strict` for one build.
 - `off`: skip the checks.
 
+### What the starter templates give you
+
+The `blog`, `portfolio` and `minimal` templates (and the showcase example) start from an accessible baseline you can keep when you restyle them:
+
+- A "Skip to content" link as the first Tab stop, targeting `<main id="main">`.
+- Labelled navigation landmarks, with `aria-current="page"` on the current page's link.
+- One `<h1>` per page (the page title) and heading levels without gaps. Start your Markdown headings at `##`.
+- Link text that makes sense on its own ("Read more of *Post title*", "Previous post: *Title*"), with decorative arrows hidden from screen readers.
+- A visible two-tone focus ring, support for Windows High Contrast (forced colours) and for `prefers-reduced-motion`.
+- Text colours that meet AA contrast (4.5:1), in both themes where a template has a dark mode.
+- A `.visually-hidden` CSS class for text meant only for screen readers.
+- External links in blog posts announce that they open in a new tab; wide tables can be scrolled with the keyboard.
+- Portfolio: filter buttons announce how many projects are shown, the image gallery opens in a keyboard-accessible dialog, and form errors are announced and tied to their fields.
+
+A post's cover image takes its alt text from `cover_alt` in the front matter. It defaults to empty (decorative) because the post title sits right next to it. Set `cover_alt` when the image carries information the title doesn't.
+
 ### What the checks can't tell you
 
 A clean report means none of the checks above failed, not that the site is accessible. No program can decide these for you:

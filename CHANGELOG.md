@@ -34,6 +34,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   e.g. `sonne_config("site", "base_url")`, instead of locating and
   re-reading the config file themselves. Values include defaults, and the
   result is a copy, so scripts can't change the build's configuration.
+- Build-time accessibility checks for machine-detectable WCAG 2.2 failures:
+  images without alt text, links and buttons without an accessible name,
+  unlabelled form fields, a missing page language or title, duplicate ids,
+  positive `tabindex`, and skipped heading levels (advisory). Findings are
+  reported per page with the WCAG criterion and a fix hint; totals appear
+  in the build summary. New setting `build.accessibility_checks`: `warn`
+  (default), `error` (fail the build, for CI) or `off`;
+  `sonne build --a11y-strict` is `error` for one build.
+- The blog, portfolio and minimal starter templates and the showcase
+  example meet a WCAG 2.2 AA baseline: skip link, labelled landmarks,
+  `aria-current`, one `<h1>` per page, meaningful link text, visible focus,
+  forced-colours and reduced-motion support, AA text contrast, and
+  keyboard-accessible menus, filters, gallery and form errors. Cover images
+  take alt text from `cover_alt` front matter.
+- README: an Accessibility section (what Sonne checks, what the starter
+  templates provide, what no checker can decide, how to test by hand).
 - Template helpers `blog_url()`, `tag_url()`, `category_url()` and
   `archive_url()` for linking to blog pages. They follow `blog.directory`
   and `url_style` and slugify terms like the pages themselves. The bundled
@@ -193,6 +209,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paint, and the JS no longer polls the nonexistent `/api/battery-status`.
 
 ### Fixed
+- `portfolio` starter: the blog index and every blog post were blank (the
+  templates were empty files), posts lived at `/blog/blog/<slug>/`, the
+  category filter never showed any category, and four listed projects
+  linked to pages that don't exist (B53).
+- Showcase example: the tags index was blank (empty template), and the
+  contact form's `email` id collided with a heading's id, so its label was
+  ambiguous (B54). The dark-mode button now works (its script was empty),
+  and the non-functional menu button is gone.
+- `portfolio` starter: footer headings were invisible (same colour as the
+  footer background), and the gallery lightbox added a new Escape listener
+  every time it opened.
 - Dithering toggles appear only on images the build actually dithered.
   `dithering.js` guessed an `_original` URL for every same-origin image, so
   images Sonne never dithered (e.g. a plain `logo.png`) got a toggle that
