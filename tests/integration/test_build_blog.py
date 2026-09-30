@@ -193,7 +193,6 @@ class TestFeedUrls:
 
 
 class TestDraftsAndPaths:
-    @pytest.mark.xfail(strict=True, reason="B35: _drafts matched anywhere in the absolute path")
     def test_site_inside_a_drafts_folder_publishes_posts(self, site_factory, builder):
         site = site_factory("blog", overlay="blog_site", name="_drafts/site")
 

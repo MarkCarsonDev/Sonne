@@ -178,8 +178,11 @@ class BlogProcessor:
 
     def _collect_posts(self) -> None:
         """Parse every post under the blog content directory."""
-        for file_path in Path(self.blog_content_dir).glob("**/*.md"):
-            if "_drafts" in file_path.parts and not self._include_drafts:
+        blog_root = Path(self.blog_content_dir)
+        for file_path in blog_root.glob("**/*.md"):
+            # Relative parts only: a site stored under some folder named
+            # _drafts must still publish its posts.
+            if "_drafts" in file_path.relative_to(blog_root).parts and not self._include_drafts:
                 continue
             try:
                 post = self._parse_post(file_path)
