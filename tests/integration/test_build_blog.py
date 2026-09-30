@@ -113,3 +113,8 @@ class TestPostImagesInCode:
     def test_image_syntax_in_code_is_ignored(self, code_sample_build):
         _, messages = code_sample_build
         assert not any("Image not found" in message for message in messages)
+
+
+def test_build_report_counts_rendered_posts(blog_build):
+    _, generator, _ = blog_build
+    assert generator.stats.blog_posts_processed == len(generator.blog_processor.posts) > 0

@@ -396,6 +396,8 @@ class BlogProcessor:
         )
         output_path = self._post_output_path(post)
         _write_page(output_path, rendered)
+        if self.stats:
+            self.stats.blog_posts_processed += 1
         logger.debug(f"Rendered blog post: {post['title']} -> {output_path}")
 
     def _render_post_content_jinja(self, post: Dict[str, Any]) -> None:

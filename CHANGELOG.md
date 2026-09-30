@@ -66,7 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sonne build --perf` no longer reports "Build failed" (exit 1) when
   stdout is a non-UTF-8 pipe or redirect (cp1252 on Windows); characters
   that can't be encoded print as `?`.
-- The build report counts rendered pages ("Pages: Processed" was always 0).
+- The build report counts rendered pages ("Pages: Processed" was always 0)
+  and rendered blog posts (the "Blog posts" line never appeared).
 - `sonne build -p <site>` reports the site's own output directory; the
   "Build complete" and `--clean` messages resolved `paths.output` against
   the current directory.
