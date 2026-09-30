@@ -18,11 +18,11 @@
         {% if post[taxonomy] %}
         <div class="blog-tags">
             {% for term in post[taxonomy] %}
-            <a href="{{ tag_url(term) if taxonomy == 'tags' else category_url(term) }}" class="tag{% if term in (page.tag, page.category) %} active{% endif %}">{{ term }}</a>
+            <a href="{{ tag_url(term) if taxonomy == 'tags' else category_url(term) }}" class="tag{% if term in (page.tag, page.category) %} active" aria-current="page{% endif %}">{{ term }}</a>
             {% endfor %}
         </div>
         {% endif %}
 
-        <a href="{{ post.full_url }}" class="btn">Read More</a>
+        <a href="{{ post.full_url }}" class="btn">Read More<span class="sr-only">: {{ post.title }}</span></a>
     </footer>
 </article>

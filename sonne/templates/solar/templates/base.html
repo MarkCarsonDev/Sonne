@@ -1,22 +1,24 @@
 <!DOCTYPE html>
-<html lang="{{ site.language }}" data-theme="dark">
+<html lang="{{ site.language }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% if page.title %}{{ page.title }} - {% endif %}{{ site.title }}</title>
     <meta name="description" content="{{ page.description | default(site.description) }}">
 
-    <!-- Apply the saved theme before first paint so pages don't flash dark-then-light -->
+    <!-- Apply a saved theme before first paint. With none saved, the page
+         follows the visitor's system setting (prefers-color-scheme). -->
     <script>
         try {
             var savedTheme = localStorage.getItem("solarTheme");
             if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
         } catch (e) {}
     </script>
-    
+
     <!-- Critical CSS inline for performance -->
     <style>
         /* Base styles */
+        /* Colours meet WCAG AA in both themes: text 4.5:1, UI parts 3:1. */
         :root {
             --bg-color: #121212;
             --text-color: #b0b0b0;
@@ -24,34 +26,52 @@
             --link-color: #7eb77f;
             --link-hover: #90c991;
             --border-color: #333333;
-            --accent-color: #5e8c5f;
+            --accent-color: #7eb77f;     /* meter fill, active chip border */
+            --button-bg: #2e7b32;        /* white text on it: 5.4:1 */
+            --button-bg-hover: #256628;
+            --focus-color: #ffd54f;
             --card-bg: #1c1c1c;
             --font-size: 14px;
         }
-        
-        /* Light theme (optional) */
+
+        /* Light theme: chosen with the toggle, or by the system when nothing is saved */
         [data-theme="light"] {
             --bg-color: #f9f9f9;
             --text-color: #555555;
             --heading-color: #333333;
             --link-color: #2e7b32;
-            --link-hover: #3a9c3f;
+            --link-hover: #256628;
             --border-color: #dddddd;
-            --accent-color: #4caf50;
+            --accent-color: #2e7b32;
+            --focus-color: #1a4fbf;
             --card-bg: #ffffff;
         }
-        
+
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme="dark"]) {
+                --bg-color: #f9f9f9;
+                --text-color: #555555;
+                --heading-color: #333333;
+                --link-color: #2e7b32;
+                --link-hover: #256628;
+                --border-color: #dddddd;
+                --accent-color: #2e7b32;
+                --focus-color: #1a4fbf;
+                --card-bg: #ffffff;
+            }
+        }
+
         /* Higher contrast option */
         [data-contrast="high"] {
             --text-color: #e0e0e0;
             --heading-color: #ffffff;
         }
-        
+
         /* Base styling */
         html {
             font-size: var(--font-size);
         }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
@@ -61,7 +81,7 @@
             line-height: 1.5;
             transition: background-color 0.3s ease, color 0.3s ease;
         }
-        
+
         /* Main layout */
         .container {
             width: 90%;
@@ -69,36 +89,68 @@
             margin: 0 auto;
             padding: 0 1rem;
         }
-        
+
         .site-header {
             padding: 1rem 0;
             border-bottom: 1px solid var(--border-color);
             margin-bottom: 2rem;
         }
-        
+
         .site-footer {
             border-top: 1px solid var(--border-color);
             margin-top: 2rem;
             padding: 1rem 0;
             font-size: 0.9rem;
         }
-        
+
         /* Typography */
         h1, h2, h3, h4, h5, h6 {
             color: var(--heading-color);
             margin-top: 1.5rem;
             margin-bottom: 1rem;
         }
-        
+
         a {
             color: var(--link-color);
             text-decoration: none;
         }
-        
+
         a:hover {
             color: var(--link-hover);
         }
-        
+
+        /* Links inside text are underlined, not told apart by colour alone */
+        :is(p, li, td, dd, blockquote, figcaption) a:not(.btn):not(.tag) {
+            text-decoration: underline;
+            text-underline-offset: 0.15em;
+        }
+
+        /* Nav items are links by position; only the current page is underlined */
+        .site-nav li a:not([aria-current="page"]) {
+            text-decoration: none;
+        }
+
+        /* Keyboard focus is always visible */
+        :focus-visible {
+            outline: 3px solid var(--focus-color);
+            outline-offset: 2px;
+        }
+
+        .skip-link {
+            position: absolute;
+            left: 1rem;
+            top: -10rem;
+            z-index: 100;
+            padding: 0.5rem 1rem;
+            background: var(--bg-color);
+            color: var(--link-color);
+            border: 2px solid var(--focus-color);
+        }
+
+        .skip-link:focus {
+            top: 1rem;
+        }
+
         .header-content {
             display: flex;
             justify-content: space-between;
@@ -118,15 +170,17 @@
 
         .site-nav a[aria-current="page"] {
             color: var(--heading-color);
+            text-decoration: underline;
+            text-underline-offset: 0.3em;
         }
-        
+
         .site-title {
             font-size: 1.4rem;
             font-weight: 600;
             color: var(--heading-color);
             text-decoration: none;
         }
-        
+
         /* Status indicators */
         .status-bar {
             display: flex;
@@ -137,13 +191,13 @@
             margin-bottom: 2rem;
             font-size: 0.85rem;
         }
-        
+
         .battery-status {
             display: flex;
             align-items: center;
             gap: 0.5rem;
         }
-        
+
         .battery-level {
             width: 2.5rem;
             height: 1rem;
@@ -151,30 +205,38 @@
             border-radius: 2px;
             position: relative;
         }
-        
+
         .battery-fill {
             height: 100%;
             background-color: var(--accent-color);
             width: 0%;
         }
-        
+
+        @media (forced-colors: active) {
+            .battery-fill {
+                forced-color-adjust: none;
+                background-color: CanvasText;
+            }
+        }
+
         .weather-status {
             display: flex;
             align-items: center;
             gap: 0.5rem;
         }
-        
+
         /* Dark mode toggle button */
         .theme-toggle {
             background: none;
-            border: none;
+            border: 1px solid transparent; /* drawn in forced-colors modes */
             cursor: pointer;
             color: var(--text-color);
-            padding: 0.25rem 0.5rem;
+            min-width: 2.25rem;
+            min-height: 2.25rem;
             border-radius: 4px;
             font-size: 0.85rem;
         }
-        
+
         /* Helper classes */
         .sr-only {
             position: absolute;
@@ -187,26 +249,35 @@
             white-space: nowrap;
             border-width: 0;
         }
-        
+
         .content-wrapper {
             min-height: 70vh;
         }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                transition: none !important;
+                animation: none !important;
+                scroll-behavior: auto !important;
+            }
+        }
     </style>
-    
+
     <!-- Non-critical CSS -->
     <link rel="stylesheet" href="/css/minimal.css" media="print" onload="this.media='all'">
     {% if dithering_enabled %}<link rel="stylesheet" href="/css/dithering.css">{% endif %}
-    
+
     <!-- Preload link -->
     <link rel="preload" href="/js/minimal.js" as="script">
 </head>
 <body data-contrast="low">
+    <a class="skip-link" href="#main-content">Skip to content</a>
     <header class="site-header">
         <div class="container">
             <div class="header-content">
                 <a href="/" class="site-title">{{ site.title }}</a>
-                
-                <nav class="site-nav">
+
+                <nav class="site-nav" aria-label="Main">
                     <ul>
                         {% for item in site.nav %}
                         <li><a href="{{ item.url }}"{% if page.url == item.url %} aria-current="page"{% endif %}>{{ item.text }}</a></li>
@@ -214,38 +285,41 @@
                     </ul>
                 </nav>
 
-                <button class="theme-toggle" aria-label="Toggle dark/light mode">☀️</button>
+                <button type="button" class="theme-toggle" aria-label="Dark mode" aria-pressed="false">
+                    <span class="theme-toggle-icon" aria-hidden="true">☀️</span>
+                </button>
             </div>
         </div>
     </header>
-    
+
     <div class="container">
         {% if battery or current_weather %}
-        <div class="status-bar">
+        {# The text carries the meaning; the meter and the icons only illustrate it. #}
+        <aside class="status-bar" aria-label="Server power and weather">
             {% if battery %}
             <div class="battery-status">
-                <span class="battery-icon">⚡</span>
-                <div class="battery-level">
+                <span class="battery-icon" aria-hidden="true">⚡</span>
+                <div class="battery-level" aria-hidden="true">
                     <div class="battery-fill" style="width: {{ battery.percentage }}%;"></div>
                 </div>
-                <span>{{ battery.percentage }}%{% if battery.charging %} (Charging){% endif %}</span>
+                <span><span class="sr-only">Battery </span>{{ battery.percentage }}%{% if battery.charging %} (Charging){% endif %}</span>
             </div>
             {% endif %}
-            
+
             {% if current_weather %}
             <div class="weather-status">
-                <span class="weather-icon">{{ current_weather.icon_text }}</span>
+                <span class="weather-icon" role="img" aria-label="{{ current_weather.description }}" title="{{ current_weather.description }}">{{ current_weather.icon_text }}</span>
                 <span>{{ current_weather.temperature }}°{{ current_weather.unit_symbol }} | {{ current_weather.location }}</span>
             </div>
             {% endif %}
-        </div>
+        </aside>
         {% endif %}
-        
-        <div class="content-wrapper">
+
+        <main id="main-content" class="content-wrapper" tabindex="-1">
             {% block content %}{% endblock %}
-        </div>
+        </main>
     </div>
-    
+
     <footer class="site-footer">
         <div class="container">
             <div class="footer-content">
@@ -254,7 +328,7 @@
             </div>
         </div>
     </footer>
-    
+
     <!-- Deferred JavaScript -->
     <script src="/js/minimal.js" defer></script>
     {% if dithering_enabled %}<script src="/js/dithering.js" defer></script>{% endif %}

@@ -103,12 +103,28 @@ figcaption {
     margin-bottom: 1rem;
 }
 
+.blog-meta a {
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+}
+
+/* Links in content lists sit at least 24px apart (WCAG 2.5.8 target spacing) */
+.blog-content li,
+.page-content li,
+.project-content li {
+    margin-bottom: 0.35rem;
+}
+
 .blog-tags {
     margin-top: 1rem;
 }
 
+/* Chips and page links are at least 24px tall (WCAG 2.5.8 target size) */
 .tag {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.75rem;
+    box-sizing: border-box;
     background-color: var(--card-bg);
     border: 1px solid var(--border-color);
     padding: 0.25rem 0.5rem;
@@ -118,9 +134,11 @@ figcaption {
     margin-bottom: 0.5rem;
 }
 
+/* The current term: a thicker border and bold text, not colour alone */
 .tag.active {
-    border-color: var(--accent-color);
+    border: 2px solid var(--accent-color);
     color: var(--heading-color);
+    font-weight: 600;
 }
 
 .pagination {
@@ -131,15 +149,19 @@ figcaption {
 }
 
 .pagination-item {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.75rem;
+    box-sizing: border-box;
     padding: 0.25rem 0.75rem;
     border: 1px solid var(--border-color);
     border-radius: 4px;
 }
 
 .pagination-item.active {
-    background-color: var(--accent-color);
+    background-color: var(--button-bg);
     color: white;
-    border-color: var(--accent-color);
+    border-color: var(--button-bg);
 }
 
 /* Project styles */
@@ -186,7 +208,9 @@ figcaption {
 .btn {
     display: inline-block;
     padding: 0.5rem 1rem;
-    background-color: var(--accent-color);
+    /* Invisible normally; forced-colors modes draw it, so the button keeps its shape */
+    border: 1px solid transparent;
+    background-color: var(--button-bg);
     color: white;
     border-radius: 4px;
     text-decoration: none;
@@ -194,7 +218,7 @@ figcaption {
 }
 
 .btn:hover {
-    background-color: var(--link-hover);
+    background-color: var(--button-bg-hover);
     color: white;
     text-decoration: none;
 }
