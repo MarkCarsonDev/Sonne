@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import jinja2
 import markdown
@@ -40,7 +40,42 @@ TAXONOMY_PAGE_TEMPLATES = [
     ("categories_", "categories", "list_template", "categories.html"),
     ("category_", "categories", "template", "category.html"),
 ]
-GENERATED_PAGE_PREFIXES = ("tag_", "tags_", "category_", "categories_")
+GENERATED_PAGE_PREFIXES = tuple(prefix for prefix, *_ in TAXONOMY_PAGE_TEMPLATES)
+
+TEMPLATE_EXTENSIONS = (".html", ".htm", ".xml", ".txt", ".j2", ".jinja2")
+
+
+def _load_yaml_front_matter(text: str) -> Dict[str, Any]:
+    return yaml.safe_load(text) or {}
+
+
+# (syntax name, pattern with (front matter, body) groups, parser)
+FRONT_MATTER_FORMATS = [
+    ("YAML", re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL), _load_yaml_front_matter),
+    ("JSON", re.compile(r"^;;;\s*\n(.*?)\n;;;\s*\n(.*)$", re.DOTALL), json.loads),
+]
+
+# Images under static/images/ are served from /images/. Rewrites apply to
+# Markdown images, HTML <img> tags, and "url:" values in YAML/JSON blocks.
+STATIC_IMAGE_REWRITES = [
+    (re.compile(r"!\[(.*?)\]\(/static/images/(.*?)\)"), r"![\1](/images/\2)"),
+    (re.compile(r'<img([^>]*?)src="/static/images/(.*?)"([^>]*?)>'), r'<img\1src="/images/\2"\3>'),
+    (re.compile(r"(url:\s*)/static/images/(.*?)(\s)"), r"\1/images/\2\3"),
+    (re.compile(r'("url":\s*")/static/images/(.*?)(")'), r"\1/images/\2\3"),
+]
+
+# Only images next to a post get dithered variants from the blog pipeline.
+NON_DITHERABLE_SRC_PREFIXES = ("http://", "https://", "data:", "/")
+
+# The toggle button's quincunx dither icon: (x, y) of each square cell.
+DITHER_ICON_CELLS = [
+    ("13.51", "13.58"),
+    ("37.93", "37.86"),
+    ("62.21", "13.58"),
+    ("13.51", "62.14"),
+    ("62.21", "62.14"),
+]
+DITHER_ICON_CELL_SIZE = "24.28"
 
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 
@@ -253,57 +288,41 @@ class TemplateProcessor:
             """)
 
     def validate_templates(self) -> List[str]:
-        """Validate all templates for syntax errors.
+        """Validate all site templates for syntax and render errors.
+
+        Each template is loaded (syntax check) and rendered with an empty
+        context. Undefined variables are expected with that context and are
+        not reported.
 
         Returns:
             List of error messages. Empty list means all templates are valid.
         """
-        errors = []
         templates_dir = self.paths.get("templates")
-
         if not templates_dir or not os.path.exists(templates_dir):
             return ["Templates directory not found"]
+        errors = [self._template_error(name) for name in _template_names(templates_dir)]
+        return [error for error in errors if error]
 
-        # Find all template files
-        template_extensions = [".html", ".htm", ".xml", ".txt", ".j2", ".jinja2"]
-        template_files = []
-
-        for root, dirs, files in os.walk(templates_dir):
-            for file in files:
-                if any(file.endswith(ext) for ext in template_extensions):
-                    rel_path = os.path.relpath(os.path.join(root, file), templates_dir)
-                    # Jinja template names always use forward slashes; the
-                    # OS separator made every subdirectory template appear
-                    # broken on Windows.
-                    template_files.append(rel_path.replace(os.sep, "/"))
-
-        # Validate each template
-        for template_path in template_files:
-            try:
-                # Try to load the template (this checks syntax)
-                template = self.jinja_env.get_template(template_path)
-
-                # Try a basic render with dummy data to catch more issues
-                try:
-                    # Provide minimal dummy context
-                    template.render(site={}, page={}, content="")
-                except UndefinedError:
-                    # UndefinedError is expected - templates use variables we haven't provided
-                    # We're just checking for syntax errors
-                    pass
-                except Exception as e:
-                    # Other errors during rendering (not syntax errors)
-                    errors.append(f"{template_path}: Render error - {str(e)}")
-
-            except TemplateSyntaxError as e:
-                errors.append(f"{template_path}:{e.lineno}: Syntax error - {e.message}")
-            except Exception as e:
-                errors.append(f"{template_path}: {str(e)}")
-
-        return errors
+    def _template_error(self, template_name: str) -> Optional[str]:
+        """Error message for one template, or None if it loads and renders."""
+        try:
+            template = self.jinja_env.get_template(template_name)
+        except TemplateSyntaxError as e:
+            return f"{template_name}:{e.lineno}: Syntax error - {e.message}"
+        except Exception as e:
+            return f"{template_name}: {str(e)}"
+        try:
+            template.render(site={}, page={}, content="")
+        except UndefinedError as e:
+            logger.debug(f"{template_name}: undefined variable with empty context ({e})")
+        except Exception as e:
+            return f"{template_name}: Render error - {str(e)}"
+        return None
 
     def extract_front_matter(self, content: str) -> Tuple[Dict[str, Any], str]:
-        """Extract front matter from content.
+        """Extract YAML (``---``) or JSON (``;;;``) front matter from content.
+
+        Front matter that fails to parse is logged and treated as absent.
 
         Args:
             content: Content string possibly containing front matter.
@@ -311,31 +330,14 @@ class TemplateProcessor:
         Returns:
             Tuple of (front_matter, content_without_front_matter).
         """
-        # Check for YAML front matter (---...---)
-        yaml_pattern = r"^---\s*\n(.*?)\n---\s*\n(.*)$"
-        yaml_match = re.match(yaml_pattern, content, re.DOTALL)
-
-        if yaml_match:
+        for syntax, pattern, parse in FRONT_MATTER_FORMATS:
+            match = pattern.match(content)
+            if not match:
+                continue
             try:
-                front_matter = yaml.safe_load(yaml_match.group(1))
-                content_without_front_matter = yaml_match.group(2)
-                return front_matter or {}, content_without_front_matter
+                return parse(match.group(1)), match.group(2)
             except Exception as e:
-                logger.error(f"Error parsing YAML front matter: {e}")
-
-        # Check for JSON front matter (;;;...;;;)
-        json_pattern = r"^;;;\s*\n(.*?)\n;;;\s*\n(.*)$"
-        json_match = re.match(json_pattern, content, re.DOTALL)
-
-        if json_match:
-            try:
-                front_matter = json.loads(json_match.group(1))
-                content_without_front_matter = json_match.group(2)
-                return front_matter, content_without_front_matter
-            except Exception as e:
-                logger.error(f"Error parsing JSON front matter: {e}")
-
-        # No front matter found
+                logger.error(f"Error parsing {syntax} front matter: {e}")
         return {}, content
 
     # Legacy substitution/embedded-python markers. These syntaxes were
@@ -485,7 +487,7 @@ class TemplateProcessor:
         return front_matter, html_content
 
     def _replace_image_paths(self, content: str) -> str:
-        """Replace image paths from /static/images/ to /images/.
+        """Rewrite /static/images/ references to /images/, where they are served.
 
         Args:
             content: Markdown content.
@@ -493,31 +495,12 @@ class TemplateProcessor:
         Returns:
             Content with replaced image paths.
         """
-        # Replace in markdown image syntax: ![alt](/static/images/img.jpg) -> ![alt](/images/img.jpg)
-        pattern = r"!\[(.*?)\]\(/static/images/(.*?)\)"
-        replacement = r"![\1](/images/\2)"
-        content = re.sub(pattern, replacement, content)
-
-        # Also replace in HTML <img> tags
-        pattern = r'<img([^>]*?)src="/static/images/(.*?)"([^>]*?)>'
-        replacement = r'<img\1src="/images/\2"\3>'
-        content = re.sub(pattern, replacement, content)
-
-        # Also replace image paths in the front matter content (for YAML and JSON)
-        # Handle URLs in the format: "url: /static/images/image.jpg"
-        pattern = r"(url:\s*)/static/images/(.*?)(\s)"
-        replacement = r"\1/images/\2\3"
-        content = re.sub(pattern, replacement, content)
-
-        # Handle URLs in the format: "url": "/static/images/image.jpg"
-        pattern = r'("url":\s*")/static/images/(.*?)(")'
-        replacement = r"\1/images/\2\3"
-        content = re.sub(pattern, replacement, content)
-
+        for pattern, replacement in STATIC_IMAGE_REWRITES:
+            content = pattern.sub(replacement, content)
         return content
 
     def _process_image_tags(self, html_content: str) -> str:
-        """Process image tags to add dithering support with captions and original image button.
+        """Wrap post-local images in a dithered figure with caption and toggle button.
 
         Args:
             html_content: HTML content with image tags.
@@ -525,118 +508,13 @@ class TemplateProcessor:
         Returns:
             HTML content with processed image tags.
         """
-        # Use html.parser explicitly for consistency and to avoid warnings
         soup = BeautifulSoup(html_content, "html.parser")
-
-        # Find all img tags
         img_tags = soup.find_all("img")
         logger.debug(f"Found {len(img_tags)} image tags to process for dithering")
-
-        for idx, img in enumerate(img_tags):
-            src = img.get("src", "")
-            # Skip SVGs, external images, and absolute (static-pipeline)
-            # references — the blog pipeline only creates dithered variants
-            # for images that live next to the post.
-            if src.endswith(".svg") or src.startswith(("http://", "https://", "data:", "/")):
-                continue
-
-            # Get attributes
-            alt = img.get("alt", "")
-            title = img.get("title", "")
-            loading = img.get("loading", "lazy")
-            dithered_kb = img.get("data-dithered-size", "")
-            original_kb = img.get("data-original-size", "")
-            size_reduction = img.get("data-size-reduction", "")
-
-            # Build dithered and original paths
-            path_parts = src.split("/")
-            filename = path_parts[-1]
-            dir_parts = path_parts[:-1]
-            stem = filename.rsplit(".", 1)[0] if "." in filename else filename
-            dithered_src = "/".join(dir_parts + ["dithered", stem + ".png"])
-            original_src = src
-
-            # Figure container
-            figure = soup.new_tag("figure")
-            figure["class"] = "dithered-image-figure"
-            figure["data-image-id"] = f"img-{idx}"
-
-            img_wrapper = soup.new_tag("div")
-            img_wrapper["class"] = "image-wrapper"
-
-            img["class"] = "dithered-image active"
-            img["data-dithered-src"] = dithered_src
-            img["data-original-src"] = original_src
-            img["data-image-id"] = f"img-{idx}"
-            img["loading"] = loading
-            img["src"] = dithered_src
-
-            # Figcaption: "title · Xk (−Y%)" + toggle button
-            figcaption = soup.new_tag("figcaption")
-
-            # Strip transform directives from title (format: "Display title | crop=16:9 rotate=90")
-            display_title = title.split("|")[0].strip() if title and "|" in title else title
-            caption_label = display_title or alt
-            if caption_label:
-                caption_text = soup.new_tag("span")
-                caption_text["class"] = "caption-text"
-                if dithered_kb and size_reduction:
-                    caption_text.string = f"{caption_label} · {dithered_kb} (−{size_reduction}%)"
-                else:
-                    caption_text.string = caption_label
-                figcaption.append(caption_text)
-
-            button = soup.new_tag("button")
-            button["class"] = "request-original-btn"
-            button["data-image-id"] = f"img-{idx}"
-            button["aria-label"] = "Toggle between dithered and original image"
-            if original_kb:
-                button["data-original-size"] = original_kb
-            # Dithering pattern icon (4×4 bayer halftone) + text
-            button_text = soup.new_tag("span")
-            button_text["class"] = "btn-text"
-            button_text.string = "view original"
-            # LTM-style quincunx dither icon (4 corners + center)
-            dither_icon_svg = soup.new_tag(
-                "svg",
-                attrs={
-                    "class": "dither-icon-svg",
-                    "xmlns": "http://www.w3.org/2000/svg",
-                    "viewBox": "0 0 100 100",
-                    "aria-hidden": "true",
-                },
-            )
-            for rx, ry in [
-                ("13.51", "13.58"),
-                ("37.93", "37.86"),
-                ("62.21", "13.58"),
-                ("13.51", "62.14"),
-                ("62.21", "62.14"),
-            ]:
-                rect = soup.new_tag(
-                    "rect",
-                    attrs={
-                        "x": rx,
-                        "y": ry,
-                        "width": "24.28",
-                        "height": "24.28",
-                        "fill": "currentColor",
-                    },
-                )
-                dither_icon_svg.append(rect)
-            button.append(dither_icon_svg)
-            button.append(button_text)
-            figcaption.append(button)
-
-            # Build structure: anchor the figure at the img's position while
-            # the img is still in the tree, then move the img inside it.
-            # (The previous index-based reinsertion misplaced images when a
-            # paragraph contained more than one.)
-            img.insert_before(figure)
-            img_wrapper.append(img.extract())
-            figure.append(img_wrapper)
-            figure.append(figcaption)
-
+        # Ids number every <img>, including skipped ones, so they stay stable.
+        for index, img in enumerate(img_tags):
+            if _has_dithered_variant(img.get("src", "")):
+                _wrap_in_dither_figure(soup, img, f"img-{index}")
         return str(soup)
 
     def process_page(
@@ -920,3 +798,115 @@ def _error_page(error: Exception, html_content: str) -> str:
         "<html><body><h1>Error rendering template</h1>"
         f"<p>{error}</p><div>{html_content}</div></body></html>"
     )
+
+
+def _template_names(templates_dir: str) -> List[str]:
+    """Jinja names (always "/"-separated) of every template file under a directory."""
+    names = []
+    for root, _dirs, files in os.walk(templates_dir):
+        for file in files:
+            if file.endswith(TEMPLATE_EXTENSIONS):
+                rel_path = os.path.relpath(os.path.join(root, file), templates_dir)
+                names.append(rel_path.replace(os.sep, "/"))
+    return names
+
+
+def _has_dithered_variant(src: str) -> bool:
+    """Whether the blog pipeline generates a dithered copy of this image."""
+    return not (src.endswith(".svg") or src.startswith(NON_DITHERABLE_SRC_PREFIXES))
+
+
+def _dithered_src(src: str) -> str:
+    """Blog-pipeline dithered path of an image: ``<dir>/dithered/<stem>.png``."""
+    *dir_parts, filename = src.split("/")
+    stem = filename.rsplit(".", 1)[0]
+    return "/".join(dir_parts + ["dithered", stem + ".png"])
+
+
+def _wrap_in_dither_figure(soup: BeautifulSoup, img, image_id: str) -> None:
+    """Replace ``img`` in the tree with a figure showing its dithered variant."""
+    original_src = img.get("src", "")
+    dithered_src = _dithered_src(original_src)
+    figcaption = _dither_figcaption(soup, img, image_id)
+
+    img["class"] = "dithered-image active"
+    img["data-dithered-src"] = dithered_src
+    img["data-original-src"] = original_src
+    img["data-image-id"] = image_id
+    img["loading"] = img.get("loading", "lazy")
+    img["src"] = dithered_src
+
+    figure = soup.new_tag("figure", attrs={"class": "dithered-image-figure"})
+    figure["data-image-id"] = image_id
+    img_wrapper = soup.new_tag("div", attrs={"class": "image-wrapper"})
+    # Anchor the figure at the img's position while the img is still in the
+    # tree, then move the img inside it.
+    img.insert_before(figure)
+    img_wrapper.append(img.extract())
+    figure.append(img_wrapper)
+    figure.append(figcaption)
+
+
+def _dither_figcaption(soup: BeautifulSoup, img, image_id: str):
+    """Caption ("title · 12k (−80%)") plus the dithered/original toggle button."""
+    figcaption = soup.new_tag("figcaption")
+    caption_text = _caption_text(img)
+    if caption_text:
+        span = soup.new_tag("span", attrs={"class": "caption-text"})
+        span.string = caption_text
+        figcaption.append(span)
+    figcaption.append(_toggle_button(soup, image_id, img.get("data-original-size", "")))
+    return figcaption
+
+
+def _caption_text(img) -> str:
+    """Caption from the title (or alt), with the size saving when known.
+
+    Titles may carry transform directives after a pipe
+    ("Display title | crop=16:9 rotate=90"); only the display part is shown.
+    """
+    title = img.get("title", "")
+    display_title = title.split("|")[0].strip() if title and "|" in title else title
+    label = display_title or img.get("alt", "")
+    dithered_size = img.get("data-dithered-size", "")
+    size_reduction = img.get("data-size-reduction", "")
+    if label and dithered_size and size_reduction:
+        return f"{label} · {dithered_size} (−{size_reduction}%)"
+    return label
+
+
+def _toggle_button(soup: BeautifulSoup, image_id: str, original_size: str):
+    """Button that swaps between the dithered and the original image."""
+    button = soup.new_tag("button", attrs={"class": "request-original-btn"})
+    button["data-image-id"] = image_id
+    button["aria-label"] = "Toggle between dithered and original image"
+    if original_size:
+        button["data-original-size"] = original_size
+    button.append(_dither_icon(soup))
+    label = soup.new_tag("span", attrs={"class": "btn-text"})
+    label.string = "view original"
+    button.append(label)
+    return button
+
+
+def _dither_icon(soup: BeautifulSoup):
+    """Inline SVG of the quincunx dither pattern (4 corners + center)."""
+    icon = soup.new_tag(
+        "svg",
+        attrs={
+            "class": "dither-icon-svg",
+            "xmlns": "http://www.w3.org/2000/svg",
+            "viewBox": "0 0 100 100",
+            "aria-hidden": "true",
+        },
+    )
+    for x, y in DITHER_ICON_CELLS:
+        cell = {
+            "x": x,
+            "y": y,
+            "width": DITHER_ICON_CELL_SIZE,
+            "height": DITHER_ICON_CELL_SIZE,
+            "fill": "currentColor",
+        }
+        icon.append(soup.new_tag("rect", attrs=cell))
+    return icon
