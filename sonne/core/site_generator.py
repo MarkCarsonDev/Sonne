@@ -124,6 +124,7 @@ class SiteGenerator:
         """Start a fresh BuildStatistics and share it with the processors."""
         self.stats = BuildStatistics()
         self.image_processor.stats = self.stats
+        self.template_processor.stats = self.stats
         self.blog_processor.stats = self.stats
         self.variable_manager.stats = self.stats
 
