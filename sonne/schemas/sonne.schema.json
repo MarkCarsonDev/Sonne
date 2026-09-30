@@ -36,8 +36,8 @@
         },
         "language": {
           "type": "string",
-          "description": "Site language code (e.g., en, de, fr)",
-          "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+          "description": "Site language tag (BCP 47, e.g. en, en-US, zh-Hans, es-419)",
+          "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$",
           "default": "en"
         },
         "nav": {
@@ -76,8 +76,7 @@
           "description": "Weather/location settings consumed by the solar template's data scripts",
           "additionalProperties": true
         }
-      },
-      "required": ["title", "base_url"]
+      }
     },
     "paths": {
       "type": "object",
@@ -118,8 +117,7 @@
           "description": "Data scripts directory",
           "default": "scripts"
         }
-      },
-      "required": ["content", "output", "templates"]
+      }
     },
     "blog": {
       "type": "object",
@@ -404,12 +402,12 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Enable CSP header generation",
+              "description": "Currently has no effect: the policy is computed by Config.get_csp_meta_tag() but not yet added to generated pages",
               "default": false
             },
             "directives": {
               "type": "object",
-              "description": "CSP directives",
+              "description": "CSP directives, each a list of sources (currently has no effect; see csp.enabled)",
               "additionalProperties": {
                 "type": "array",
                 "items": {
@@ -431,7 +429,11 @@
         },
         {
           "type": "object",
-          "description": "Different URL styles per environment",
+          "description": "Different URL styles per environment; any environment name may be added (an environment without an entry uses 'clean')",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["clean", "html", "directory"]
+          },
           "properties": {
             "prod": {
               "type": "string",
@@ -449,8 +451,7 @@
     },
     "environment": {
       "type": "string",
-      "description": "Current environment",
-      "enum": ["prod", "dev"],
+      "description": "Current environment; selects the url_style entry. `sonne build --dev` sets 'dev'. Custom names (e.g. 'staging') work when url_style has an entry for them.",
       "default": "prod"
     },
     "build": {
@@ -459,17 +460,17 @@
       "properties": {
         "incremental": {
           "type": "boolean",
-          "description": "Enable incremental builds (only process changed files)",
+          "description": "Currently has no effect (not read by Sonne); every build is a full build",
           "default": true
         },
         "show_progress": {
           "type": "boolean",
-          "description": "Show progress bars during build",
+          "description": "Currently has no effect (not read by Sonne); use `sonne build --no-progress`",
           "default": true
         },
         "statistics": {
           "type": "boolean",
-          "description": "Show build statistics on completion",
+          "description": "Currently has no effect (not read by Sonne); use `sonne build --perf` for the build report",
           "default": true
         },
         "show_page_size": {
@@ -480,7 +481,6 @@
       }
     }
   },
-  "required": ["site"],
   "definitions": {
     "taxonomy": {
       "type": "object",
