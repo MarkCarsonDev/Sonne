@@ -230,18 +230,25 @@ class SiteGenerator:
                 inject_page_size_labels(self.paths["output"])
 
     def _page_files(self) -> List[Path]:
-        """Content pages to render: page-type files outside the blog directory."""
+        """Content pages to render: page-type files outside the blog directory.
+
+        Hidden files and anything in hidden folders (.obsidian/, .git/) are
+        skipped, as are directories whose names end in a page extension.
+        """
         content_dir = self.paths.get("content")
         if not content_dir or not os.path.exists(content_dir):
             logger.warning(f"Content directory does not exist: {content_dir}")
             return []
 
+        content_root = Path(content_dir)
         blog_dir = Path(content_dir, self.config.blog_directory()).resolve()
         return [
             file_path
-            for file_path in sorted_paths(Path(content_dir).glob("**/*.*"))
+            for file_path in sorted_paths(content_root.glob("**/*.*"))
             if file_path.suffix.lower() in PAGE_EXTENSIONS
-            and not (blog_dir and validate_path_within_root(file_path, blog_dir))
+            and file_path.is_file()
+            and not _is_hidden_within(file_path, content_root)
+            and not validate_path_within_root(file_path, blog_dir)
         ]
 
     def _process_page_logging_errors(self, file_path: Path) -> None:
@@ -343,6 +350,11 @@ def _count_build_steps(blog_enabled: bool, skip_images: bool) -> int:
     if not skip_images:
         total += IMAGE_STEP_COUNT
     return total
+
+
+def _is_hidden_within(path: Path, root: Path) -> bool:
+    """Whether path, or any folder between root and it, starts with a dot."""
+    return any(part.startswith(".") for part in path.relative_to(root).parts)
 
 
 def _count(amount: int, noun: str) -> str:

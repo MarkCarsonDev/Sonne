@@ -153,7 +153,6 @@ class TestPageDiscovery:
 
         assert rendered == sorted(rendered)
 
-    @pytest.mark.xfail(strict=True, reason="B43: hidden folders are rendered as pages")
     def test_hidden_folders_are_not_pages(self, site_factory, builder):
         site = site_factory("minimal")
         hidden = site / "content" / ".obsidian"
@@ -164,7 +163,6 @@ class TestPageDiscovery:
 
         assert not (out / ".obsidian").exists()
 
-    @pytest.mark.xfail(strict=True, reason="B43: a directory named *.md is treated as a page")
     def test_directory_named_like_a_page_is_not_rendered(self, site_factory, builder, caplog):
         site = site_factory("minimal")
         (site / "content" / "notes.md").mkdir()
