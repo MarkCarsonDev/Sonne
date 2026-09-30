@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   e.g. `sonne_config("site", "base_url")`, instead of locating and
   re-reading the config file themselves. Values include defaults, and the
   result is a copy, so scripts can't change the build's configuration.
+- All starter templates (blog, portfolio, minimal, solar) load
+  `dithering.css`/`dithering.js` when `images.dither` is on, so visitors
+  can switch between dithered and original images.
 - `get_variable(name, default=None)` in `sonne.script_api`: data scripts
   read build data (`all_pages`, `all_blog_posts`, `tags`, data files,
   config values, earlier scripts' variables). It returns a copy.
@@ -59,6 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- The dithered/original image toggle is a keyboard-operable button
+  (labelled "Show original image", state in `aria-pressed`) with a visible
+  focus ring; only the image on show is exposed to screen readers. Toggles
+  in pages built by older versions are upgraded in place.
 - Builds show a new "Collecting page metadata" step (one more `[n/N]`
   line).
 - `solar` scaffold: data scripts read settings with `sonne_config`; the
@@ -251,6 +258,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   query string or a dotted directory no longer yields a 404
   (`q.png?v=1.2` → `q_original.png?v=1.2`).
 - Clicking the dithering toggle on a linked image no longer follows the link.
+- The image toggle and the original image line up with the image even when
+  the theme gives images a margin.
 - The config JSON schema no longer rejects valid configs: keys with
   defaults are no longer required, custom environments in `url_style` are
   accepted, and BCP 47 language tags such as `zh-Hans`, `es-419` and
