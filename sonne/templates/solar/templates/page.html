@@ -15,7 +15,7 @@
     
     {% if forecast and page.show_forecast %}
     <div class="forecast-section">
-        <h2>3-Day Forecast for {{ weather.location }}</h2>
+        <h2>3-Day Forecast for {{ current_weather.location }}</h2>
         <div class="forecast">
             {% for day in forecast %}
             <div class="forecast-day">

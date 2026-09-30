@@ -1,4 +1,4 @@
-"""Solar template data script: exposes ``weather`` (current conditions) and
+"""Solar template data script: exposes ``current_weather`` and
 ``forecast`` (the next three days) to templates.
 
 Weather comes from Open-Meteo (no API key needed) for the location under
@@ -76,7 +76,7 @@ def main():
     except (URLError, OSError, ValueError, KeyError, IndexError) as error:
         logger.warning(f"Weather API unavailable ({error}); using simulated weather")
         current, forecast = simulate_weather(location)
-    sonne_var("weather", current)  # noqa: F821 — injected by Sonne's script runner
+    sonne_var("current_weather", current)  # noqa: F821 — injected by Sonne's script runner
     sonne_var("forecast", forecast)  # noqa: F821
 
 
