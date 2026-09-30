@@ -11,6 +11,26 @@ import logging
 
 logger = logging.getLogger("sonne")
 
+REPORT_RULE = "=" * 60
+THIN_RULE = "-" * 60
+MAX_LISTED_MESSAGES = 5
+SLOWEST_SHOWN = 5
+SLOW_IMAGE_SECONDS = 3.0
+SLOW_SCRIPT_SECONDS = 2.0
+LOW_CACHE_HIT_RATE_PERCENT = 50
+
+# Report order and fixed-width labels for the known build phases; unknown
+# phases sort last and are padded to the same width.
+PHASE_ORDER = ["images", "blog", "pages", "scripts", "static_copy", "finalize"]
+PHASE_LABELS = {
+    "scripts": "Scripts     ",
+    "static_copy": "Static copy ",
+    "images": "Images      ",
+    "blog": "Blog posts  ",
+    "pages": "Pages       ",
+    "finalize": "Finalize    ",
+}
+
 
 @dataclass
 class BuildStatistics:
@@ -117,6 +137,169 @@ class BuildStatistics:
 
     # --- Formatting ---
 
+    def format_report(self, verbose: bool = False, perf: bool = False) -> str:
+        """Format a human-readable build report.
+
+        Args:
+            verbose: Include detailed statistics.
+            perf: Include per-phase performance breakdown.
+
+        Returns:
+            Multi-line report text.
+        """
+        lines = self._summary_lines(verbose)
+        if perf and self.phase_times:
+            lines += self._performance_lines()
+        lines.append(REPORT_RULE)
+        return "\n".join(lines)
+
+    def _summary_lines(self, verbose: bool) -> List[str]:
+        lines = [REPORT_RULE, "Build Complete", REPORT_RULE, f"Duration: {self.duration:.2f}s", ""]
+        lines += self._page_lines()
+        lines += self._image_lines()
+        if verbose:
+            lines += self._template_lines()
+        lines += self._cache_lines(verbose)
+        if verbose:
+            lines += self._file_operation_lines()
+        lines += self._message_lines("⚠ Warnings", self.warnings, verbose)
+        lines += self._message_lines("✗ Errors", self.errors, verbose)
+        return lines
+
+    def _page_lines(self) -> List[str]:
+        lines = ["Pages:", f"  ✓ Processed: {self.pages_processed}"]
+        if self.pages_skipped > 0:
+            lines.append(f"  ⊘ Skipped (cached): {self.pages_skipped}")
+        if self.blog_posts_processed > 0:
+            lines.append(f"  ✓ Blog posts: {self.blog_posts_processed}")
+        return lines + [""]
+
+    def _image_lines(self) -> List[str]:
+        if self.images_processed == 0 and self.images_cached == 0:
+            return []
+        lines = ["Images:", f"  ✓ Processed: {self.images_processed}"]
+        if self.images_cached > 0:
+            lines.append(f"  ⊘ Cached: {self.images_cached}")
+        if self.image_savings > 0:
+            lines.append(f"  ↓ Saved: {self.image_savings_mb:.2f} MB")
+        return lines + [""]
+
+    def _template_lines(self) -> List[str]:
+        lines = ["Templates:", f"  ✓ Rendered: {self.templates_rendered}"]
+        if self.template_errors > 0:
+            lines.append(f"  ✗ Errors: {self.template_errors}")
+        return lines + [""]
+
+    def _cache_lines(self, verbose: bool) -> List[str]:
+        if not self._cache_was_used():
+            return []
+        lines = ["Cache:", f"  Hit rate: {self.cache_hit_rate:.1f}%"]
+        if verbose:
+            lines += [f"  Hits: {self.cache_hits}", f"  Misses: {self.cache_misses}"]
+        return lines + [""]
+
+    def _cache_was_used(self) -> bool:
+        return self.cache_hits + self.cache_misses > 0
+
+    def _file_operation_lines(self) -> List[str]:
+        if self.files_copied == 0 and self.files_deleted == 0:
+            return []
+        lines = ["File Operations:"]
+        if self.files_copied > 0:
+            lines.append(f"  Copied: {self.files_copied}")
+        if self.files_deleted > 0:
+            lines.append(f"  Deleted: {self.files_deleted}")
+        return lines + [""]
+
+    @staticmethod
+    def _message_lines(heading: str, messages: List[str], verbose: bool) -> List[str]:
+        if not messages:
+            return []
+        lines = [f"{heading}: {len(messages)}"]
+        if verbose:
+            lines += [f"  - {message}" for message in messages[:MAX_LISTED_MESSAGES]]
+            hidden_count = len(messages) - MAX_LISTED_MESSAGES
+            if hidden_count > 0:
+                lines.append(f"  ... and {hidden_count} more")
+        return lines + [""]
+
+    def _performance_lines(self) -> List[str]:
+        lines = [THIN_RULE, "Performance Breakdown", THIN_RULE]
+        lines += self._phase_lines()
+        lines += self._slowest_image_lines()
+        lines += self._slowest_post_lines()
+        lines += self._script_lines()
+        lines += self._hint_lines()
+        return lines
+
+    def _phase_lines(self) -> List[str]:
+        total_seconds = sum(self.phase_times.values())
+        phases = sorted(self.phase_times.items(), key=lambda phase: _phase_rank(phase[0]))
+        lines = ["Phases:"]
+        for name, seconds in phases:
+            percent = (seconds / total_seconds * 100) if total_seconds > 0 else 0
+            label = PHASE_LABELS.get(name, f"{name:<12}")
+            bar = self._bar(seconds, total_seconds)
+            lines.append(f"  {label}  {self._fmt_time(seconds):>7}  {bar}  {percent:3.0f}%")
+        return lines + [""]
+
+    def _uncached_images(self) -> List[Dict]:
+        return [timing for timing in self.image_times if not timing["cached"]]
+
+    def _slowest_image_lines(self) -> List[str]:
+        uncached = self._uncached_images()
+        if not uncached:
+            return []
+        slowest = sorted(uncached, key=lambda timing: timing["seconds"], reverse=True)
+        lines = ["Slowest images:"]
+        for timing in slowest[:SLOWEST_SHOWN]:
+            name = Path(timing["file"]).name
+            elapsed = self._fmt_time(timing["seconds"])
+            lines.append(f"  {name:<35}  {elapsed:>7}{_image_details(timing)}")
+        return lines + [""]
+
+    def _slowest_post_lines(self) -> List[str]:
+        if not self.post_times:
+            return []
+        slowest = sorted(self.post_times, key=lambda timing: timing["seconds"], reverse=True)
+        lines = ["Slowest posts:"]
+        for timing in slowest[:SLOWEST_SHOWN]:
+            lines.append(f"  {timing['slug']:<40}  {self._fmt_time(timing['seconds']):>7}")
+        return lines + [""]
+
+    def _script_lines(self) -> List[str]:
+        if not self.script_times:
+            return []
+        slowest = sorted(self.script_times.items(), key=lambda script: script[1], reverse=True)
+        lines = ["Scripts:"]
+        for name, seconds in slowest:
+            lines.append(f"  {name:<35}  {self._fmt_time(seconds):>7}")
+        return lines + [""]
+
+    def _hint_lines(self) -> List[str]:
+        hints = self._performance_hints()
+        if not hints:
+            return []
+        return ["Hints:"] + [f"  {hint}" for hint in hints] + [""]
+
+    def _performance_hints(self) -> List[str]:
+        hints = []
+        slow_images = [
+            timing for timing in self._uncached_images() if timing["seconds"] > SLOW_IMAGE_SECONDS
+        ]
+        if any(timing["method"] == "lab_kmeans" for timing in slow_images):
+            hints.append(
+                "⚡ Some images took >3s with lab_kmeans — try dither: bayer for faster builds"
+            )
+        slow_scripts = [
+            name for name, seconds in self.script_times.items() if seconds > SLOW_SCRIPT_SECONDS
+        ]
+        if slow_scripts:
+            hints.append(f"⚡ Slow scripts block the build: {', '.join(slow_scripts)}")
+        if self._cache_was_used() and self.cache_hit_rate < LOW_CACHE_HIT_RATE_PERCENT:
+            hints.append("⚡ Low cache hit rate — run with --skip-cache only when images change")
+        return hints
+
     @staticmethod
     def _fmt_time(seconds: float) -> str:
         """Format a duration in the most readable unit."""
@@ -134,176 +317,6 @@ class BuildStatistics:
         filled = round((value / total) * width)
         filled = max(0, min(width, filled))
         return "█" * filled + "░" * (width - filled)
-
-    def format_report(self, verbose: bool = False, perf: bool = False) -> str:
-        """Format a human-readable build report.
-
-        Args:
-            verbose: Include detailed statistics.
-            perf: Include per-phase performance breakdown.
-        """
-        lines = []
-        lines.append("=" * 60)
-        lines.append("Build Complete")
-        lines.append("=" * 60)
-
-        # Duration
-        lines.append(f"Duration: {self.duration:.2f}s")
-        lines.append("")
-
-        # Pages
-        lines.append("Pages:")
-        lines.append(f"  ✓ Processed: {self.pages_processed}")
-        if self.pages_skipped > 0:
-            lines.append(f"  ⊘ Skipped (cached): {self.pages_skipped}")
-        if self.blog_posts_processed > 0:
-            lines.append(f"  ✓ Blog posts: {self.blog_posts_processed}")
-        lines.append("")
-
-        # Images
-        if self.images_processed > 0 or self.images_cached > 0:
-            lines.append("Images:")
-            lines.append(f"  ✓ Processed: {self.images_processed}")
-            if self.images_cached > 0:
-                lines.append(f"  ⊘ Cached: {self.images_cached}")
-            if self.image_savings > 0:
-                lines.append(f"  ↓ Saved: {self.image_savings_mb:.2f} MB")
-            lines.append("")
-
-        # Templates
-        if verbose:
-            lines.append("Templates:")
-            lines.append(f"  ✓ Rendered: {self.templates_rendered}")
-            if self.template_errors > 0:
-                lines.append(f"  ✗ Errors: {self.template_errors}")
-            lines.append("")
-
-        # Cache
-        if self.cache_hits > 0 or self.cache_misses > 0:
-            lines.append("Cache:")
-            lines.append(f"  Hit rate: {self.cache_hit_rate:.1f}%")
-            if verbose:
-                lines.append(f"  Hits: {self.cache_hits}")
-                lines.append(f"  Misses: {self.cache_misses}")
-            lines.append("")
-
-        # File operations
-        if verbose and (self.files_copied > 0 or self.files_deleted > 0):
-            lines.append("File Operations:")
-            if self.files_copied > 0:
-                lines.append(f"  Copied: {self.files_copied}")
-            if self.files_deleted > 0:
-                lines.append(f"  Deleted: {self.files_deleted}")
-            lines.append("")
-
-        # Warnings and errors
-        if self.warnings:
-            lines.append(f"⚠ Warnings: {len(self.warnings)}")
-            if verbose:
-                for warning in self.warnings[:5]:
-                    lines.append(f"  - {warning}")
-                if len(self.warnings) > 5:
-                    lines.append(f"  ... and {len(self.warnings) - 5} more")
-            lines.append("")
-
-        if self.errors:
-            lines.append(f"✗ Errors: {len(self.errors)}")
-            if verbose:
-                for error in self.errors[:5]:
-                    lines.append(f"  - {error}")
-                if len(self.errors) > 5:
-                    lines.append(f"  ... and {len(self.errors) - 5} more")
-            lines.append("")
-
-        # --- Performance breakdown ---
-        if perf and self.phase_times:
-            lines.append("-" * 60)
-            lines.append("Performance Breakdown")
-            lines.append("-" * 60)
-
-            total_timed = sum(self.phase_times.values())
-
-            PHASE_LABELS = {
-                "scripts": "Scripts     ",
-                "static_copy": "Static copy ",
-                "images": "Images      ",
-                "blog": "Blog posts  ",
-                "pages": "Pages       ",
-                "finalize": "Finalize    ",
-            }
-
-            phase_order = ["images", "blog", "pages", "scripts", "static_copy", "finalize"]
-            shown = sorted(
-                self.phase_times.items(),
-                key=lambda kv: phase_order.index(kv[0]) if kv[0] in phase_order else 99,
-            )
-
-            lines.append("Phases:")
-            for name, secs in shown:
-                pct = (secs / total_timed * 100) if total_timed > 0 else 0
-                label = PHASE_LABELS.get(name, f"{name:<12}")
-                bar = self._bar(secs, total_timed)
-                lines.append(f"  {label}  {self._fmt_time(secs):>7}  {bar}  {pct:3.0f}%")
-            lines.append("")
-
-            # Slowest images
-            uncached = [t for t in self.image_times if not t["cached"]]
-            if uncached:
-                slowest = sorted(uncached, key=lambda t: t["seconds"], reverse=True)[:5]
-                lines.append("Slowest images:")
-                for t in slowest:
-                    name = Path(t["file"]).name
-                    dims = f"{t['width']}×{t['height']}" if t["width"] else ""
-                    method = f", {t['method']}" if t["method"] else ""
-                    extra = f"  ({dims}{method})" if (dims or method) else ""
-                    lines.append(f"  {name:<35}  {self._fmt_time(t['seconds']):>7}{extra}")
-                lines.append("")
-
-            # Slowest posts
-            if self.post_times:
-                slowest_posts = sorted(self.post_times, key=lambda t: t["seconds"], reverse=True)[
-                    :5
-                ]
-                lines.append("Slowest posts:")
-                for t in slowest_posts:
-                    lines.append(f"  {t['slug']:<40}  {self._fmt_time(t['seconds']):>7}")
-                lines.append("")
-
-            # Script timings
-            if self.script_times:
-                lines.append("Scripts:")
-                for name, secs in sorted(
-                    self.script_times.items(), key=lambda kv: kv[1], reverse=True
-                ):
-                    lines.append(f"  {name:<35}  {self._fmt_time(secs):>7}")
-                lines.append("")
-
-            # Actionable hints
-            hints = []
-            slow_images = [t for t in uncached if t["seconds"] > 3.0]
-            if slow_images:
-                methods = {t["method"] for t in slow_images if t["method"]}
-                if "lab_kmeans" in methods:
-                    hints.append(
-                        "⚡ Some images took >3s with lab_kmeans — try dither: bayer for faster builds"
-                    )
-            slow_scripts = {k: v for k, v in self.script_times.items() if v > 2.0}
-            if slow_scripts:
-                names = ", ".join(slow_scripts.keys())
-                hints.append(f"⚡ Slow scripts block the build: {names}")
-            total = self.cache_hits + self.cache_misses
-            if total > 0 and self.cache_hit_rate < 50:
-                hints.append(
-                    "⚡ Low cache hit rate — run with --skip-cache only when images change"
-                )
-            if hints:
-                lines.append("Hints:")
-                for h in hints:
-                    lines.append(f"  {h}")
-                lines.append("")
-
-        lines.append("=" * 60)
-        return "\n".join(lines)
 
     def add_warning(self, warning: str) -> None:
         """Add a warning to the build statistics."""
@@ -350,3 +363,14 @@ class BuildStatistics:
             "warnings": len(self.warnings),
             "errors": len(self.errors),
         }
+
+
+def _phase_rank(name: str) -> int:
+    return PHASE_ORDER.index(name) if name in PHASE_ORDER else len(PHASE_ORDER)
+
+
+def _image_details(timing: Dict) -> str:
+    """Parenthesised dimensions and dither method, or '' when neither is known."""
+    dimensions = f"{timing['width']}×{timing['height']}" if timing["width"] else ""
+    method = f", {timing['method']}" if timing["method"] else ""
+    return f"  ({dimensions}{method})" if (dimensions or method) else ""
