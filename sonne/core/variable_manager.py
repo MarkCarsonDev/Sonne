@@ -34,10 +34,13 @@ logger = logging.getLogger("sonne")
 DEFAULT_VARIABLE_FILE = "sonne_variables.json"
 DATA_FILE_PATTERNS = ["*.json", "*.yaml", "*.yml", "*.csv"]
 
-# Blog variables collected before load_variables() runs; they are carried
-# over each reload so data scripts can see posts.
-# Collected from content before data scripts run; carried into fresh scopes.
+# Collected from content before data scripts run; carried into fresh scopes
+# so data scripts can see posts and pages.
 CONTENT_VARIABLE_NAMES = ["all_blog_posts", "tags", "categories", "all_pages"]
+
+# Global holding data files (by file name) and script variables (by name),
+# visible to templates as `data` and `site.data`.
+DATA_NAMESPACE = "data"
 
 FALLBACK_SITE_TITLE = "My Sonne Site"
 
@@ -54,7 +57,7 @@ class VariableManager:
     # Derived state must never persist across builds: it is recomputed from
     # content every build, and stale copies were previously served when the
     # blog was later disabled or posts changed.
-    _NEVER_PERSIST = frozenset({*CONTENT_VARIABLE_NAMES, "build_time"})
+    _NEVER_PERSIST = frozenset({*CONTENT_VARIABLE_NAMES, "build_time", DATA_NAMESPACE})
 
     def __init__(self, config, base_dir: str):
         """Initialize variable manager.
@@ -88,6 +91,9 @@ class VariableManager:
         self.variable_file = os.path.join(self.base_dir, var_file or DEFAULT_VARIABLE_FILE)
         self.data_dir = self._existing_dir(config.get("paths", "data", default="data"))
         self.scripts_dir = self._existing_dir(config.get("paths", "scripts", default="scripts"))
+        # Legacy flat exposure of data files and script variables next to
+        # site config; `data.<name>` is the collision-free way.
+        self.flatten_data = bool(config.get("variables", "flatten_data", default=True))
 
     def _existing_dir(self, configured_path: Optional[str]) -> Optional[str]:
         """configured_path joined to base_dir if that directory exists, else None."""
@@ -141,7 +147,13 @@ class VariableManager:
             "language": "en",
         }
         site_scope.update(content_variables)
-        return {"global": dict(content_variables), "site": site_scope, "page": {}}
+        global_scope = {**content_variables, DATA_NAMESPACE: {}}
+        return {"global": global_scope, "site": site_scope, "page": {}}
+
+    @property
+    def data(self) -> dict[str, Any]:
+        """The `data` namespace: data files by file name, script variables by name."""
+        return self.variables["global"].setdefault(DATA_NAMESPACE, {})
 
     def _get_version(self) -> str:
         """Get the current version of Sonne (single-sourced in sonne/__init__.py)."""
@@ -158,6 +170,11 @@ class VariableManager:
         site_config = self.config.get("site", default={})
         if not isinstance(site_config, dict):
             return
+        if DATA_NAMESPACE in site_config:
+            logger.warning(
+                f"site.{DATA_NAMESPACE} in the config hides the `{DATA_NAMESPACE}` namespace "
+                "(data files and script variables) in templates; rename that config key"
+            )
         site_scope = self.variables["site"]
         for key, value in site_config.items():
             if key == "title" and isinstance(value, dict):
@@ -194,7 +211,7 @@ class VariableManager:
             return
         if _is_legacy_wrapped(data):
             for key, wrapped in data.items():
-                self.variables["global"][key] = wrapped.get("data")
+                self._store_script_variable(key, wrapped.get("data"))
         else:
             self._store_data(data, Path(self.variable_file).stem, "global")
 
@@ -205,24 +222,35 @@ class VariableManager:
     def _load_data_directory(self) -> None:
         if not self.data_dir:
             return
+        loaded_from: dict[str, Path] = {}
         for pattern in DATA_FILE_PATTERNS:
             for file_path in sorted_paths(Path(self.data_dir).glob(f"**/{pattern}")):
                 try:
-                    self._load_data_file(str(file_path), "site")
+                    self._load_user_data_file(file_path, loaded_from)
                 except Exception as e:
                     logger.error(f"Error loading data from {file_path}: {e}")
         logger.debug(f"Loaded data from {self.data_dir}")
 
-    def _load_data_file(self, file_path: str, scope: str) -> None:
-        """Load one user data file into scope.
+    def _load_user_data_file(self, file_path: Path, loaded_from: dict[str, Path]) -> None:
+        """Expose one data file as data.<file name> (and flat, when flatten_data).
 
         Args:
-            file_path: Path to a JSON, YAML or CSV file.
-            scope: Variable scope ('global', 'site', or 'page').
+            file_path: A JSON, YAML or CSV file in the data directory.
+            loaded_from: File names already loaded this build, to report clashes.
         """
-        data = _parse_data_file(file_path)
-        if data is not _UNSUPPORTED_FORMAT:
-            self._store_data(data, Path(file_path).stem, scope)
+        data = _parse_data_file(str(file_path))
+        if data is _UNSUPPORTED_FORMAT:
+            return
+        name = file_path.stem
+        if name in loaded_from:
+            logger.warning(
+                f"Data files {loaded_from[name]} and {file_path} share the name "
+                f"'{name}'; data.{name} holds the later one"
+            )
+        loaded_from[name] = file_path
+        self.data[name] = data
+        if self.flatten_data:
+            self._store_data(data, name, "site")
 
     def _store_data(self, data: Any, name: str, scope: str) -> None:
         """Merge a mapping into scope; store anything else (e.g. CSV rows) under name."""
@@ -299,10 +327,9 @@ class VariableManager:
         """This build's implementation of the script API (see sonne.script_api)."""
 
         def sonne_var(name: str, value: Any) -> None:
-            self._warn_if_shadowing_site_variable(name)
-            self.variables["global"][name] = value
-            self.variables["site"][name] = value
-            self._script_vars.add(name)
+            if self.flatten_data:
+                self._warn_if_shadowing_site_variable(name)
+            self._store_script_variable(name, value)
             logger.debug(f"Variable set: {name}")
 
         def get_post(
@@ -332,10 +359,13 @@ class VariableManager:
 
         def get_variable(name: str, default: Any = None) -> Any:
             # Read-only for scripts, like sonne_config: global scope first
-            # (collected content, script variables), then site scope.
-            for scope in ("global", "site"):
-                if name in self.variables.get(scope, {}):
-                    return copy.deepcopy(self.variables[scope][name])
+            # (collected content, flat script variables), then site scope,
+            # then the data namespace (the only home with flatten_data off).
+            for scope in (self.variables.get("global", {}), self.variables.get("site", {})):
+                if name in scope:
+                    return copy.deepcopy(scope[name])
+            if name in self.data:
+                return copy.deepcopy(self.data[name])
             return default
 
         def dither_image(image: "Image.Image") -> "Image.Image":
@@ -359,6 +389,14 @@ class VariableManager:
 
             self._image_processor = ImageProcessor(self.config, {})
         return self._image_processor
+
+    def _store_script_variable(self, name: str, value: Any) -> None:
+        """Store a script variable as data.<name>, and flat too when flatten_data."""
+        self.data[name] = value
+        if self.flatten_data:
+            self.variables["global"][name] = value
+            self.variables["site"][name] = value
+        self._script_vars.add(name)
 
     def _warn_if_shadowing_site_variable(self, name: str) -> None:
         """Warn (once per load) when a script replaces a site config/data variable.
@@ -413,11 +451,11 @@ class VariableManager:
 
     def _mark_footer_html_safe(self) -> None:
         """footer_custom is trusted script HTML: wrap it in Markup everywhere it lives."""
-        if "footer_custom" not in self.variables.get("global", {}):
+        source = self.data if "footer_custom" in self.data else self.variables["global"]
+        if "footer_custom" not in source:
             return
-        footer_content = Markup(self.variables["global"]["footer_custom"])
-        self.variables["global"]["footer_custom"] = footer_content
-        self.variables["site"]["footer_custom"] = footer_content
+        footer_content = Markup(source["footer_custom"])
+        self._store_script_variable("footer_custom", footer_content)
         self.variables["site"]["footer"]["custom"] = footer_content
 
     def _mirror_globals_into_site(self) -> None:
@@ -528,7 +566,7 @@ class VariableManager:
         saved_at = datetime.now().isoformat()
         wrapped = {
             key: {"data": str(value) if hasattr(value, "__html__") else value, "datetime": saved_at}
-            for key, value in self.variables.get("global", {}).items()
+            for key, value in self.data.items()
             if self._is_persistable(key)
         }
         with open(self.variable_file, "w", encoding="utf-8") as f:

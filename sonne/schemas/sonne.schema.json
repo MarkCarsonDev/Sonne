@@ -350,6 +350,11 @@
           "type": "boolean",
           "description": "Persist script-produced variables across builds via the variable file. When false (default) every build starts fresh and no variable file is written. Derived state (posts, taxonomies) never persists.",
           "default": false
+        },
+        "flatten_data": {
+          "type": "boolean",
+          "description": "Also expose data files and script variables flat (data file mapping keys in site scope, script variables at top level), as before the `data` namespace. They are always available as data.<name>; set false so they can never replace site config. The default will become false.",
+          "default": true
         }
       }
     },
