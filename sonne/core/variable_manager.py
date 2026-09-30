@@ -3,6 +3,7 @@ Variable management for Sonne.
 Handles loading, processing, and substituting variables in templates.
 """
 
+import copy
 import csv
 import importlib.machinery
 import importlib.util
@@ -33,6 +34,9 @@ DATA_FILE_PATTERNS = ["*.json", "*.yaml", "*.yml", "*.csv"]
 BLOG_VARIABLE_NAMES = ["all_blog_posts", "tags", "categories"]
 
 FALLBACK_SITE_TITLE = "My Sonne Site"
+
+# Distinguishes "not configured" from a configured None in sonne_config.
+_NOT_CONFIGURED = object()
 
 # Returned by _parse_data_file for extensions it cannot read.
 _UNSUPPORTED_FORMAT = object()
@@ -311,11 +315,17 @@ class VariableManager:
             self.custom_globals[name] = value
             logger.debug(f"Jinja global registered by script: {name}")
 
+        def sonne_config(*keys: str, default: Any = None) -> Any:
+            # Read-only for scripts: they get a copy, never the build's objects.
+            value = self.config.get(*keys, default=_NOT_CONFIGURED)
+            return default if value is _NOT_CONFIGURED else copy.deepcopy(value)
+
         return ScriptHooks(
             sonne_var=sonne_var,
             get_post=get_post,
             sonne_filter=sonne_filter,
             sonne_global=sonne_global,
+            sonne_config=sonne_config,
         )
 
     def _warn_if_shadowing_site_variable(self, name: str) -> None:

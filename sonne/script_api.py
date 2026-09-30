@@ -4,14 +4,15 @@ The functions Sonne data scripts call to hand data to templates.
 Import them in ``scripts/*.py`` (and ``footer.py``) so editors, type
 checkers and linters know where they come from::
 
-    from sonne.script_api import get_post, sonne_filter, sonne_global, sonne_var
+    from sonne.script_api import get_post, sonne_config, sonne_filter, sonne_global, sonne_var
 
+    city = sonne_config("site", "weather", "city", default="Berlin")
     sonne_var("team", [{"name": "Ada", "role": "Engineer"}])
     sonne_filter("shout", lambda text: str(text).upper())
 
 They only work while Sonne is running the script during a build; each call
 goes to the build that is executing the script. Calling them anywhere else
-raises RuntimeError. (For backward compatibility the same four functions
+raises RuntimeError. (For backward compatibility the same functions
 are also injected into every script as globals, so older scripts without
 the import keep working; the import is the preferred, documented form.)
 """
@@ -19,10 +20,10 @@ the import keep working; the import is the preferred, documented form.)
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Callable, Optional
 
-__all__ = ["get_post", "sonne_filter", "sonne_global", "sonne_var"]
+__all__ = ["get_post", "sonne_config", "sonne_filter", "sonne_global", "sonne_var"]
 
 Post = dict[str, Any]
 
@@ -35,10 +36,11 @@ class ScriptHooks:
     get_post: Callable[[Optional[str], Optional[str]], Optional[Post]]
     sonne_filter: Callable[[str, Callable[..., Any]], None]
     sonne_global: Callable[[str, Any], None]
+    sonne_config: Callable[..., Any]
 
     def as_globals(self) -> dict[str, Callable[..., Any]]:
         """The hooks by name, for injecting into a script module's globals."""
-        return {name: getattr(self, name) for name in asdict(self)}
+        return {field.name: getattr(self, field.name) for field in fields(self)}
 
 
 _active_hooks: ContextVar[Optional[ScriptHooks]] = ContextVar("sonne_script_hooks", default=None)
@@ -144,3 +146,27 @@ def sonne_global(name: str, value: Any) -> None:
         >>> sonne_global("year_span", lambda start: f"{start}-2026")  # doctest: +SKIP
     """
     _current_hooks().sonne_global(name, value)
+
+
+def sonne_config(*keys: str, default: Any = None) -> Any:
+    """Read a value from the site's configuration (sonne.yaml merged over defaults).
+
+    This is the configuration of the build that is running the script, so
+    scripts never need to find and re-read the config file themselves.
+    The result is a deep copy: changing it does not affect the build.
+
+    Args:
+        *keys: Path to the value, e.g. ``"site", "base_url"``; a single key
+            returns a whole section as a dict. With no keys, returns default.
+        default: Returned (as given, not copied) when the path does not exist.
+
+    Returns:
+        A deep copy of the configured value, or default.
+
+    Raises:
+        RuntimeError: If called outside a data script run by Sonne.
+
+    Example:
+        >>> city = sonne_config("site", "weather", "city", default="Berlin")  # doctest: +SKIP
+    """
+    return _current_hooks().sonne_config(*keys, default=default)

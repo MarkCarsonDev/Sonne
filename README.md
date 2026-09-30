@@ -529,10 +529,10 @@ A script named `footer.py`, placed in `data/`, your `paths.data` folder, or `scr
 
 ### Script API
 
-Scripts talk to Sonne through four functions in `sonne.script_api`. Import them, so your editor, Pylance/pyright and ruff know where they come from (Sonne ships type hints):
+Scripts talk to Sonne through five functions in `sonne.script_api`. Import them, so your editor, Pylance/pyright and ruff know where they come from (Sonne ships type hints):
 
 ```python
-from sonne.script_api import get_post, sonne_filter, sonne_global, sonne_var
+from sonne.script_api import get_post, sonne_config, sonne_filter, sonne_global, sonne_var
 ```
 
 | Function | What it does |
@@ -541,8 +541,19 @@ from sonne.script_api import get_post, sonne_filter, sonne_global, sonne_var
 | `get_post(slug=None, tag=None)` | Returns a blog post of this build (a dict with title, url, date, tags, excerpt, ...) by slug, or the newest one with a tag; `None` if there is none. |
 | `sonne_filter(name, fn)` | Registers a Jinja filter: `{{ value \| name }}`. |
 | `sonne_global(name, value)` | Registers a Jinja global value or function: `{{ name }}`, `{{ name(...) }}`. |
+| `sonne_config(*keys, default=None)` | Reads the site's configuration (your config file merged over the defaults), e.g. `sonne_config("site", "base_url")`; one key returns a whole section. Returns `default` when the key is not set. The result is a copy, so changing it does not affect the build. |
 
-The functions work only while Sonne runs the script during `sonne build` or `sonne serve` (including from helper modules the script calls). Anywhere else, for example when you run the script with plain `python`, they raise `RuntimeError`. Older scripts that call them without importing keep working: Sonne still provides the four names as globals, but the import is the recommended form.
+Use `sonne_config` rather than opening `sonne.yaml` yourself: it is the configuration of the build that is running (the right file even with `sonne build -p other-site`, with defaults and deprecated-key renames applied).
+
+```python
+# scripts/weather.py
+from sonne.script_api import sonne_config, sonne_var
+
+city = sonne_config("site", "weather", "city", default="Berlin")
+sonne_var("weather_city", city)
+```
+
+The functions work only while Sonne runs the script during `sonne build` or `sonne serve` (including from helper modules the script calls). Anywhere else, for example when you run the script with plain `python`, they raise `RuntimeError`. Older scripts that call them without importing keep working: Sonne still provides the same names as globals, but the import is the recommended form.
 
 ## Image Processing
 

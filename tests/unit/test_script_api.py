@@ -82,8 +82,9 @@ class TestOutsideABuild:
             lambda: script_api.get_post(slug="a"),
             lambda: script_api.sonne_filter("f", str),
             lambda: script_api.sonne_global("g", 1),
+            lambda: script_api.sonne_config("site", "title"),
         ],
-        ids=["sonne_var", "get_post", "sonne_filter", "sonne_global"],
+        ids=["sonne_var", "get_post", "sonne_filter", "sonne_global", "sonne_config"],
     )
     def test_calls_raise_a_clear_error(self, call):
         with pytest.raises(RuntimeError, match="only be called while Sonne runs a data script"):
@@ -129,3 +130,88 @@ class TestNoLeaks:
         )
 
         assert load(site).get("from_helper") == "ok"
+
+
+CONFIG_IMPORT = "from sonne.script_api import sonne_config, sonne_var\n"
+SITE_CONFIG = "site:\n  title: Real\n  tagline: null\n  weather:\n    city: Oslo\n"
+
+
+def site_with_config(tmp_path, scripts):
+    (tmp_path / "sonne.yaml").write_text(SITE_CONFIG, encoding="utf-8")
+    return make_site(tmp_path, scripts)
+
+
+class TestSonneConfig:
+    def test_returns_configured_values_and_defaults(self, tmp_path):
+        site = site_with_config(
+            tmp_path,
+            {
+                "cfg.py": CONFIG_IMPORT
+                + "sonne_var('city', sonne_config('site', 'weather', 'city'))\n"
+                + "sonne_var('per_page', sonne_config('blog', 'posts_per_page'))\n"
+                + "sonne_var('missing', sonne_config('site', 'nope', default='fallback'))\n"
+                + "sonne_var('no_keys', sonne_config(default='whole'))\n"
+            },
+        )
+
+        vm = load(site)
+
+        assert vm.get("city") == "Oslo"
+        assert vm.get("per_page") == 10  # built-in default config
+        assert vm.get("missing") == "fallback"
+        assert vm.get("no_keys") == "whole"
+
+    def test_configured_null_is_returned_not_the_default(self, tmp_path):
+        site = site_with_config(
+            tmp_path,
+            {
+                "cfg.py": CONFIG_IMPORT
+                + "sonne_var('tagline', sonne_config('site', 'tagline', default='d'))\n"
+            },
+        )
+
+        assert load(site).get("tagline") is None
+
+    def test_default_is_returned_as_given(self, tmp_path):
+        site = site_with_config(
+            tmp_path,
+            {
+                "cfg.py": CONFIG_IMPORT
+                + "marker = []\n"
+                + "sonne_var('same', sonne_config('site', 'nope', default=marker) is marker)\n"
+            },
+        )
+
+        assert load(site).get("same") is True
+
+    def test_changing_the_result_does_not_change_the_build_config(self, tmp_path):
+        site = site_with_config(
+            tmp_path,
+            {
+                "cfg.py": CONFIG_IMPORT
+                + "site_section = sonne_config('site')\n"
+                + "site_section['title'] = 'Hacked'\n"
+                + "site_section['weather']['city'] = 'Nowhere'\n"
+                + "sonne_config('images', 'sizes').append(1)\n"
+            },
+        )
+
+        vm = load(site)
+
+        assert vm.config.get("site", "title") == "Real"
+        assert vm.config.get("site", "weather", "city") == "Oslo"
+        assert vm.config.get("images", "sizes") == [1200, 800, 400]
+
+    def test_injected_and_imported_forms_agree(self, tmp_path):
+        site = site_with_config(
+            tmp_path,
+            {
+                "imported.py": CONFIG_IMPORT
+                + "sonne_var('imported', sonne_config('site', 'weather'))\n",
+                "injected.py": "sonne_var('injected', sonne_config('site', 'weather'))\n",
+            },
+        )
+
+        vm = load(site)
+
+        assert vm.get("imported") == vm.get("injected") == {"city": "Oslo"}
