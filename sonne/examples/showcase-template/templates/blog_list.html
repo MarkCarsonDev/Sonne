@@ -35,7 +35,7 @@
                     {% if post.tags %}
                     <div class="blog-card-tags">
                         {% for tag in post.tags %}
-                        <a href="/blog/tags/{{ tag | slugify }}/" class="tag">{{ tag }}</a>
+                        <a href="{{ tag_url(tag) }}" class="tag">{{ tag }}</a>
                         {% endfor %}
                     </div>
                     {% endif %}
@@ -55,7 +55,7 @@
             {% endif %}
             
             {% for i in range(1, page.pagination.total + 1) %}
-            <a href="{% if i == 1 %}/blog/{% else %}/blog/page/{{ i }}/{% endif %}" class="pagination-item {% if i == page.pagination.current %}active{% endif %}">{{ i }}</a>
+            <a href="{{ blog_url(i) }}" class="pagination-item {% if i == page.pagination.current %}active{% endif %}">{{ i }}</a>
             {% endfor %}
             
             {% if page.pagination.has_next %}

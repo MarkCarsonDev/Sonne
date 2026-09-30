@@ -30,7 +30,7 @@
                 {% if post.tags %}
                 <div class="blog-card-tags">
                     {% for tag in post.tags %}
-                    <a href="/blog/tags/{{ tag | slugify }}/" class="tag">{{ tag }}</a>
+                    <a href="{{ tag_url(tag) }}" class="tag">{{ tag }}</a>
                     {% endfor %}
                 </div>
                 {% endif %}
@@ -49,8 +49,8 @@
     {% endif %}
     
     <div class="taxonomy-nav mt-8 text-center">
-        <a href="/blog/categories/" class="btn btn-secondary">View All Categories</a>
-        <a href="/blog/" class="btn btn-secondary">Back to Blog</a>
+        <a href="{{ category_url() }}" class="btn btn-secondary">View All Categories</a>
+        <a href="{{ blog_url() }}" class="btn btn-secondary">Back to Blog</a>
     </div>
 </div>
 {% endblock %}

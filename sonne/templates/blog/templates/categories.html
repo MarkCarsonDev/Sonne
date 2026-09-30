@@ -9,7 +9,7 @@
     {% if categories %}
     <div class="tag-cloud">
         {% for category_name, category_data in categories.items() %}
-        <a href="/blog/categories/{{ category_data.slug }}/" class="tag">
+        <a href="{{ category_url(category_data.name) }}" class="tag">
             {{ category_name }} ({{ category_data.posts|length }})
         </a>
         {% endfor %}
@@ -18,6 +18,6 @@
     <p>No categories found.</p>
     {% endif %}
 
-    <p class="tag-nav"><a href="/blog/">Back to Blog</a></p>
+    <p class="tag-nav"><a href="{{ blog_url() }}">Back to Blog</a></p>
 </div>
 {% endblock %}
