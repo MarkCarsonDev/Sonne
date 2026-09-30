@@ -145,7 +145,6 @@ class TestPostDates:
 
 
 class TestTaxonomyTerms:
-    @pytest.mark.xfail(strict=True, reason="B32: case-variant tags overwrite each other's page")
     def test_case_variant_tags_share_one_page(self, site_factory, builder):
         site = site_factory("blog", overlay="blog_site")
         write_post(site, "upper.md", "title: Upper Post\ndate: 2025-06-01\ntags: [Python]")
@@ -155,9 +154,17 @@ class TestTaxonomyTerms:
 
         html = (out / "blog" / "tags" / "python" / "index.html").read_text(encoding="utf-8")
         assert "Upper Post" in html and "Lower Post" in html
-        assert [
-            t for t in generator.blog_processor.taxonomies["tags"] if t.lower() == "python"
-        ] == ["Python"]
+        # One entry, named with the newest post's spelling.
+        tags = generator.blog_processor.taxonomies["tags"]
+        assert [name for name in tags if name.lower() == "python"] == ["python"]
+
+    def test_post_listing_both_spellings_is_listed_once(self, site_factory, builder):
+        site = site_factory("blog", overlay="blog_site")
+        write_post(site, "both.md", "title: Both\ndate: 2025-06-01\ntags: [Python, python]")
+
+        generator, _ = builder(site)
+
+        assert len(generator.blog_processor.taxonomies["tags"]["Python"]["posts"]) == 1
 
 
 class TestFeedUrls:

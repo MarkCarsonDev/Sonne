@@ -320,14 +320,23 @@ class BlogProcessor:
         )
 
     def _group_posts_by_term(self, taxonomy_type: str) -> Dict[str, Dict[str, Any]]:
-        terms: Dict[str, Dict[str, Any]] = {}
+        """Group posts by term, merging spellings that share a slug ("Python", "python").
+
+        Such terms share one page, so they must share one entry. The display
+        name is the first spelling seen, i.e. the newest post's.
+
+        Returns:
+            {display name: {"name", "slug", "posts"}}
+        """
+        terms_by_slug: Dict[str, Dict[str, Any]] = {}
         for post in self.posts:
             for term in post.get(taxonomy_type, []):
                 name = str(term)
-                if name not in terms:
-                    terms[name] = {"name": name, "slug": slugify(name), "posts": []}
-                terms[name]["posts"].append(post)
-        return terms
+                slug = slugify(name)
+                entry = terms_by_slug.setdefault(slug, {"name": name, "slug": slug, "posts": []})
+                if not entry["posts"] or entry["posts"][-1] is not post:
+                    entry["posts"].append(post)
+        return {entry["name"]: entry for entry in terms_by_slug.values()}
 
     # Post rendering
 
