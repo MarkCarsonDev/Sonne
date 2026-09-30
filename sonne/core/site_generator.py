@@ -23,7 +23,7 @@ from sonne.utils.file_utils import (
     copy_core_static_files,
 )
 from sonne.utils.build_stats import BuildStatistics
-from sonne.utils.constants import IMAGE_EXTENSIONS, MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
+from sonne.utils.constants import MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
 from sonne.utils.path_utils import sorted_paths, validate_path_within_root
 from sonne.utils.page_size import inject_page_size_labels
 
@@ -202,7 +202,7 @@ class SiteGenerator:
 
     def _process_images(self, skip_cache: bool) -> None:
         content_dir = self.paths.get("content", "")
-        image_count = _count(_count_images(content_dir), "image")
+        image_count = _count(len(self.image_processor.images_to_process(content_dir)), "image")
         self._progress.step(
             f"Processing images  ({image_count}, {self.image_processor.worker_count()} workers)"
         )
@@ -358,17 +358,6 @@ def _is_hidden_within(path: Path, root: Path) -> bool:
 def _count(amount: int, noun: str) -> str:
     """'1 post', '3 posts'."""
     return f"{amount} {noun}{'s' if amount != 1 else ''}"
-
-
-def _count_images(content_dir: str) -> int:
-    if not content_dir or not os.path.exists(content_dir):
-        return 0
-    return sum(
-        1
-        for _root, _dirs, files in os.walk(content_dir)
-        for filename in files
-        if os.path.splitext(filename)[1].lower() in IMAGE_EXTENSIONS
-    )
 
 
 def _remove_path(path: str) -> None:

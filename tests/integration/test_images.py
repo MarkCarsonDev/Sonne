@@ -3,6 +3,8 @@
 import logging
 
 
+from pathlib import Path
+
 from PIL import Image
 
 from sonne.core.config import Config
@@ -267,3 +269,53 @@ class TestBuildStatistics:
         _, _, stats = self.build(site_factory, builder, image_factory)
         assert stats.original_image_size > 0
         assert stats.processed_image_size > 0
+
+
+class TestImageWorkload:
+    """images_to_process() is exactly what process_all() handles."""
+
+    def site(self, site_factory, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        for hidden_name in ("hidden.jpg", "hidden2.jpg"):
+            image_factory(site / "content" / ".drafts" / hidden_name, size=(64, 64))
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        (site / "static" / "images" / "icon.svg").write_text("<svg/>", encoding="utf-8")
+        return site
+
+    def test_lists_content_then_static_images_skipping_hidden_and_non_raster(
+        self, site_factory, builder, image_factory
+    ):
+        site = self.site(site_factory, image_factory)
+        generator, _ = builder(site, skip_images=True)
+
+        images = generator.image_processor.images_to_process(generator.paths["content"])
+
+        assert [Path(p).name for p in images.content] == ["photo.jpg"]
+        assert [Path(p).name for p in images.static] == ["logo.png"]
+
+    def test_only_used_leaves_out_unreferenced_images(self, site_factory, builder, image_factory):
+        site = self.site(site_factory, image_factory)
+        generator, _ = builder(site, {("images", "only_used"): True}, skip_images=True)
+
+        images = generator.image_processor.images_to_process(generator.paths["content"])
+
+        assert len(images) == 0
+
+    def test_build_processes_exactly_the_listed_images(self, site_factory, builder, image_factory):
+        site = self.site(site_factory, image_factory)
+        generator, _ = builder(site, {("images", "dither"): True})
+
+        images = generator.image_processor.images_to_process(generator.paths["content"])
+
+        assert generator.stats.images_processed == len(images) == 2
+
+    def test_progress_line_counts_the_images_processed(
+        self, site_factory, builder, image_factory, caplog
+    ):
+        site = self.site(site_factory, image_factory)
+
+        with caplog.at_level(logging.INFO, logger="sonne"):
+            builder(site)
+
+        assert any("Processing images  (2 images," in r.message for r in caplog.records)
