@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented, work while Sonne runs the script during a build, and raise
   `RuntimeError` elsewhere. Scripts using them without the import keep
   working.
+- `sonne_config(*keys, default=None)` in `sonne.script_api` (and as an
+  injected global): data scripts read the running build's configuration,
+  e.g. `sonne_config("site", "base_url")`, instead of locating and
+  re-reading the config file themselves. Values include defaults, and the
+  result is a copy, so scripts can't change the build's configuration.
 - Sonne ships a `py.typed` marker (PEP 561), so type checkers use its
   annotations.
 - `ImageProcessor.dither(image)`: the supported way for data scripts to
