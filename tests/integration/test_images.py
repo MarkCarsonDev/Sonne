@@ -1,6 +1,7 @@
 """Image pipeline: resizing, dithering, only_used, cache keys."""
 
 import logging
+import re
 from pathlib import Path
 
 from PIL import Image
@@ -388,3 +389,58 @@ class TestImageWorkload:
             builder(site)
 
         assert any("Processing images  (2 images," in r.message for r in caplog.records)
+
+
+class TestPagesShowDitheredImages:
+    """Built pages point dithered images at the dithered copy and record the original."""
+
+    PAGE = (
+        "---\ntitle: Gallery\n---\n"
+        "![logo](/images/logo.png)\n\n"
+        '<img src="/images/icon.svg" alt="icon">\n\n'
+        '<img src="/assets/images/photo_400.webp" alt="photo">\n'
+    )
+
+    def build(self, site_factory, builder, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
+        (site / "static" / "images" / "icon.svg").write_text("<svg/>", encoding="utf-8")
+        image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
+        (site / "content" / "gallery.md").write_text(self.PAGE, encoding="utf-8")
+        _, out = builder(site, config_overrides=DITHER_ON)
+        page = next((out / "gallery").rglob("index.html"))
+        return out, page.read_text(encoding="utf-8")
+
+    def img_tag(self, html, alt):
+        match = re.search(rf'<img[^>]*alt="{alt}"[^>]*>', html)
+        assert match, f"no <img alt={alt!r}> in page"
+        return match.group(0)
+
+    def test_static_image_is_marked(self, site_factory, builder, image_factory):
+        _out, html = self.build(site_factory, builder, image_factory)
+
+        tag = self.img_tag(html, "logo")
+        assert 'src="/images/dithered/logo.png"' in tag
+        assert 'data-original-src="/images/logo.png"' in tag
+
+    def test_sized_variant_is_marked(self, site_factory, builder, image_factory):
+        _out, html = self.build(site_factory, builder, image_factory)
+
+        tag = self.img_tag(html, "photo")
+        assert 'src="/assets/images/photo_400.webp"' in tag
+        assert 'data-original-src="/assets/images/photo_400_original.webp"' in tag
+
+    def test_image_the_build_did_not_dither_is_not_marked(
+        self, site_factory, builder, image_factory
+    ):
+        _out, html = self.build(site_factory, builder, image_factory)
+
+        assert "data-original-src" not in self.img_tag(html, "icon")
+
+    def test_every_marked_url_is_a_real_file(self, site_factory, builder, image_factory):
+        out, html = self.build(site_factory, builder, image_factory)
+
+        urls = re.findall(r'(?:src|data-original-src)="(/[^"]+)"', html)
+        assert urls
+        missing = [url for url in urls if not (out / url.lstrip("/")).is_file()]
+        assert missing == []
