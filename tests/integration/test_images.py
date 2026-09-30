@@ -145,7 +145,6 @@ class TestPostImageFormats:
 
 
 class TestStaticImages:
-    @pytest.mark.xfail(strict=True, reason="B17: dithered palette image saved as JPEG fails")
     def test_static_jpeg_is_dithered_in_place(self, site_factory, builder, image_factory):
         site = site_factory("blog", overlay="blog_site")
         source = image_factory(site / "static" / "images" / "vogel.jpg", size=(32, 32), fmt="JPEG")

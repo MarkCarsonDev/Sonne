@@ -27,6 +27,9 @@ DEFAULT_DITHER_FORMATS = ["webp"]
 # Where sized variants are written, relative to the output root.
 VARIANTS_DIR = "assets/images"
 
+# Image modes JPEG can store (dithered palette/1-bit images must convert).
+JPEG_MODES = ("L", "RGB", "CMYK")
+
 # Lossy quality for WebP and JPEG variants.
 LOSSY_QUALITY = 85
 
@@ -361,7 +364,7 @@ class ImageProcessor:
         with Image.open(source_path) as opened:
             image = ImageOps.exif_transpose(opened)
             dithered = self._apply_dither(image, dither_method, dither_colors)
-            dithered.save(output_path, optimize=True)
+            _save_in_source_format(dithered, output_path)
         logger.debug(f"Saved dithered image: {source_path} -> {output_path}")
 
     def _copy_static_image(self, source_path: str) -> None:
@@ -916,3 +919,16 @@ def _lab_to_srgb(lab: np.ndarray) -> np.ndarray:
     xyz *= D65_WHITE
     rgb_linear = np.clip(xyz @ XYZ_TO_SRGB.T, 0, 1)
     return np.clip(_linear_to_srgb(rgb_linear), 0, 1)
+
+
+def _save_in_source_format(image: "Image.Image", path: str) -> None:
+    """Save under the source's own file name, in the format its extension names.
+
+    The static pipeline keeps the dithered image at the original URL (the
+    client-side toggle derives ``*_original`` from it), so a JPEG stays a
+    JPEG. JPEG cannot store the palette or 1-bit modes dithering produces.
+    """
+    extension = os.path.splitext(path)[1].lower()
+    if Image.registered_extensions().get(extension) == "JPEG" and image.mode not in JPEG_MODES:
+        image = image.convert("RGB")
+    image.save(path, optimize=True)
