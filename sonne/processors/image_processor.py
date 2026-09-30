@@ -703,10 +703,13 @@ def _files_to_scan_for_refs(directories: List[Optional[str]]) -> Iterator[str]:
 
 def _find_images(directory: str, used_paths: Optional[Set[str]]) -> List[str]:
     """Image files under a directory, minus hidden ones and (optionally) unused ones."""
+    root = Path(directory)
     image_paths = []
     for ext in IMAGE_EXTENSIONS:
-        for file_path in Path(directory).glob(f"**/*{ext}"):
-            if any(part.startswith(".") for part in file_path.parts):
+        for file_path in root.glob(f"**/*{ext}"):
+            # Only parts below the scanned directory: the site itself may
+            # live under a dot-directory (e.g. ~/.sites/blog).
+            if any(part.startswith(".") for part in file_path.relative_to(root).parts):
                 continue
             if used_paths is not None and str(file_path.resolve()) not in used_paths:
                 logger.debug(f"Skipping unused image: {file_path}")

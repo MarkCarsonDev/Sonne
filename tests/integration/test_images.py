@@ -166,7 +166,6 @@ class TestStaticImages:
 
 
 class TestSiteLocation:
-    @pytest.mark.xfail(strict=True, reason="B20: hidden-file filter checks absolute path parts")
     def test_site_inside_dot_directory_processes_images(self, site_factory, builder, image_factory):
         site = site_factory("blog", overlay="blog_site", name=".sites/blog")
         image_factory(site / "content" / "blog" / "photo.jpg", size=(64, 64))
