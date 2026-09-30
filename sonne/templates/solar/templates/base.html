@@ -1,10 +1,18 @@
 <!DOCTYPE html>
-<html lang="{{ site.language }}">
+<html lang="{{ site.language }}" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% if page.title %}{{ page.title }} - {% endif %}{{ site.title }}</title>
     <meta name="description" content="{{ page.description | default(site.description) }}">
+
+    <!-- Apply the saved theme before first paint so pages don't flash dark-then-light -->
+    <script>
+        try {
+            var savedTheme = localStorage.getItem("solarTheme");
+            if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
+        } catch (e) {}
+    </script>
     
     <!-- Critical CSS inline for performance -->
     <style>
@@ -54,12 +62,6 @@
             transition: background-color 0.3s ease, color 0.3s ease;
         }
         
-        /* No JS fallback */
-        .no-js body {
-            background-color: #ffffff;
-            color: #333333;
-        }
-        
         /* Main layout */
         .container {
             width: 90%;
@@ -69,9 +71,6 @@
         }
         
         .site-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
             padding: 1rem 0;
             border-bottom: 1px solid var(--border-color);
             margin-bottom: 2rem;
@@ -100,6 +99,14 @@
             color: var(--link-hover);
         }
         
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
         /* Navigation */
         .site-nav ul {
             display: flex;
@@ -107,6 +114,10 @@
             padding: 0;
             margin: 0;
             gap: 1.5rem;
+        }
+
+        .site-nav a[aria-current="page"] {
+            color: var(--heading-color);
         }
         
         .site-title {
@@ -188,7 +199,7 @@
     <!-- Preload link -->
     <link rel="preload" href="/js/minimal.js" as="script">
 </head>
-<body data-theme="dark" data-contrast="low">
+<body data-contrast="low">
     <header class="site-header">
         <div class="container">
             <div class="header-content">
@@ -197,10 +208,12 @@
                 <nav class="site-nav">
                     <ul>
                         {% for item in site.nav %}
-                        <li><a href="{{ item.url }}" {% if page.url == item.url %}class="active"{% endif %}>{{ item.text }}</a></li>
+                        <li><a href="{{ item.url }}"{% if page.url == item.url %} aria-current="page"{% endif %}>{{ item.text }}</a></li>
                         {% endfor %}
                     </ul>
                 </nav>
+
+                <button class="theme-toggle" aria-label="Toggle dark/light mode">☀️</button>
             </div>
         </div>
     </header>
@@ -221,13 +234,9 @@
             {% if weather %}
             <div class="weather-status">
                 <span class="weather-icon">{{ weather.icon_text }}</span>
-                <span>{{ weather.temperature }}°{% if site.weather.units == 'metric' %}C{% else %}F{% endif %} | {{ weather.location }}</span>
+                <span>{{ weather.temperature }}°{{ weather.unit_symbol }} | {{ weather.location }}</span>
             </div>
             {% endif %}
-            
-            <button class="theme-toggle" aria-label="Toggle dark/light mode">
-                ☀️
-            </button>
         </div>
         {% endif %}
         

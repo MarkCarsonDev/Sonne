@@ -21,7 +21,7 @@
             <div class="forecast-day">
                 <div class="forecast-date">{{ day.day_name }} ({{ day.date }})</div>
                 <div class="forecast-icon">{{ day.icon_text }}</div>
-                <div class="forecast-temp">{{ day.temperature }}°{% if site.weather.units == 'metric' %}C{% else %}F{% endif %}</div>
+                <div class="forecast-temp">{{ day.temperature }}°{{ day.unit_symbol }}</div>
                 <div class="forecast-desc">{{ day.description }}</div>
             </div>
             {% endfor %}
