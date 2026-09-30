@@ -58,7 +58,7 @@ MONTH_NAMES = (
 )
 
 MARKDOWN_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
-HTML_IMAGE_SRC = re.compile(r'<img[^>]+src=["\'](([^"\']+))["\']')
+HTML_IMAGE_SRC = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']')
 QUOTED_IMAGE_TITLE = re.compile(r'\s+"([^"]*)"')
 FILENAME_DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})-")
 # The closing fence must repeat the opening fence exactly. That is stricter
@@ -205,6 +205,10 @@ class BlogProcessor:
                 self.posts.append(post)
                 logger.debug(f"Collected post: {post['title']} from {file_path}")
 
+    def _site_author(self) -> str:
+        """The site-wide author, used when a post names none ('' if unset)."""
+        return self.config.get("site", "author", default="") or ""
+
     @property
     def _include_drafts(self) -> bool:
         return bool(self.config.get("blog", "include_drafts", default=False))
@@ -239,9 +243,7 @@ class BlogProcessor:
             "date_posted": date.strftime("%B %d, %Y"),  # {{ page.date_posted }} in templates
             "modified": modified,
             "date_edited": modified.strftime("%B %d, %Y"),
-            "author": front_matter.get(
-                "author", self.config.get("site", "author", default="Anonymous")
-            ),
+            "author": front_matter.get("author", self._site_author()),
             "slug": slug,
             "url": url,
             "full_url": self._format_url("/" + os.path.join(self.blog_dir, url).replace("\\", "/")),
@@ -404,7 +406,7 @@ class BlogProcessor:
             output_dir = os.path.dirname(self._post_output_path(post))
         except ValueError:
             return  # path traversal; _get_output_path has logged it
-        self._copy_post_images(post, output_dir)  # logs its own errors
+        self._publish_post_images(post, output_dir)  # logs its own errors
 
     def _post_output_path(self, post: Dict[str, Any]) -> str:
         return self._get_output_path(os.path.join(self.blog_dir, post["url"].rstrip("/")))
@@ -517,7 +519,7 @@ class BlogProcessor:
 
     # Post images
 
-    def _copy_post_images(self, post: Dict[str, Any], output_dir: str) -> None:
+    def _publish_post_images(self, post: Dict[str, Any], output_dir: str) -> None:
         """Publish the images a post references, plus its cover image.
 
         Each image is copied (resized) to its own relative path and, when
@@ -973,7 +975,7 @@ class BlogProcessor:
 
     def _rss_item(self, post: Dict[str, Any], site_url: str) -> str:
         post_url = site_url + post["full_url"]
-        author = post.get("author", self.config.get("site", "author", default=""))
+        author = post.get("author", self._site_author())
         # Prefer the lighter dithered cover, fall back to the original.
         cover_rel = post.get("cover_img_dithered") or post.get("cover_img_original")
         media_tag = ""
