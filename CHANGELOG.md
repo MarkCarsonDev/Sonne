@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A data script's `sonne_var()` that replaces an existing site variable (a
   site config key, data-file key or Sonne default such as `nav`) now logs a
   warning once per key per build; the value is still replaced (B18).
+- `solar` scaffold: the weather data script exposes current conditions as
+  `current_weather` (was `weather`, which replaced `site.weather` from
+  `sonne.yaml`). Custom templates based on the solar scaffold should rename
+  `weather.*` to `current_weather.*`.
 - `solar` scaffold: removed the unused `solar.*` keys (`theme`,
   `contrast`, `font_size`, `reduce_motion`, `minimize_images`,
   `data_saver`, `weather_update_interval`) — nothing read them. The theme
