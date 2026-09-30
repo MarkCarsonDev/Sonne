@@ -1,23 +1,18 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="tag-page">
+<div class="archive-page">
     <header class="page-header">
-        <h1>Posts Tagged: {{ page.tag }}</h1>
+        <h1>{{ page.title }}</h1>
     </header>
-    
-    {% if page.posts %}
+
     <div class="posts-grid">
         {% for post in page.posts %}
         {% include "partials/post_card.html" %}
         {% endfor %}
     </div>
-    {% else %}
-    <p>No posts found with this tag.</p>
-    {% endif %}
-    
-    <div class="tag-nav">
-        <a href="/blog/tags/" class="btn">View All Tags</a>
+
+    <div class="archive-nav">
         <a href="/blog/" class="btn">Back to Blog</a>
     </div>
 </div>

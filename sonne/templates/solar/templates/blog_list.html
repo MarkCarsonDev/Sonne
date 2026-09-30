@@ -12,31 +12,7 @@
     {% if page.posts %}
     <div class="posts-grid">
         {% for post in page.posts %}
-        <article class="blog-card">
-            <header>
-                <h2 class="blog-card-title"><a href="{{ post.full_url }}">{{ post.title }}</a></h2>
-                <div class="blog-meta">
-                    <time datetime="{{ post.date_str }}">{{ post.date_formatted }}</time>
-                    {% if post.author %} • {{ post.author }}{% endif %}
-                </div>
-            </header>
-            
-            <div class="blog-excerpt">
-                {{ post.excerpt }}
-            </div>
-            
-            <footer>
-                {% if post.tags %}
-                <div class="blog-tags">
-                    {% for tag in post.tags %}
-                    <a href="/blog/tags/{{ tag | lower | replace(' ', '-') }}/" class="tag">{{ tag }}</a>
-                    {% endfor %}
-                </div>
-                {% endif %}
-                
-                <a href="{{ post.full_url }}" class="btn">Read More</a>
-            </footer>
-        </article>
+        {% include "partials/post_card.html" %}
         {% endfor %}
     </div>
     
