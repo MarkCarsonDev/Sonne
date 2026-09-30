@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import shutil
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -128,6 +129,9 @@ class ImageProcessor:
         self.cache = {}
         self.cache_file = None
         self.stats = None  # Injected by SiteGenerator
+        self._warned_dither_methods: Set[str] = set()
+        # Images are processed in a thread pool.
+        self._warnings_lock = threading.Lock()
 
         # Setup cache if a cache directory is configured
         if "cache" in self.paths:
@@ -577,7 +581,8 @@ class ImageProcessor:
     ) -> "Image.Image":
         """Apply dithering to an image using the configured (or specified) method.
 
-        Unknown method names fall back to bayer.
+        Unknown method names fall back to bayer (with the same palette size)
+        and are warned about once.
 
         Args:
             img: Source PIL Image (any mode).
@@ -619,8 +624,16 @@ class ImageProcessor:
         elif method == "color_lab":
             return _lab_kmeans_dither(img, colors)
         else:
-            logger.warning(f"Unknown dither_method '{method}', defaulting to bayer")
-            return _bayer_dither(img, DEFAULT_DITHER_COLORS)
+            self._warn_unknown_dither_method(method)
+            return _bayer_dither(img, colors)
+
+    def _warn_unknown_dither_method(self, method: str) -> None:
+        """Warn about an unknown dither method once per processor, not per image."""
+        with self._warnings_lock:
+            if method in self._warned_dither_methods:
+                return
+            self._warned_dither_methods.add(method)
+        logger.warning(f"Unknown images.dither_method '{method}'; using 'bayer' instead")
 
     def dither_image(self, input_path: str, output_path: str) -> None:
         """Apply dithering to an image.

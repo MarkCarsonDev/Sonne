@@ -2,7 +2,6 @@
 
 import logging
 
-import pytest
 from PIL import Image
 
 from sonne.core.config import Config
@@ -180,14 +179,12 @@ class TestUnknownDitherMethod:
         config.set("images", "dither_colors", value=2)
         return ImageProcessor(config, {})
 
-    @pytest.mark.xfail(strict=True, reason="B25: bayer fallback ignores dither_colors")
     def test_fallback_uses_configured_colors(self):
         processor = self.processor()
         gradient = Image.linear_gradient("L").resize((32, 32))
         expected = processor._apply_dither(gradient, "bayer", 2)
         assert processor.dither(gradient).tobytes() == expected.tobytes()
 
-    @pytest.mark.xfail(strict=True, reason="B25: unknown method warns on every image")
     def test_warns_once_naming_method_and_fallback(self, caplog):
         processor = self.processor()
         image = Image.new("RGB", (8, 8))
