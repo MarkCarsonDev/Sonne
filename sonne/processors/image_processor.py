@@ -558,6 +558,11 @@ class ImageProcessor:
     def dither(self, image: "Image.Image") -> "Image.Image":
         """Dither an image with the site's configured method and palette size.
 
+        This is the supported entry point for data scripts that dither
+        in-memory images, e.g. ``ImageProcessor(config, {}).dither(image)``.
+        ``_apply_dither(image, method=None, colors=None)`` keeps working for
+        existing callers.
+
         Args:
             image: Source PIL Image (any mode).
 
