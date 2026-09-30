@@ -1,7 +1,5 @@
 """BuildStatistics: the human-readable build report (pinned verbatim)."""
 
-import pytest
-
 from sonne.utils.build_stats import BuildStatistics
 
 RULE = "=" * 60
@@ -29,7 +27,7 @@ def busy_build():
     stats.record_phase("images", 4.0)
     stats.record_phase("pages", 0.5)
     stats.record_phase("custom", 0.0005)
-    stats.record_image("content/a/big.png", 3.5, method="lab_kmeans", width=800, height=600)
+    stats.record_image("content/a/big.png", 3.5, method="color_lab", width=800, height=600)
     stats.record_image("small.png", 0.02)
     stats.record_image("cached.png", 9.0, cached=True)
     stats.record_post("hello", 0.25)
@@ -123,7 +121,7 @@ class TestFormatReport:
                 "  custom          0.5ms  ░░░░░░░░░░░░░░░░░░░░░░░░    0%",
                 "",
                 "Slowest images:",
-                "  big.png                                3.50s  (800×600, lab_kmeans)",
+                "  big.png                                3.50s  (800×600, color_lab)",
                 "  small.png                               20ms",
                 "",
                 "Slowest posts:",
@@ -133,7 +131,7 @@ class TestFormatReport:
                 "  slow.py                                2.50s",
                 "",
                 "Hints:",
-                "  ⚡ Some images took >3s with lab_kmeans — try dither: bayer for faster builds",
+                "  ⚡ Some images took >3s with color_lab — try images.dither_method: bayer for faster builds",
                 "  ⚡ Slow scripts block the build: slow.py",
                 "  ⚡ Low cache hit rate — run with --skip-cache only when images change",
                 "",
@@ -143,7 +141,6 @@ class TestFormatReport:
 
 
 class TestPerformanceHints:
-    @pytest.mark.xfail(strict=True, reason="B47: slow-image hint checks a method name never used")
     def test_slow_color_lab_images_suggest_bayer(self):
         stats = BuildStatistics(start_time=0.0, end_time=5.0)
         stats.record_phase("images", 4.0)
