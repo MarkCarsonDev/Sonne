@@ -223,11 +223,11 @@ Any other key under `site` is passed through to templates unchanged.
 | `url_style.prod` | `clean` | URL style in `prod`: `clean`, `html` or `directory` (see [URL Configuration](#url-configuration)). `url_style` may also be a single style for every environment. |
 | `url_style.dev` | `directory` | URL style in `dev`. |
 | `build.show_page_size` | `false` | Add a small page-weight label to every generated page. |
-| `build.incremental` | `true` | No effect (every build is a full build). |
-| `build.show_progress` | `true` | No effect; use `sonne build --no-progress`. |
-| `build.statistics` | `true` | No effect; use `sonne build --perf` for the build report. |
-| `security.csp.enabled` | `false` | No effect yet: the policy is computed but not added to generated pages. |
-| `security.csp.directives` | `{}` | CSP directives, each a list of sources (no effect yet; see above). |
+| `build.incremental` | none | Deprecated: has no effect and will be removed (every build is a full build). |
+| `build.show_progress` | none | Deprecated: has no effect and will be removed; use `sonne build --no-progress`. |
+| `build.statistics` | none | Deprecated: has no effect and will be removed; use `sonne build --perf` for the build report. |
+| `security.csp.enabled` | none | Deprecated with all of `security.csp`: has no effect and will be removed. Sonne never added the policy to pages; send a `Content-Security-Policy` header from your web server instead. |
+| `security.csp.directives` | none | Deprecated: see `security.csp.enabled`. |
 | `security.allow_embedded_python` | none | Removed (warns and is ignored). Use data scripts with `sonne_global()`/`sonne_filter()` plus `content.render_jinja`. |
 | `solar` | none | Template-specific: settings for the solar template's scripts. |
 

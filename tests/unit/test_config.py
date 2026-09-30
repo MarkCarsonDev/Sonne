@@ -159,27 +159,20 @@ class TestValidate:
         assert cfg.validate() == []
 
 
-class TestContentSecurityPolicy:
-    def test_disabled_by_default(self, tmp_path):
-        assert Config(base_dir=str(tmp_path)).get_csp_meta_tag() is None
-
-    def test_enabled_without_directives_gives_nothing(self, tmp_path):
-        cfg = config_with(tmp_path, ("security", "csp", "enabled", True))
-
-        assert cfg.generate_csp_header() is None
-
-    def test_list_directives_are_joined_and_invalid_ones_skipped(self, tmp_path):
-        directives = {"default-src": ["'self'"], "img-src": ["'self'", "data:"], "bad": "x"}
-        cfg = config_with(
-            tmp_path,
-            ("security", "csp", "enabled", True),
-            ("security", "csp", "directives", directives),
+class TestNoEffectKeys:
+    def test_deprecated_no_effect_keys_are_accepted_and_dropped(self, tmp_path):
+        (tmp_path / "sonne.yaml").write_text(
+            "build:\n  incremental: false\n  show_page_size: true\n"
+            "security:\n  csp:\n    enabled: true\n",
+            encoding="utf-8",
         )
 
-        assert cfg.get_csp_meta_tag() == (
-            '<meta http-equiv="Content-Security-Policy" '
-            "content=\"default-src 'self'; img-src 'self' data:\">"
-        )
+        with pytest.warns(DeprecationWarning, match="has no effect and will be removed"):
+            cfg = Config(base_dir=str(tmp_path))
+
+        assert cfg.get("build") == {"show_page_size": True}
+        assert cfg.get("security") == {}
+        assert cfg.validate() == []
 
 
 class TestSave:

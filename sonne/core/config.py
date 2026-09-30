@@ -97,12 +97,6 @@ DEFAULT_CONFIG = {
         # front matter key `jinja: true|false` overrides this either way.
         "render_jinja": False,
     },
-    "security": {
-        "csp": {
-            "enabled": False,
-            "directives": {},
-        },
-    },
     "url_style": {
         "prod": "clean",
         "dev": "directory",
@@ -113,9 +107,6 @@ DEFAULT_CONFIG = {
     },
     "environment": "prod",
     "build": {
-        "incremental": True,
-        "show_progress": True,
-        "statistics": True,
         "show_page_size": False,
     },
 }
@@ -461,42 +452,6 @@ class Config:
         if url.endswith("/") and url != "/":
             return url[:-1]
         return url
-
-    def generate_csp_header(self) -> Optional[str]:
-        """Generate Content Security Policy header if enabled.
-
-        Directives whose sources are not a list are skipped with a warning.
-
-        Returns:
-            CSP header value, or None if disabled or no valid directives.
-        """
-        csp_config = self.get("security", "csp")
-        if not csp_config or not csp_config.get("enabled"):
-            return None
-
-        directives = csp_config.get("directives", {})
-        if not directives:
-            logger.warning("CSP enabled but no directives configured")
-            return None
-
-        policy_parts = []
-        for directive, sources in directives.items():
-            if isinstance(sources, list):
-                policy_parts.append(f"{directive} {' '.join(sources)}")
-            else:
-                logger.warning(f"CSP directive '{directive}' has invalid format (should be list)")
-        return "; ".join(policy_parts) or None
-
-    def get_csp_meta_tag(self) -> Optional[str]:
-        """Generate CSP meta tag for HTML if enabled.
-
-        Returns:
-            HTML meta tag string or None if disabled.
-        """
-        csp_header = self.generate_csp_header()
-        if not csp_header:
-            return None
-        return f'<meta http-equiv="Content-Security-Policy" content="{csp_header}">'
 
 
 def _self_and_ancestors(directory: str, depth: int) -> list[str]:
