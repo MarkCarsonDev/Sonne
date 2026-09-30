@@ -60,8 +60,14 @@ MARKDOWN_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 HTML_IMAGE_SRC = re.compile(r'<img[^>]+src=["\'](([^"\']+))["\']')
 QUOTED_IMAGE_TITLE = re.compile(r'\s+"([^"]*)"')
 FILENAME_DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})-")
+# The closing fence must repeat the opening fence exactly. That is stricter
+# than CommonMark (which accepts a longer closing fence) on purpose: it is
+# how Python-Markdown's fenced_code, our renderer, decides what is code.
 FENCED_CODE_BLOCK = re.compile(r"^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$", re.DOTALL | re.MULTILINE)
 INLINE_CODE = re.compile(r"`[^`\n]+`")
+LIST_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+")
+CODE_INDENT_COLUMNS = 4
+TAB_COLUMNS = 4
 
 
 @dataclass
@@ -1127,8 +1133,51 @@ def _local_image_refs(post: Dict[str, Any]) -> Iterator[Tuple[str, dict]]:
 
 
 def _without_code(markdown: str) -> str:
-    """Remove fenced code blocks and inline code spans, whose image syntax is only sample text."""
-    return INLINE_CODE.sub("", FENCED_CODE_BLOCK.sub("", markdown))
+    """Remove code blocks and inline code spans, whose image syntax is only sample text."""
+    return INLINE_CODE.sub("", _without_indented_code(FENCED_CODE_BLOCK.sub("", markdown)))
+
+
+def _without_indented_code(markdown: str) -> str:
+    """Blank out indented code blocks the way Python-Markdown recognizes them.
+
+    A code block starts after a blank line with at least 4 columns of
+    indentation (8 inside a list item, where 4 is just a continuation
+    paragraph) and runs until a less-indented non-blank line. An indented
+    line directly after text is a lazy continuation, not code.
+    """
+    kept = []
+    in_list = in_code = False
+    previous_blank = True
+    for line in markdown.split("\n"):
+        if not line.strip():
+            kept.append(line)
+            previous_blank = True
+            continue
+        code_indent = CODE_INDENT_COLUMNS * (2 if in_list else 1)
+        indent = _indent_columns(line)
+        in_code = indent >= code_indent and (in_code or previous_blank)
+        previous_blank = False
+        if in_code:
+            kept.append("")
+            continue
+        if LIST_ITEM.match(line):
+            in_list = True
+        elif indent == 0:
+            in_list = False
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _indent_columns(line: str) -> int:
+    columns = 0
+    for character in line:
+        if character == " ":
+            columns += 1
+        elif character == "\t":
+            columns += TAB_COLUMNS - columns % TAB_COLUMNS
+        else:
+            break
+    return columns
 
 
 def _is_external_or_vector(image_ref: str) -> bool:
