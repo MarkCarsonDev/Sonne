@@ -1,5 +1,7 @@
 """CLI surface via click's CliRunner."""
 
+import logging
+
 import pytest
 from click.testing import CliRunner
 
@@ -53,6 +55,31 @@ class TestBuild:
         result = runner.invoke(cli, ["build", "-p", str(empty)])
         assert result.exit_code != 0
 
+    def test_perf_report_survives_non_utf8_output(self, tmp_path):
+        """--perf on a cp1252 pipe (Windows redirect) must not fail the build."""
+        target = tmp_path / "perf"
+        CliRunner().invoke(cli, ["new", "-p", str(target), "-t", "minimal"])
+        cp1252_runner = CliRunner(charset="cp1252")
+
+        result = cp1252_runner.invoke(cli, ["build", "-p", str(target), "--no-progress", "--perf"])
+
+        assert result.exit_code == 0, result.output
+        assert "Performance Breakdown" in result.output
+
+    def test_build_reports_the_sites_own_output_dir(self, runner, tmp_path, monkeypatch, caplog):
+        import sonne.cli.commands as commands
+
+        target = tmp_path / "elsewhere"
+        runner.invoke(cli, ["new", "-p", str(target), "-t", "minimal"])
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(commands, "console", None)  # plain log output
+
+        with caplog.at_level(logging.INFO, logger="sonne"):
+            runner.invoke(cli, ["build", "-p", str(target), "--no-progress"])
+
+        completion = [r.message for r in caplog.records if r.message.startswith("Build complete")]
+        assert completion and completion[0].endswith(f"[{target / 'output'}]")
+
     def test_build_has_yes_flag(self, runner):
         result = runner.invoke(cli, ["build", "--help"])
         assert "--yes" in result.output
@@ -80,3 +107,45 @@ class TestServeInternals:
         _rebuild_site(str(site))
         html = (site / "output" / "index.html").read_text(encoding="utf-8")
         assert "Retitled Site" in html
+
+
+class TestWatchRelevance:
+    @staticmethod
+    def rebuilder_for(site, **paths):
+        from sonne.cli.commands import SiteRebuilder
+        from sonne.core.config import Config
+
+        config = Config(base_dir=str(site))
+        for key, value in paths.items():
+            config.set("paths", key, value=value)
+        return SiteRebuilder(str(site), config)
+
+    def test_nested_forward_slash_path_is_watched(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path, content="src/pages")
+
+        assert rebuilder.affects_site(str(tmp_path / "src" / "pages" / "a.md"))
+
+    def test_dot_prefixed_path_is_watched(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path, content="./content")
+
+        assert rebuilder.affects_site(str(tmp_path / "content" / "a.md"))
+
+    def test_absolute_path_is_watched(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path, content=str(tmp_path / "abs"))
+
+        assert rebuilder.affects_site(str(tmp_path / "abs" / "a.md"))
+
+    def test_config_file_is_watched(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path)
+
+        assert rebuilder.affects_site(str(tmp_path / "sonne.yaml"))
+
+    def test_sibling_with_shared_prefix_is_ignored(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path, content="content")
+
+        assert not rebuilder.affects_site(str(tmp_path / "content-drafts" / "a.md"))
+
+    def test_output_changes_are_ignored(self, tmp_path):
+        rebuilder = self.rebuilder_for(tmp_path)
+
+        assert not rebuilder.affects_site(str(tmp_path / "output" / "index.html"))
