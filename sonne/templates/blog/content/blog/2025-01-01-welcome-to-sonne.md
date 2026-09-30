@@ -41,7 +41,7 @@ After the front matter, you can write your content in Markdown format. Sonne sup
 - **Bold text** and *italic text*
 - Lists (like this one)
 - [Links](https://example.com)
-- Images: ![Alt text](/path/to/image.jpg)
+- Images: `![Alt text](images/photo.jpg)`, with the image file next to the post
 - And much more!
 
 ## Features
