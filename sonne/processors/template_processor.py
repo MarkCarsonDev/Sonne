@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 from jinja2 import TemplateSyntaxError, UndefinedError
 from markupsafe import Markup
 
-from sonne.utils.constants import MARKDOWN_EXTENSIONS
+from sonne.utils.constants import MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
 from sonne.utils.path_utils import validate_path_within_root
 from sonne.utils.text import slugify
 
@@ -108,6 +108,8 @@ DITHERED_IMAGE_MARKUP = Markup("""
                 </div>
             </div>
             """)
+
+HTML_PAGE_EXTENSIONS = PAGE_EXTENSIONS - MARKDOWN_EXTENSIONS
 
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 
@@ -611,10 +613,13 @@ class TemplateProcessor:
     def _content_file_url(self, source_path: str, is_markdown: bool) -> str:
         """URL for a file under the content directory, styled per ``url_style``.
 
-        Markdown ``index`` pages (index.md, dir/index.md) are their directory's URL.
+        Mirrors where SiteGenerator writes the page: Markdown pages, and HTML
+        pages outside the 'html' style, become ``<dir>/<name>/index.html``,
+        so their suffix is dropped and ``index`` pages are their directory's
+        URL. In the 'html' style HTML pages keep their own file name.
         """
         rel_path = PurePath(os.path.relpath(source_path, self.paths.get("content", "")))
-        if is_markdown and rel_path.suffix.lower() in MARKDOWN_EXTENSIONS:
+        if self._written_as_directory_index(rel_path, is_markdown):
             rel_path = rel_path.with_suffix("")
         url = (
             _directory_url(rel_path.parent)
@@ -626,6 +631,13 @@ class TemplateProcessor:
             logger.debug(f"Formatted URL: {url} -> {formatted}")
             url = formatted
         return url
+
+    def _written_as_directory_index(self, rel_path: PurePath, is_markdown: bool) -> bool:
+        """Whether the page's output drops its source suffix (see _content_file_url)."""
+        suffix = rel_path.suffix.lower()
+        if is_markdown:
+            return suffix in MARKDOWN_EXTENSIONS
+        return suffix in HTML_PAGE_EXTENSIONS and self.config.get_url_style() != "html"
 
     def _template_name(
         self, front_matter: Dict[str, Any], variables: Dict[str, Any], source_path: str

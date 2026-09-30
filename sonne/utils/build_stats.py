@@ -16,6 +16,8 @@ THIN_RULE = "-" * 60
 MAX_LISTED_MESSAGES = 5
 SLOWEST_SHOWN = 5
 SLOW_IMAGE_SECONDS = 3.0
+# The dither method slow enough to deserve a hint (per-pixel error diffusion).
+SLOW_DITHER_METHOD = "color_lab"
 SLOW_SCRIPT_SECONDS = 2.0
 LOW_CACHE_HIT_RATE_PERCENT = 50
 
@@ -287,9 +289,10 @@ class BuildStatistics:
         slow_images = [
             timing for timing in self._uncached_images() if timing["seconds"] > SLOW_IMAGE_SECONDS
         ]
-        if any(timing["method"] == "lab_kmeans" for timing in slow_images):
+        if any(timing["method"] == SLOW_DITHER_METHOD for timing in slow_images):
             hints.append(
-                "⚡ Some images took >3s with lab_kmeans — try dither: bayer for faster builds"
+                f"⚡ Some images took >{SLOW_IMAGE_SECONDS:g}s with {SLOW_DITHER_METHOD}"
+                " — try images.dither_method: bayer for faster builds"
             )
         slow_scripts = [
             name for name, seconds in self.script_times.items() if seconds > SLOW_SCRIPT_SECONDS

@@ -48,6 +48,24 @@ class TestPageUrls:
         processor = make_processor(site)
         assert page_url(processor, source) == processor.config.format_url("/v1.mdnotes/page")
 
+    @pytest.mark.parametrize(
+        "file_name, url_style, expected_url",
+        [
+            ("about.html", "clean", "/about"),
+            ("about.html", "directory", "/about/"),
+            ("about.html", "html", "/about.html"),
+            ("docs/index.htm", "clean", "/docs"),
+            ("docs/index.htm", "directory", "/docs/"),
+        ],
+    )
+    def test_html_page_url_matches_where_it_is_written(
+        self, site, file_name, url_style, expected_url
+    ):
+        source = write(site / "content" / file_name, "<p>Page</p>")
+        processor = make_processor(site, {("url_style",): url_style})
+        front_matter, _ = processor.process_page("<p>Page</p>", False, str(source), EMPTY_SCOPES)
+        assert front_matter["url"] == expected_url
+
 
 class TestPostTemplate:
     def test_posts_in_configured_blog_directory_use_post_template(self, site):

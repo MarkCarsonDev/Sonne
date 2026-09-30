@@ -131,6 +131,7 @@ class ImageProcessor:
         self.cache_file = None
         self.stats = None  # Injected by SiteGenerator
         self._warned_dither_methods: Set[str] = set()
+        self._used_images_by_content_dir: Dict[Optional[str], Set[str]] = {}
         # Images are processed in a thread pool; guards warnings and stats.
         self._lock = threading.Lock()
 
@@ -192,8 +193,7 @@ class ImageProcessor:
             content_dir: Directory containing content to scan for images.
             skip_cache: Whether to skip cache and reprocess all images.
         """
-        only_used = self.config.get("images", "only_used", default=False)
-        used_paths = self._collect_used_images(content_dir) if only_used else None
+        used_paths = self._used_image_paths(content_dir)
 
         if content_dir and os.path.exists(content_dir):
             logger.info(f"Processing images in content directory: {content_dir}")
@@ -207,6 +207,39 @@ class ImageProcessor:
             )
 
         self._save_cache()
+
+    def owns_static_file(self, source_path: str) -> bool:
+        """Whether image processing writes this static file's output itself.
+
+        True for the images under static/images that process_all() handles
+        (raster, not hidden, and referenced when images.only_used is on).
+        A plain static copy must skip these: it would overwrite the dithered
+        image with the raw source.
+
+        Args:
+            source_path: Path of a file under the static directory.
+        """
+        static_images_dir = self._static_images_dir()
+        if not static_images_dir:
+            return False
+        root = Path(os.path.abspath(static_images_dir))
+        file_path = Path(os.path.abspath(source_path))
+        if root not in file_path.parents:
+            return False
+        used_paths = self._used_image_paths(self.paths.get("content"))
+        return _is_processable_image(file_path, root, used_paths)
+
+    def _used_image_paths(self, content_dir: Optional[str]) -> Optional[Set[str]]:
+        """Referenced image paths when images.only_used is on, else None (use all).
+
+        Memoised per content dir: the static copy and process_all() must
+        agree on the same set within one build.
+        """
+        if not self.config.get("images", "only_used", default=False):
+            return None
+        if content_dir not in self._used_images_by_content_dir:
+            self._used_images_by_content_dir[content_dir] = self._collect_used_images(content_dir)
+        return self._used_images_by_content_dir[content_dir]
 
     def _static_images_dir(self) -> Optional[str]:
         """The site's static/images directory, if it exists."""
@@ -328,23 +361,17 @@ class ImageProcessor:
         file_hash = self._file_hash(source_path) if not skip_cache else None
         cache_key = f"static:{source_path}:{file_hash}:{dither}:{dither_method}:{dither_colors}"
 
-        if not skip_cache and cache_key in self.cache:
-            # Only honor the hit if the outputs survived (--clean keeps the
-            # cache but wipes the output dir)
-            if os.path.exists(output_path) and os.path.exists(original_path):
-                logger.debug(f"Using cached version of static image: {source_path}")
-                self._count(images_cached=1, cache_hits=1)
-                return
-            logger.debug(
-                f"Cache hit for static image {source_path} but outputs missing; reprocessing"
-            )
+        if not skip_cache and self._static_cache_hit(cache_key, output_path, original_path):
+            logger.debug(f"Using cached version of static image: {source_path}")
+            self._count(images_cached=1, cache_hits=1)
+            return
 
         try:
             self._write_static_pair(
                 source_path, output_path, original_path, dither_method, dither_colors
             )
             if not skip_cache:
-                self.cache[cache_key] = True
+                self.cache[cache_key] = _file_signature(output_path)
             self._count(
                 images_processed=1,
                 cache_misses=0 if skip_cache else 1,
@@ -360,6 +387,24 @@ class ImageProcessor:
                 exc_info=logger.isEnabledFor(logging.DEBUG),
             )
             self._copy_static_image(source_path)
+
+    def _static_cache_hit(self, cache_key: str, output_path: str, original_path: str) -> bool:
+        """Whether the cached dithered output is still the file in the output dir.
+
+        The entry records the dithered file's size and mtime. Anything else
+        at the output path (--clean wiped it, or the static copy replaced it
+        with the raw source) is a miss, as is an entry from before signatures
+        were recorded.
+        """
+        cached_signature = self.cache.get(cache_key)
+        if not isinstance(cached_signature, dict) or not os.path.exists(original_path):
+            return False
+        if _file_signature(output_path) == cached_signature:
+            return True
+        logger.debug(
+            f"Static image output changed since it was cached; reprocessing: {output_path}"
+        )
+        return False
 
     def _write_static_pair(
         self,
@@ -741,19 +786,22 @@ def _files_to_scan_for_refs(directories: List[Optional[str]]) -> Iterator[str]:
 def _find_images(directory: str, used_paths: Optional[Set[str]]) -> List[str]:
     """Image files under a directory (sorted), minus hidden and (optionally) unused ones."""
     root = Path(directory)
-    image_paths = []
-    for file_path in sorted(root.rglob("*")):
-        if file_path.suffix.lower() not in IMAGE_EXTENSIONS or not file_path.is_file():
-            continue
-        # Only parts below the scanned directory: the site itself may
-        # live under a dot-directory (e.g. ~/.sites/blog).
-        if any(part.startswith(".") for part in file_path.relative_to(root).parts):
-            continue
-        if used_paths is not None and str(file_path.resolve()) not in used_paths:
-            logger.debug(f"Skipping unused image: {file_path}")
-            continue
-        image_paths.append(str(file_path))
-    return image_paths
+    return [
+        str(file_path)
+        for file_path in sorted(root.rglob("*"))
+        if _is_processable_image(file_path, root, used_paths)
+    ]
+
+
+def _is_processable_image(file_path: Path, root: Path, used_paths: Optional[Set[str]]) -> bool:
+    """A non-hidden raster image under root, and referenced if used_paths is given."""
+    if file_path.suffix.lower() not in IMAGE_EXTENSIONS or not file_path.is_file():
+        return False
+    # Only parts below the scanned directory: the site itself may live
+    # under a dot-directory (e.g. ~/.sites/blog).
+    if any(part.startswith(".") for part in file_path.relative_to(root).parts):
+        return False
+    return used_paths is None or str(file_path.resolve()) in used_paths
 
 
 def _with_original_suffix(path: str) -> str:
@@ -971,3 +1019,12 @@ def _save_in_source_format(image: "Image.Image", path: str) -> None:
     if Image.registered_extensions().get(extension) == "JPEG" and image.mode not in JPEG_MODES:
         image = image.convert("RGB")
     image.save(path, optimize=True)
+
+
+def _file_signature(path: str) -> Optional[Dict[str, int]]:
+    """Size and modification time of a file, or None if it does not exist."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
