@@ -219,7 +219,6 @@ class TestDraftsAndPaths:
 
 
 class TestDitherFailure:
-    @pytest.mark.xfail(strict=True, reason="B38: failed dither writes the source bytes as .png")
     def test_failed_dither_links_the_original(
         self, site_factory, builder, image_factory, monkeypatch
     ):

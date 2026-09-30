@@ -89,6 +89,11 @@ class _PublishedImage:
         return bool(self.original_kb and self.dithered_kb)
 
     @property
+    def dither_failed(self) -> bool:
+        """Dithering was requested but produced no file."""
+        return self.dithered_rel_path is not None and self.dithered_kb is None
+
+    @property
     def reduction_percent(self) -> int:
         return int(round((1 - self.dithered_kb / self.original_kb) * 100))
 
@@ -518,7 +523,7 @@ class BlogProcessor:
                 for image_ref, transforms in _local_image_refs(post)
                 if (image := self._publish_inline_image(post, image_ref, transforms, output_dir))
             ]
-            self._annotate_image_sizes(post, published)
+            self._update_figure_markup(post, published)
             self._publish_cover_image(post, output_dir)
         except Exception as e:
             _log_error(f"Error processing images for post {post.get('title', 'unknown')}: {e}")
@@ -607,26 +612,27 @@ class BlogProcessor:
             )
         return _PublishedImage(image_ref, rel_path, dithered_rel_path, original_kb, dithered_kb)
 
-    def _annotate_image_sizes(self, post: Dict[str, Any], images: List[_PublishedImage]) -> None:
-        """Stamp size data onto the post's already-rewritten <figure> markup.
+    def _update_figure_markup(self, post: Dict[str, Any], images: List[_PublishedImage]) -> None:
+        """Bring the post's <figure> markup in line with the published images.
 
         process_markdown has already turned each <img> into a <figure> whose
         src points at the dithered copy, so images are found by their
-        data-original-src instead of the src the author wrote. The HTML is
-        parsed once per post, not once per image.
+        data-original-src instead of the src the author wrote. Figures get
+        size data; a figure whose dithering failed is pointed at its
+        original. The HTML is parsed once per post, not once per image.
         """
-        images = [image for image in images if image.has_both_sizes]
+        images = [image for image in images if image.has_both_sizes or image.dither_failed]
         if not images:
             return
         try:
             from bs4 import BeautifulSoup
 
             soup = BeautifulSoup(post["content"], "html.parser")
-            annotated = [image for image in images if _annotate_image_tag(soup, image)]
-            if annotated:
+            updated = [image for image in images if _update_image_tag(soup, image)]
+            if updated:
                 post["content"] = str(soup)
         except Exception as e:
-            logger.warning(f"BS4 size-attr injection failed for {post.get('title', '?')}: {e}")
+            logger.warning(f"Updating image markup failed for {post.get('title', '?')}: {e}")
 
     def _save_resized(
         self, source_path: str, output_path: str, max_width: int, transforms: dict
@@ -673,8 +679,8 @@ class BlogProcessor:
             transforms: Transform directives (crop, rotate); may be empty.
 
         Returns:
-            Dithered file size in KB, or None if dithering failed (the source
-            is copied to dithered_path instead, and callers show no savings).
+            Dithered file size in KB, or None if dithering failed. Nothing is
+            left at dithered_path then; callers link the original instead.
         """
         from PIL import Image, ImageOps
 
@@ -689,7 +695,7 @@ class BlogProcessor:
                 dithered.save(dithered_path, format="PNG", optimize=True)
         except Exception as e:
             logger.error(f"Error processing blog image {source_path}: {e}")
-            shutil.copy2(source_path, dithered_path)
+            _remove_if_present(dithered_path)  # a failed save may leave a partial file
             return None
         logger.debug(f"Created dithered PNG: {source_path} -> {dithered_path}")
         return _size_kb(dithered_path)
@@ -1127,34 +1133,58 @@ def _source_image_path(post: Dict[str, Any], image_ref: str) -> str:
     return os.path.normpath(os.path.join(post_source_dir, image_ref))
 
 
-def _annotate_image_tag(soup, image: _PublishedImage) -> bool:
-    """Add size data to the <img> for image and its figure caption/button.
+def _update_image_tag(soup, image: _PublishedImage) -> bool:
+    """Update the <img> published for image: link the original, or add size data.
 
     Returns:
         True if a matching <img> was found.
     """
-    ref = strip_relative_prefix(image.image_ref)
+    img_tag = _find_figure_image(soup, strip_relative_prefix(image.image_ref))
+    if img_tag is None:
+        return False
+    if image.dither_failed:
+        _link_original(img_tag)
+    else:
+        _annotate_sizes(img_tag, image)
+    return True
+
+
+def _find_figure_image(soup, ref: str):
     for img_tag in soup.find_all("img"):
         original_src = img_tag.get("data-original-src", "")
         if strip_relative_prefix(original_src) == ref or original_src.endswith("/" + ref):
-            dithered_size = _format_kb(image.dithered_kb)
-            original_size = _format_kb(image.original_kb)
-            img_tag["data-dithered-size"] = dithered_size
-            img_tag["data-original-size"] = original_size
-            img_tag["data-size-reduction"] = str(image.reduction_percent)
-            figure = img_tag.find_parent("figure")
-            if figure:
-                caption = figure.find("span", class_="caption-text")
-                if caption:
-                    caption.string = (
-                        f"{caption.get_text()} · {dithered_size} (−{image.reduction_percent}%)"
-                    )
-                button = figure.find("button", class_="request-original-btn")
-                if button:
-                    button["data-original-size"] = original_size
-            return True
+            return img_tag
     logger.debug(f"Could not find img with data-original-src matching {ref} in post HTML")
-    return False
+    return None
+
+
+def _link_original(img_tag) -> None:
+    """Show the original where the dithered copy could not be made (both toggle states)."""
+    img_tag["src"] = img_tag["data-original-src"]
+    img_tag["data-dithered-src"] = img_tag["data-original-src"]
+
+
+def _annotate_sizes(img_tag, image: _PublishedImage) -> None:
+    """Add size data to the <img> and to its figure's caption and toggle button."""
+    dithered_size = _format_kb(image.dithered_kb)
+    original_size = _format_kb(image.original_kb)
+    img_tag["data-dithered-size"] = dithered_size
+    img_tag["data-original-size"] = original_size
+    img_tag["data-size-reduction"] = str(image.reduction_percent)
+    figure = img_tag.find_parent("figure")
+    if not figure:
+        return
+    caption = figure.find("span", class_="caption-text")
+    if caption:
+        caption.string = f"{caption.get_text()} · {dithered_size} (−{image.reduction_percent}%)"
+    button = figure.find("button", class_="request-original-btn")
+    if button:
+        button["data-original-size"] = original_size
+
+
+def _remove_if_present(path: str) -> None:
+    if os.path.exists(path):
+        os.remove(path)
 
 
 def _parse_transforms(title: str) -> Tuple[str, dict]:
