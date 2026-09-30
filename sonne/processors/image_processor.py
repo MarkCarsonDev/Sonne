@@ -3,25 +3,66 @@ Image processing for Sonne.
 Handles optimizing, resizing, and converting images.
 """
 
+import hashlib
+import json
+import logging
 import os
 import re
-import json
 import shutil
-import hashlib
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
-import logging
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
-try:
-    from PIL import Image, ImageOps
-
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
+from PIL import Image, ImageOps
 
 logger = logging.getLogger("sonne")
+
+DEFAULT_FORMATS = ["webp", "png"]
+DEFAULT_SIZES = [1200, 800, 400]
+DEFAULT_DITHER_FORMATS = ["webp"]
+
+# Where sized variants are written, relative to the output root.
+VARIANTS_DIR = "assets/images"
+
+# Lossy quality for WebP and JPEG variants.
+LOSSY_QUALITY = 85
+
+# BICUBIC is visually identical to LANCZOS at small sizes and ~2x faster.
+BICUBIC_MAX_WIDTH = 400
+
+HASH_CHUNK_BYTES = 8192
+
+
+@dataclass(frozen=True)
+class VariantSettings:
+    """Every setting that affects the variants written for a content image."""
+
+    dither: bool
+    optimize: bool
+    formats: List[str]
+    sizes: List[int]
+    dither_method: str
+    dither_colors: int
+    webp_method: int
+    webp_method_original: int
+    dither_formats: List[str]
+    dither_sizes: Set[int]
+
+    def cache_key(self, source_path: str, file_hash: Optional[str]) -> str:
+        """Cache key covering the source file and every output-affecting setting.
+
+        The "v2" prefix was bumped when dither settings joined the key, so
+        entries in the old layout are invalidated once.
+        """
+        return (
+            f"v2:{source_path}:{file_hash}:{self.dither}:{self.optimize}"
+            f":{_joined(self.formats)}:{_joined(self.sizes)}"
+            f":{self.dither_method}:{self.dither_colors}"
+            f":{self.webp_method}:{self.webp_method_original}"
+            f":{_joined(self.dither_formats)}:{_joined(sorted(self.dither_sizes))}"
+        )
 
 
 class ImageProcessor:
@@ -39,11 +80,6 @@ class ImageProcessor:
         self.cache = {}
         self.cache_file = None
         self.stats = None  # Injected by SiteGenerator
-
-        # Check if PIL is available
-        if not PIL_AVAILABLE:
-            logger.warning("Pillow not installed. Image processing is disabled.")
-            logger.warning("Install with: pip install Pillow")
 
         # Setup cache if a cache directory is configured
         if "cache" in self.paths:
@@ -83,14 +119,14 @@ class ImageProcessor:
             file_path: Path to the file.
 
         Returns:
-            SHA-256 hash of the file (more secure than MD5).
+            SHA-256 hex digest of the file.
         """
-        h = hashlib.sha256()
+        digest = hashlib.sha256()
         try:
             with open(file_path, "rb") as f:
-                for chunk in iter(lambda: f.read(8192), b""):
-                    h.update(chunk)
-            return h.hexdigest()
+                for chunk in iter(lambda: f.read(HASH_CHUNK_BYTES), b""):
+                    digest.update(chunk)
+            return digest.hexdigest()
         except (IOError, OSError) as e:
             logger.error(f"Error reading file for hashing {file_path}: {e}")
             # Return a deterministic fallback based on path and mtime
@@ -159,10 +195,6 @@ class ImageProcessor:
             content_dir: Directory containing content to scan for images.
             skip_cache: Whether to skip cache and reprocess all images.
         """
-        # Skip if PIL is not available
-        if not PIL_AVAILABLE:
-            return
-
         only_used = self.config.get("images", "only_used", default=False)
         used_paths = self._collect_used_images(content_dir) if only_used else None
 
@@ -246,12 +278,6 @@ class ImageProcessor:
             source_path: Path to the source image.
             skip_cache: Whether to skip cache and reprocess.
         """
-        # Skip if PIL is not available
-        if not PIL_AVAILABLE:
-            # Just copy the file
-            self._copy_static_image(source_path)
-            return
-
         # Get dithering flag from config. NOTE: Config.get takes *keys with a
         # keyword-only default — a positional True here used to be treated as
         # a key lookup ('images.dither.True'), which returned None and meant
@@ -362,191 +388,44 @@ class ImageProcessor:
         options: Optional[Dict[str, Any]] = None,
         skip_cache: bool = False,
     ) -> Dict[str, Dict[str, str]]:
-        """Process an image with requested options.
+        """Write resized originals and dithered variants of a content image.
 
         Args:
             source_path: Path to the source image.
-            output_filename: Custom output filename (without extension).
-            options: Custom processing options.
+            output_filename: Output filename stem; defaults to the source's stem.
+            options: Overrides for the ``dither``, ``optimize``, ``formats`` and
+                ``sizes`` image settings.
             skip_cache: Whether to skip cache and reprocess.
 
         Returns:
-            Dictionary mapping size -> format -> path.
+            Mapping of variant key (``<size>_original`` for originals, the
+            integer size for dithered variants) -> format -> output-relative
+            path. On an unexpected error, the variants written so far.
         """
-        # Skip if PIL is not available
-        if not PIL_AVAILABLE:
-            # Return empty results
-            return {}
+        settings = self._variant_settings(options)
+        file_hash = None if skip_cache else self._file_hash(source_path)
+        cache_key = settings.cache_key(source_path, file_hash)
+        started = time.perf_counter()
 
-        # Use provided options or defaults
-        opts = options or {}
-        dither = opts.get(
-            "dither", self.config.get("images", "dither", default=True)
-        )  # Default to True
-        optimize = opts.get("optimize", self.config.get("images", "optimize", default=True))
-
-        # Get formats and ensure it's a list
-        formats = opts.get("formats", self.config.get("images", "formats", default=["webp", "png"]))
-        if not isinstance(formats, list):
-            formats = ["webp", "png"]  # Fallback to default
-
-        # Get sizes and ensure it's a list
-        sizes = opts.get("sizes", self.config.get("images", "sizes", default=[1200, 800, 400]))
-        if not isinstance(sizes, list):
-            sizes = [1200, 800, 400]  # Fallback to default
-
-        # Generate output filename if not provided
-        if not output_filename:
-            output_filename = Path(source_path).stem
-
-        # Settings that affect output — ALL of them must be part of the
-        # cache key, or changing a setting serves stale variants.
-        _dither_method = self.config.get("images", "dither_method", default="bayer")
-        _dither_colors = self.config.get("images", "dither_colors", default=4)
-
-        # --- Speed config ---
-        webp_method = int(self.config.get("images", "webp_method", default=0))
-        webp_method_original = int(self.config.get("images", "webp_method_original", default=4))
-
-        # Formats for dithered saves (default: webp only — smaller, no quality loss vs png)
-        dither_formats = self.config.get("images", "dither_formats", default=["webp"])
-        if not isinstance(dither_formats, list):
-            dither_formats = ["webp"]
-
-        # Sizes to dither at (default: smallest only — dithered is a visual effect, not a srcset)
-        dither_sizes_cfg = self.config.get("images", "dither_sizes", default=None)
-        if dither_sizes_cfg and isinstance(dither_sizes_cfg, list):
-            dither_sizes = set(dither_sizes_cfg)
-        else:
-            dither_sizes = {min(sizes)}  # only the smallest by default
-
-        # Check cache ("v2": cache key layout changed when dither settings
-        # were added; the version prefix invalidates old entries once)
-        file_hash = self._file_hash(source_path) if not skip_cache else None
-        cache_key = (
-            f"v2:{source_path}:{file_hash}:{dither}:{optimize}"
-            f":{'-'.join(map(str, formats))}:{'-'.join(map(str, sizes))}"
-            f":{_dither_method}:{_dither_colors}:{webp_method}:{webp_method_original}"
-            f":{'-'.join(map(str, dither_formats))}:{'-'.join(map(str, sorted(dither_sizes)))}"
-        )
-
-        _t0 = time.perf_counter()
-
-        if not skip_cache and cache_key in self.cache:
-            # A cache hit is only valid if the output files still exist —
-            # `sonne build --clean` wipes the output dir but keeps the cache,
-            # which previously left images missing from clean rebuilds.
-            cached = self.cache[cache_key]
-            if isinstance(cached, dict) and all(
-                os.path.exists(os.path.join(self.paths["output"], rel))
-                for fmts in cached.values()
-                for rel in (fmts.values() if isinstance(fmts, dict) else [])
-            ):
+        if not skip_cache:
+            cached = self._cached_variants(cache_key, source_path)
+            if cached is not None:
                 if self.stats:
-                    self.stats.record_image(source_path, time.perf_counter() - _t0, cached=True)
+                    self.stats.record_image(source_path, time.perf_counter() - started, cached=True)
                 return cached
-            logger.debug(f"Cache hit for {source_path} but outputs missing; reprocessing")
 
-        # Prepare output directory
-        output_dir = os.path.join(self.paths["output"], "assets", "images")
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Process the image
-        results = {}
-        _img_width = _img_height = 0
-
+        os.makedirs(os.path.join(self.paths["output"], VARIANTS_DIR), exist_ok=True)
+        results: Dict[Any, Dict[str, str]] = {}
+        width = height = 0
         try:
-            with Image.open(source_path) as img:
-                img = ImageOps.exif_transpose(img)
-                _img_width, _img_height = img.size
-                original_mode = img.mode
-                if original_mode not in ["RGB", "RGBA"]:
-                    img = img.convert("RGB")
-
-                for size in sizes:
-                    width = size
-                    # BICUBIC is visually identical to LANCZOS at small sizes and ~2x faster
-                    resample = Image.BICUBIC if width <= 400 else Image.LANCZOS
-                    if img.width > width:
-                        wpercent = width / float(img.size[0])
-                        height = int(img.size[1] * wpercent)
-                        resized = img.resize((width, height), resample)
-                    else:
-                        resized = img.copy()
-
-                    # Save original at every size
-                    for fmt in formats:
-                        output_name = f"{output_filename}_{width}_original.{fmt}"
-                        output_path = os.path.join(output_dir, output_name)
-                        try:
-                            if fmt == "webp":
-                                resized.save(
-                                    output_path,
-                                    format="WEBP",
-                                    quality=85,
-                                    method=webp_method_original,
-                                )
-                            elif fmt == "png":
-                                resized.save(output_path, format="PNG", optimize=optimize)
-                            elif fmt in ["jpg", "jpeg"]:
-                                save_img = resized
-                                if original_mode in ["1", "L", "RGBA"]:
-                                    save_img = resized.convert("RGB")
-                                save_img.save(
-                                    output_path, format="JPEG", quality=85, optimize=optimize
-                                )
-                            else:
-                                resized.save(output_path, format=fmt.upper())
-                            if f"{size}_original" not in results:
-                                results[f"{size}_original"] = {}
-                            results[f"{size}_original"][fmt] = os.path.join(
-                                "assets", "images", output_name
-                            ).replace("\\", "/")
-                        except Exception as e:
-                            logger.error(f"Error saving original image in {fmt} format: {e}")
-
-                    # Honor images.dither — previously the flag was only in
-                    # the cache key and dithered variants were written anyway
-                    if not dither:
-                        continue
-
-                    # Only dither at configured sizes (default: smallest only)
-                    if width not in dither_sizes:
-                        continue
-
-                    dithered = self._apply_dither(resized)
-                    logger.debug(f"Applied dithering to image: {source_path}")
-
-                    for fmt in dither_formats:
-                        output_name = f"{output_filename}_{width}.{fmt}"
-                        output_path = os.path.join(output_dir, output_name)
-                        try:
-                            if fmt == "webp":
-                                save_img = dithered.convert("RGB")
-                                save_img.save(
-                                    output_path, format="WEBP", quality=85, method=webp_method
-                                )
-                            elif fmt == "png":
-                                dithered.save(output_path, format="PNG", optimize=optimize)
-                            elif fmt in ["jpg", "jpeg"]:
-                                save_img = dithered.convert("RGB")
-                                save_img.save(
-                                    output_path, format="JPEG", quality=85, optimize=optimize
-                                )
-                            else:
-                                dithered.save(output_path, format=fmt.upper())
-                            if size not in results:
-                                results[size] = {}
-                            results[size][fmt] = os.path.join(
-                                "assets", "images", output_name
-                            ).replace("\\", "/")
-                        except Exception as e:
-                            logger.error(f"Error saving dithered image in {fmt} format: {e}")
-
-            # Save to cache
+            with Image.open(source_path) as opened:
+                image = ImageOps.exif_transpose(opened)
+                width, height = image.size
+                stem = output_filename or Path(source_path).stem
+                for key, fmt, rel_path in self._write_variants(image, stem, settings):
+                    results.setdefault(key, {})[fmt] = rel_path
             if not skip_cache and self.cache_file:
                 self.cache[cache_key] = results
-
         except Exception as e:
             logger.error(f"Error processing image {source_path}: {e}")
             if logger.level <= logging.DEBUG:
@@ -557,14 +436,122 @@ class ImageProcessor:
         if self.stats:
             self.stats.record_image(
                 source_path,
-                time.perf_counter() - _t0,
-                method=_dither_method,
+                time.perf_counter() - started,
+                method=settings.dither_method,
                 cached=False,
-                width=_img_width,
-                height=_img_height,
+                width=width,
+                height=height,
             )
-
         return results
+
+    def _variant_settings(self, options: Optional[Dict[str, Any]]) -> VariantSettings:
+        """Resolve image settings: per-call options, then config, then defaults.
+
+        List-valued settings of the wrong type fall back to their defaults.
+        Dithered variants default to the smallest size only, since dithering
+        is a visual effect, not a srcset.
+        """
+        options = options or {}
+
+        def setting(key, default):
+            return options.get(key, self.config.get("images", key, default=default))
+
+        sizes = _list_or_default(setting("sizes", DEFAULT_SIZES), DEFAULT_SIZES)
+        dither_sizes = self.config.get("images", "dither_sizes", default=None)
+        if not (dither_sizes and isinstance(dither_sizes, list)):
+            dither_sizes = [min(sizes)]
+        return VariantSettings(
+            dither=setting("dither", True),
+            optimize=setting("optimize", True),
+            formats=_list_or_default(setting("formats", DEFAULT_FORMATS), DEFAULT_FORMATS),
+            sizes=sizes,
+            dither_method=self.config.get("images", "dither_method", default="bayer"),
+            dither_colors=self.config.get("images", "dither_colors", default=4),
+            webp_method=int(self.config.get("images", "webp_method", default=0)),
+            webp_method_original=int(self.config.get("images", "webp_method_original", default=4)),
+            dither_formats=_list_or_default(
+                self.config.get("images", "dither_formats", default=DEFAULT_DITHER_FORMATS),
+                DEFAULT_DITHER_FORMATS,
+            ),
+            dither_sizes=set(dither_sizes),
+        )
+
+    def _cached_variants(self, cache_key: str, source_path: str):
+        """Cached results for a key, or None on a miss.
+
+        A hit only counts if every output file still exists: ``sonne build
+        --clean`` wipes the output dir but keeps the cache.
+        """
+        cached = self.cache.get(cache_key)
+        if cached is None:
+            return None
+        if isinstance(cached, dict) and all(
+            os.path.exists(os.path.join(self.paths["output"], rel))
+            for fmts in cached.values()
+            for rel in (fmts.values() if isinstance(fmts, dict) else [])
+        ):
+            return cached
+        logger.debug(f"Cache hit for {source_path} but outputs missing; reprocessing")
+        return None
+
+    def _write_variants(
+        self, image: "Image.Image", stem: str, settings: VariantSettings
+    ) -> Iterator[Tuple[Any, str, str]]:
+        """Write every size/format variant; yield (variant key, format, path) per file."""
+        if image.mode not in ("RGB", "RGBA"):
+            image = image.convert("RGB")
+        for width in settings.sizes:
+            resized = _resize_to_width(image, width)
+            for fmt, rel_path in self._save_formats(
+                resized,
+                f"{stem}_{width}_original",
+                settings.formats,
+                settings.webp_method_original,
+                settings.optimize,
+                "original",
+            ):
+                yield f"{width}_original", fmt, rel_path
+            if not (settings.dither and width in settings.dither_sizes):
+                continue
+            dithered = self._apply_dither(resized)
+            logger.debug(f"Applied dithering to image {stem} at width {width}")
+            for fmt, rel_path in self._save_formats(
+                dithered,
+                f"{stem}_{width}",
+                settings.dither_formats,
+                settings.webp_method,
+                settings.optimize,
+                "dithered",
+            ):
+                yield width, fmt, rel_path
+
+    def _save_formats(
+        self,
+        image: "Image.Image",
+        name_stem: str,
+        formats: List[str],
+        webp_method: int,
+        optimize: bool,
+        variant_kind: str,
+    ) -> Iterator[Tuple[str, str]]:
+        """Save ``image`` in each format; yield (format, output-relative path) per success.
+
+        A format that fails to save is logged and skipped.
+        """
+        for fmt in formats:
+            rel_path = f"{VARIANTS_DIR}/{name_stem}.{fmt}"
+            try:
+                _save_image(
+                    image,
+                    os.path.join(self.paths["output"], rel_path),
+                    fmt,
+                    webp_method=webp_method,
+                    optimize=optimize,
+                )
+            except Exception as e:
+                logger.error(f"Error saving {variant_kind} image in {fmt} format: {e}")
+                continue
+            yield fmt, rel_path
 
     def _apply_dither(
         self, img: "Image.Image", method: str = None, colors: int = None
@@ -790,10 +777,6 @@ class ImageProcessor:
             input_path: Path to the input image.
             output_path: Path to save the dithered image.
         """
-        # Skip if PIL is not available
-        if not PIL_AVAILABLE:
-            return
-
         try:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
@@ -819,3 +802,36 @@ class ImageProcessor:
             logger.debug(f"Copied original image: {input_path} -> {output_path}")
         except Exception as e:
             logger.error(f"Error copying original image {input_path}: {e}")
+
+
+def _joined(values) -> str:
+    return "-".join(map(str, values))
+
+
+def _list_or_default(value, default: List) -> List:
+    return value if isinstance(value, list) else default
+
+
+def _resize_to_width(image: "Image.Image", width: int) -> "Image.Image":
+    """Scale down to ``width``, keeping the aspect ratio; never upscale."""
+    if image.width <= width:
+        return image.copy()
+    height = int(image.height * (width / float(image.width)))
+    resample = Image.BICUBIC if width <= BICUBIC_MAX_WIDTH else Image.LANCZOS
+    return image.resize((width, height), resample)
+
+
+def _save_image(
+    image: "Image.Image", path: str, fmt: str, webp_method: int, optimize: bool
+) -> None:
+    """Save in ``fmt`` (a lowercase extension), converting modes the format can't store."""
+    if fmt == "webp":
+        if image.mode not in ("RGB", "RGBA"):
+            image = image.convert("RGB")
+        image.save(path, format="WEBP", quality=LOSSY_QUALITY, method=webp_method)
+    elif fmt == "png":
+        image.save(path, format="PNG", optimize=optimize)
+    elif fmt in ("jpg", "jpeg"):
+        image.convert("RGB").save(path, format="JPEG", quality=LOSSY_QUALITY, optimize=optimize)
+    else:
+        image.save(path, format=fmt.upper())
