@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   functions callable from every template and (with content Jinja) every
   content file. Names shadowing built-ins are ignored with a warning.
 - Implementation plans for the whole backlog in `docs/plans/`.
+- `ImageProcessor.dither(image)`: the supported way for data scripts to
+  dither in-memory images with the site's `images.dither_*` settings.
+  (`_apply_dither` keeps working.)
 
 ### Removed
 - The `{+}{variable}` / `{-}{variable}` substitution syntax and the
@@ -36,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Error tracebacks in library code now go through the `sonne` logger
   (shown with `-vv`/debug logging) instead of being printed straight to
   stderr.
+- Images with uppercase extensions (`PHOTO.JPG`) are processed on
+  case-sensitive filesystems too.
+- `color_lab` dithering is about 10x faster, with identical output.
+- The build report counts processed and cached images, cache hits and
+  misses, static-image byte savings, and templates rendered and failed.
 - `dithering.js` scans only newly added content when the page changes,
   instead of the whole document.
 - README: complete Configuration Reference, config-file discovery rules,
@@ -93,6 +101,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing file.
 - Sites without a `static/` directory no longer get `dithering.css`/`.js`
   when `images.dither` is false.
+- Static JPEG images (`static/images/*.jpg`) are dithered again; saving
+  failed with "cannot write mode P as JPEG" and the undithered original
+  was copied. They stay JPEGs at their original URL (B17).
+- Building without the cache (`skip_cache`) also reprocesses
+  `static/images`; stale cached dithers were kept (B19).
+- Images are processed when the site lives inside a dot-directory (e.g.
+  `~/.sites/blog`); every image was silently skipped (B20).
+- The warning about removed `{+}{...}`/`{-}{...}`/`{p}{#...#}` markers
+  appears on every build, including `sonne serve` rebuilds (B21).
+- Page URLs drop only a trailing `.md`/`.markdown` suffix (now matched
+  case-insensitively); `content/v1.mdnotes/page.md` became `/v1notes/page`
+  (B22).
+- Markdown files under the configured `blog.directory` get the post
+  template; the check was a `/blog/` substring that failed on Windows and
+  with non-default blog directories (B23).
+- The `process_image` Jinja filter always returns safe markup with its
+  arguments HTML-escaped. With dithering off it rendered as visible
+  `<img ...>` text; with dithering on, quotes or `<` in alt text broke the
+  page (B24).
+- An unknown `images.dither_method` falls back to bayer with the configured
+  `dither_colors` (was always 4) and warns once per build instead of once
+  per image (B25).
+- `index.md` pages get their directory's URL (`/`, `/projects/`) instead of
+  `/index`, so `og:url`, canonical links and active-nav checks point at
+  real pages (B27).
+- The `process_image` filter inserts `_original` before the file extension,
+  matching `dithering.js` (`/v_1.2/a.png` → `/v_1.2/a_original.png`) (B29).
 - `dithering.js` no longer adds a second, broken toggle to blog-post
   figures, and no longer wraps images that have no `_original` copy
   (external URLs, `data:` URIs, SVGs including `logo.svg?v=2` and `.SVG`).
