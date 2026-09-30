@@ -91,21 +91,25 @@ LEGACY_MARKER_RE = re.compile(r"\{\+\}\{|\{-\}\{|\{p\}\{#")
 
 # Markup.format escapes every interpolated value.
 PLAIN_IMAGE_MARKUP = Markup('<img src="{src}" alt="{alt}" loading="{loading}">')
+# Must match the container dithering.js builds (wrapWithToggle/createToggle):
+# a real button whose aria-pressed tells whether the original is showing, and
+# only the image on show exposed to assistive technology.
 DITHERED_IMAGE_MARKUP = Markup("""
             <div class="dithered-image-container">
                 <img src="{src}" alt="{alt}" loading="{loading}" class="dithered">
-                <img src="{original_src}" alt="{alt}" loading="{loading}" class="original">
-                <div class="dither-toggle">
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                </div>
+                <img src="{original_src}" alt="{alt}" loading="{loading}" class="original" aria-hidden="true">
+                <button type="button" class="dither-toggle" aria-pressed="false"
+                        aria-label="Show original image" title="Show original image">
+                    <span class="dither-toggle-dot" aria-hidden="true"></span>
+                    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
+                    <span class="dither-toggle-dot" aria-hidden="true"></span>
+                    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
+                    <span class="dither-toggle-dot" aria-hidden="true"></span>
+                    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
+                    <span class="dither-toggle-dot" aria-hidden="true"></span>
+                    <span class="dither-toggle-dot empty" aria-hidden="true"></span>
+                    <span class="dither-toggle-dot" aria-hidden="true"></span>
+                </button>
             </div>
             """)
 

@@ -15,7 +15,12 @@ from pathlib import Path
 
 import pytest
 
-DITHERING_JS = Path(__file__).resolve().parents[2] / "sonne" / "static" / "js" / "dithering.js"
+from sonne.core.config import Config
+from sonne.processors.template_processor import TemplateProcessor
+
+STATIC = Path(__file__).resolve().parents[2] / "sonne" / "static"
+DITHERING_JS = STATIC / "js" / "dithering.js"
+DITHERING_CSS = STATIC / "css" / "dithering.css"
 
 BROWSER_CANDIDATES = [
     "chromium",
@@ -30,7 +35,8 @@ BROWSER_CANDIDATES = [
 ]
 
 HARNESS = """<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head><body>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="dithering.css">
+<style>* { transition: none !important; }</style></head><body>
 <img id="plain" src="/images/a.png" alt="A">
 <img id="sized" src="/img/b_800.webp">
 <img id="underscore" src="/img/my_pic.jpg">
@@ -44,8 +50,9 @@ HARNESS = """<!DOCTYPE html>
   <img id="blog" class="dithered-image active" src="post/dithered/p.png"
        data-dithered-src="post/dithered/p.png" data-original-src="post/p.jpg">
 </div></figure>
-<div class="dithered-image-container" id="server">
-  <img src="/x_400.png" class="dithered"><img src="/x_400_original.png" class="original">
+<div id="server">{server_markup}</div>
+<div class="dithered-image-container" id="legacy">
+  <img src="/y.png" class="dithered"><img src="/y_original.png" class="original">
   <div class="dither-toggle"></div>
 </div>
 <a href="#navigated"><img id="linked" src="/images/l.png"></a>
@@ -60,23 +67,73 @@ HARNESS = """<!DOCTYPE html>
   }, 50);
   setTimeout(function () {
     var results = {};
+    function accessibility(container) {
+      var toggle = container.querySelector(".dither-toggle");
+      return {
+        tag: toggle.tagName,
+        type: toggle.getAttribute("type"),
+        label: toggle.getAttribute("aria-label"),
+        pressed: toggle.getAttribute("aria-pressed"),
+        ditheredHidden: container.querySelector("img.dithered").getAttribute("aria-hidden"),
+        originalHidden: container.querySelector("img.original").getAttribute("aria-hidden"),
+        dotsHidden: Array.prototype.every.call(
+          toggle.querySelectorAll(".dither-toggle-dot"),
+          function (dot) { return dot.getAttribute("aria-hidden") === "true"; }
+        ),
+      };
+    }
     Array.prototype.forEach.call(document.querySelectorAll("img[id]"), function (img) {
       var box = img.closest(".dithered-image-container");
       results[img.id] = box ? box.querySelector("img.original").getAttribute("src") : null;
     });
-    var server = document.getElementById("server");
-    server.querySelector(".dither-toggle").click();
+    var server = document.querySelector("#server .dithered-image-container");
+    var serverToggle = server.querySelector(".dither-toggle");
+    results.serverBefore = accessibility(server);
+    serverToggle.click();
     results.serverToggled = server.classList.contains("show-original");
+    results.serverAfter = accessibility(server);
+    serverToggle.click();
+    results.serverBack = accessibility(server);
+
+    var created = document.getElementById("plain").closest(".dithered-image-container");
+    results.createdBefore = accessibility(created);
+    created.querySelector(".dither-toggle").click();
+    results.createdAfter = accessibility(created);
+
+    var createdToggle = created.querySelector(".dither-toggle");
+    createdToggle.focus();
+    results.focused = document.activeElement === createdToggle;
+    results.focusOutline = getComputedStyle(createdToggle).outlineStyle;
+
+    var legacy = document.getElementById("legacy");
+    var legacyToggle = legacy.querySelector(".dither-toggle");
+    results.legacy = {
+      role: legacyToggle.getAttribute("role"),
+      tabIndex: legacyToggle.tabIndex,
+      label: legacyToggle.getAttribute("aria-label"),
+    };
+    legacyToggle.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    results.legacyEnter = legacy.classList.contains("show-original");
+    legacyToggle.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    results.legacySpace = legacy.classList.contains("show-original");
     var linkedBox = document.getElementById("linked").closest(".dithered-image-container");
     linkedBox.querySelector(".dither-toggle").click();
     results.linkedToggled = linkedBox.classList.contains("show-original");
     results.hash = location.hash;
     results.toggleCount = document.querySelectorAll(".dither-toggle").length;
+    results.focusedOpacity = getComputedStyle(createdToggle).opacity;
     document.getElementById("results").textContent = JSON.stringify(results);
   }, 400);
 </script>
 </body></html>
 """
+
+
+def process_image_filter_markup(src, alt):
+    """What the process_image Jinja filter renders with dithering on."""
+    config = Config()
+    config.set("images", "dither", value=True)
+    return str(TemplateProcessor(config, {}).jinja_env.filters["process_image"](src, alt))
 
 
 def find_browser():
@@ -96,7 +153,9 @@ def harness_results(tmp_path_factory):
         pytest.skip("no Chromium-family browser available")
     page_dir = tmp_path_factory.mktemp("dithering_js")
     shutil.copy(DITHERING_JS, page_dir / "dithering.js")
-    (page_dir / "harness.html").write_text(HARNESS, encoding="utf-8")
+    shutil.copy(DITHERING_CSS, page_dir / "dithering.css")
+    harness = HARNESS.replace("{server_markup}", process_image_filter_markup("/x_400.png", "X"))
+    (page_dir / "harness.html").write_text(harness, encoding="utf-8")
 
     completed = subprocess.run(
         [
@@ -158,5 +217,48 @@ class TestToggle:
         assert harness_results["hash"] == ""
 
     def test_each_container_has_one_toggle(self, harness_results):
-        # plain, sized, underscore, query, dotdir, linked, dynamic + server
-        assert harness_results["toggleCount"] == 8
+        # plain, sized, underscore, query, dotdir, linked, dynamic + server + legacy
+        assert harness_results["toggleCount"] == 9
+
+
+LABEL = "Show original image"
+SHOWING_DITHERED = {
+    "tag": "BUTTON",
+    "type": "button",
+    "label": LABEL,
+    "pressed": "false",
+    "ditheredHidden": None,
+    "originalHidden": "true",
+    "dotsHidden": True,
+}
+SHOWING_ORIGINAL = {
+    **SHOWING_DITHERED,
+    "pressed": "true",
+    "ditheredHidden": "true",
+    "originalHidden": None,
+}
+
+
+class TestToggleAccessibility:
+    """The toggle is a labelled toggle button; only the image on show is exposed."""
+
+    @pytest.mark.parametrize("markup", ["server", "created"])
+    def test_starts_as_an_unpressed_labelled_button(self, harness_results, markup):
+        assert harness_results[f"{markup}Before"] == SHOWING_DITHERED
+
+    @pytest.mark.parametrize("markup", ["server", "created"])
+    def test_pressing_shows_the_original_and_updates_the_state(self, harness_results, markup):
+        assert harness_results[f"{markup}After"] == SHOWING_ORIGINAL
+
+    def test_pressing_again_restores_the_dithered_state(self, harness_results):
+        assert harness_results["serverBack"] == SHOWING_DITHERED
+
+    def test_keyboard_focus_is_visible(self, harness_results):
+        assert harness_results["focused"] is True
+        assert harness_results["focusOutline"] == "solid"
+        assert harness_results["focusedOpacity"] == "1"
+
+    def test_legacy_div_toggles_become_keyboard_operable(self, harness_results):
+        assert harness_results["legacy"] == {"role": "button", "tabIndex": 0, "label": LABEL}
+        assert harness_results["legacyEnter"] is True  # Enter shows the original
+        assert harness_results["legacySpace"] is False  # Space toggles back
