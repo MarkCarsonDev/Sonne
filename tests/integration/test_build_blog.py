@@ -1,6 +1,7 @@
 """Full builds of the blog fixture site (bundled blog template + overlay posts)."""
 
 import logging
+import re
 
 import pytest
 
@@ -118,3 +119,130 @@ class TestPostImagesInCode:
 def test_build_report_counts_rendered_posts(blog_build):
     _, generator, _ = blog_build
     assert generator.stats.blog_posts_processed == len(generator.blog_processor.posts) > 0
+
+
+def write_post(site, name, front_matter, body="Body text.\n"):
+    """Write a post into the site's blog directory (or a subdirectory of it)."""
+    path = site / "content" / "blog" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"---\n{front_matter.strip()}\n---\n\n{body}", encoding="utf-8")
+    return path
+
+
+def feed_thumbnail_urls(out):
+    return re.findall(r'<media:thumbnail url="([^"]+)"', (out / "feed.xml").read_text("utf-8"))
+
+
+class TestPostDates:
+    @pytest.mark.xfail(strict=True, reason="B31: timezone-aware dates crash the post sort")
+    def test_timezone_aware_and_plain_dates_build_together(self, site_factory, builder):
+        site = site_factory("blog", overlay="blog_site")
+        write_post(site, "zoned.md", "title: Zoned\ndate: 2024-01-05 12:00:00+02:00")
+
+        _, out = builder(site)
+
+        assert (out / "blog" / "2024" / "01" / "05" / "zoned" / "index.html").exists()
+        assert "+0200</pubDate>" in (out / "feed.xml").read_text(encoding="utf-8")
+
+
+class TestTaxonomyTerms:
+    @pytest.mark.xfail(strict=True, reason="B32: case-variant tags overwrite each other's page")
+    def test_case_variant_tags_share_one_page(self, site_factory, builder):
+        site = site_factory("blog", overlay="blog_site")
+        write_post(site, "upper.md", "title: Upper Post\ndate: 2025-06-01\ntags: [Python]")
+        write_post(site, "lower.md", "title: Lower Post\ndate: 2025-06-02\ntags: [python]")
+
+        generator, out = builder(site)
+
+        html = (out / "blog" / "tags" / "python" / "index.html").read_text(encoding="utf-8")
+        assert "Upper Post" in html and "Lower Post" in html
+        assert [
+            t for t in generator.blog_processor.taxonomies["tags"] if t.lower() == "python"
+        ] == ["Python"]
+
+
+class TestFeedUrls:
+    @pytest.fixture
+    def cover_site(self, site_factory, image_factory):
+        site = site_factory("blog", overlay="blog_site")
+        write_post(site, "covered.md", "title: Covered\ndate: 2025-06-03\ncover_img: images/c.png")
+        image_factory(site / "content" / "blog" / "images" / "c.png")
+        return site
+
+    @pytest.mark.parametrize(
+        "url_style",
+        [
+            "directory",
+            pytest.param(
+                "html",
+                marks=pytest.mark.xfail(
+                    strict=True, reason="B33: html-style thumbnail URL nests under slug.html"
+                ),
+            ),
+        ],
+    )
+    def test_feed_thumbnail_points_at_published_cover(self, cover_site, builder, url_style):
+        _, out = builder(cover_site, {"url_style": url_style})
+
+        [thumbnail] = feed_thumbnail_urls(out)
+        assert (out / thumbnail.removeprefix("http://localhost/")).exists()
+
+    @pytest.mark.xfail(strict=True, reason="B34: trailing-slash base_url doubles slashes in feed")
+    def test_trailing_slash_base_url_gives_single_slashes(self, site_factory, builder):
+        site = site_factory("blog", overlay="blog_site")
+
+        _, out = builder(site, {("site", "base_url"): "https://example.com/"})
+
+        feed = (out / "feed.xml").read_text(encoding="utf-8")
+        assert "https://example.com/blog/" in feed
+        assert "example.com//" not in feed
+
+
+class TestDraftsAndPaths:
+    @pytest.mark.xfail(strict=True, reason="B35: _drafts matched anywhere in the absolute path")
+    def test_site_inside_a_drafts_folder_publishes_posts(self, site_factory, builder):
+        site = site_factory("blog", overlay="blog_site", name="_drafts/site")
+
+        _, out = builder(site)
+
+        assert (out / "blog" / "2025" / "02" / "01" / "hello-world" / "index.html").exists()
+
+    @pytest.mark.xfail(strict=True, reason="B36: post images can be written outside output/")
+    def test_post_image_cannot_escape_output_dir(
+        self, site_factory, builder, image_factory, tmp_path
+    ):
+        site = site_factory("blog", overlay="blog_site")
+        # Source resolves (from content/blog/a/b/c/d/e/) to tmp_path/escape.png; the same
+        # ref from the post's output dir (output/blog/2025/06/04/deep/) lands above tmp_path.
+        ref = "../" * 8 + "b36_escape.png"
+        write_post(site, "a/b/c/d/e/deep.md", "title: Deep\ndate: 2025-06-04", f"![x]({ref})\n")
+        image_factory(tmp_path / "b36_escape.png")
+        escaped = tmp_path.parent / "b36_escape.png"
+
+        try:
+            builder(site)
+            assert not escaped.exists()
+        finally:
+            escaped.unlink(missing_ok=True)
+
+
+class TestDitherFailure:
+    @pytest.mark.xfail(strict=True, reason="B38: failed dither writes the source bytes as .png")
+    def test_failed_dither_links_the_original(
+        self, site_factory, builder, image_factory, monkeypatch
+    ):
+        from sonne.processors.image_processor import ImageProcessor
+
+        def broken_dither(self, image):
+            raise RuntimeError("dither failed")
+
+        monkeypatch.setattr(ImageProcessor, "dither", broken_dither)
+        site = site_factory("blog", overlay="blog_site")
+        write_post(site, "photo.md", "title: Photo\ndate: 2025-06-05", "![Red](red.jpg)\n")
+        image_factory(site / "content" / "blog" / "red.jpg", fmt="JPEG")
+
+        _, out = builder(site, {("images", "dither"): True})
+
+        post_dir = out / "blog" / "2025" / "06" / "05" / "photo"
+        assert not (post_dir / "dithered" / "red.png").exists()
+        assert 'src="red.jpg"' in (post_dir / "index.html").read_text(encoding="utf-8")
