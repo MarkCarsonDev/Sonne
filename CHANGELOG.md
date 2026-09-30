@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Error tracebacks in library code now go through the `sonne` logger
   (shown with `-vv`/debug logging) instead of being printed straight to
   stderr.
+- An image referenced more than once in a post is resized and dithered once.
+- Blog errors from content Jinja are reported as such instead of as "Error
+  processing images"; those posts' images are still published.
+- An explicit `site.author: null` gives an empty author instead of "None".
 - Images with uppercase extensions (`PHOTO.JPG`) are processed on
   case-sensitive filesystems too.
 - `color_lab` dithering is about 10x faster, with identical output.
@@ -101,10 +105,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing file.
 - Sites without a `static/` directory no longer get `dithering.css`/`.js`
   when `images.dither` is false.
+- A post dated with a timezone (e.g. `2024-01-05 12:00:00+02:00`) no
+  longer crashes the build when other posts have plain dates; URLs keep the
+  written date and RSS keeps the written offset (B31).
+- Tags or categories differing only in case ("Python"/"python") share one
+  page listing all their posts instead of overwriting each other; the name
+  shown is the newest post's spelling (B32).
+- RSS `media:thumbnail` URLs point at the published cover with
+  `url_style: html` (they were `.../slug.html/images/...`) (B33).
+- A trailing slash in `site.base_url` no longer produces `//` in feed
+  links (B34).
+- A site stored inside any folder named `_drafts` publishes its posts;
+  only `_drafts` inside the blog directory marks drafts (B35).
+- Post and cover images whose `../` path would land outside the output
+  directory are skipped with a warning instead of written there (B36).
+- On Windows with Python 3.9–3.11, undated posts use the file's creation
+  time rather than its last-modified time (B37).
+- When dithering a post image fails, the figure shows the original instead
+  of a mislabeled `dithered/<name>.png` holding the original's bytes (B38).
+- Image syntax inside indented (4-space) code blocks in posts is ignored,
+  like fenced code. `data:` URI and uppercase `.SVG` images in posts no
+  longer produce "Image not found" warnings or dithered-path markup.
+- The `--perf` build report counts rendered templates.
 - Static images (`static/images`) stay dithered on every build. From the
   second build on (including every `sonne serve` rebuild) the undithered
   original was served at the image's URL. The static-image cache now
-  verifies its output is still the dithered file (B39).
+  verifies its output is still the dithered file, and the static copy no
+  longer overwrites images the image pipeline owns, so rebuilds are cache
+  hits again (B39).
 - `.html`/`.htm` content pages get a `page.url` matching where they are
   written: in the clean and directory URL styles `content/about.html` is
   written to `about/index.html` but `page.url` was `/about.html` (a 404);
