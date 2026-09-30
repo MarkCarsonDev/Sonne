@@ -74,6 +74,7 @@ include = ["sonne*"]
 
 [tool.setuptools.package-data]
 sonne = [
+    "py.typed",
     "templates/**/*",
     "schemas/*.json",
     "static/**/*",
