@@ -186,7 +186,6 @@ class TestWatchRebuilds:
 
 
 class TestProgressOutput:
-    @pytest.mark.xfail(strict=True, reason="B48: --no-progress still logs [n/N] step lines")
     def test_no_progress_hides_step_lines(self, runner, tmp_path, caplog):
         target = tmp_path / "quiet"
         runner.invoke(cli, ["new", "-p", str(target), "-t", "minimal"])

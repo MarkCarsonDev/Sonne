@@ -196,7 +196,9 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         output_dir = generator.paths["output"]
         if clean:
             _clean_output(generator, output_dir)
-        stats = generator.generate(skip_images=skip_images, skip_cache=skip_cache)
+        stats = generator.generate(
+            skip_images=skip_images, skip_cache=skip_cache, show_progress=not no_progress
+        )
 
         _announce_build_complete(time.time() - ctx.obj["start_time"], output_dir)
         if perf and stats:

@@ -96,12 +96,16 @@ class SiteGenerator:
         else:
             logger.info(f"Successfully cleaned output directory: {output_dir}")
 
-    def generate(self, skip_images: bool = False, skip_cache: bool = False) -> BuildStatistics:
+    def generate(
+        self, skip_images: bool = False, skip_cache: bool = False, show_progress: bool = True
+    ) -> BuildStatistics:
         """Generate the complete static site.
 
         Args:
             skip_images: Whether to skip image processing.
             skip_cache: Whether to ignore cache and rebuild everything.
+            show_progress: Log the "[n/N] step" lines at INFO; when False they
+                are logged at DEBUG only (``sonne build --no-progress``).
 
         Returns:
             BuildStatistics with timing and metrics for this build.
@@ -111,7 +115,7 @@ class SiteGenerator:
         """
         self._start_statistics()
         try:
-            self._run_build(skip_images, skip_cache)
+            self._run_build(skip_images, skip_cache, show_progress)
         except Exception as e:
             self.stats.finish()
             logger.error(f"Error generating site: {e}", exc_info=logger.isEnabledFor(logging.DEBUG))
@@ -128,10 +132,12 @@ class SiteGenerator:
         self.blog_processor.stats = self.stats
         self.variable_manager.stats = self.stats
 
-    def _run_build(self, skip_images: bool, skip_cache: bool) -> None:
+    def _run_build(self, skip_images: bool, skip_cache: bool, show_progress: bool) -> None:
         ensure_dir(self.paths["output"])
         blog_enabled = self.config.get("blog", "enabled", default=True)
-        self._progress = _StepProgress(_count_build_steps(blog_enabled, skip_images))
+        self._progress = _StepProgress(
+            _count_build_steps(blog_enabled, skip_images), visible=show_progress
+        )
 
         # Track which source file produced each output file so
         # collisions (about.md vs about/index.md) warn instead of
@@ -159,7 +165,7 @@ class SiteGenerator:
     def _collect_post_metadata(self) -> None:
         self._progress.step("Collecting post metadata")
         self.blog_processor.collect_post_metadata()
-        logger.info(f"         {_count(len(self.blog_processor.posts), 'post')} found")
+        self._progress.detail(f"{_count(len(self.blog_processor.posts), 'post')} found")
 
     def _run_data_scripts(self) -> None:
         script_count = len(self.variable_manager.data_script_paths())
@@ -324,15 +330,23 @@ class SiteGenerator:
 
 
 class _StepProgress:
-    """Numbered "[step/total] message" progress lines for one build."""
+    """Numbered "[step/total] message" progress lines for one build.
 
-    def __init__(self, total_steps: int):
+    Hidden progress (--no-progress) is still logged, at DEBUG, so -v shows it.
+    """
+
+    def __init__(self, total_steps: int, visible: bool = True):
         self.total_steps = total_steps
         self.current_step = 0
+        self.level = logging.INFO if visible else logging.DEBUG
 
     def step(self, message: str) -> None:
         self.current_step += 1
-        logger.info(f"[{self.current_step}/{self.total_steps}] {message}")
+        logger.log(self.level, f"[{self.current_step}/{self.total_steps}] {message}")
+
+    def detail(self, message: str) -> None:
+        """An indented line under the current step."""
+        logger.log(self.level, f"         {message}")
 
 
 def _count_build_steps(blog_enabled: bool, skip_images: bool) -> int:
