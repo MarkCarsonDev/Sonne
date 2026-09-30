@@ -234,6 +234,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unavailable drive (B51).
 - The CLI's default `--path` is the current directory when the command
   runs, not when Sonne was imported.
+- `solar` scaffold: blog, tag and category links follow `blog.directory`
+  and `url_style` (they were hardcoded to `/blog/.../`, so a custom blog
+  directory or the clean style produced broken links).
 - A post dated with a timezone (e.g. `2024-01-05 12:00:00+02:00`) no
   longer crashes the build when other posts have plain dates; URLs keep the
   written date and RSS keeps the written offset (B31).
