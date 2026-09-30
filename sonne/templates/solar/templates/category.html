@@ -18,8 +18,8 @@
     {% endif %}
     
     <div class="category-nav">
-        <a href="/blog/categories/" class="btn">View All Categories</a>
-        <a href="/blog/" class="btn">Back to Blog</a>
+        <a href="{{ category_url() }}" class="btn">View All Categories</a>
+        <a href="{{ blog_url() }}" class="btn">Back to Blog</a>
     </div>
 </div>
 {% endblock %}
