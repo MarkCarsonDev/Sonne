@@ -21,7 +21,8 @@
     {% set cover = page.cover_img_dithered or page.cover_img %}
     {% if cover %}
     <div class="post-cover">
-        <img src="{{ cover }}" alt="{{ page.title }}"{% if page.cover_img_dithered %} class="dithered"{% endif %}>
+        {# A dithered cover names its original so dithering.js adds the toggle. #}
+        <img src="{{ cover }}" alt="{{ page.title }}"{% if page.cover_img_dithered %} class="dithered" data-original-src="{{ page.cover_img_original }}"{% endif %}>
     </div>
     {% endif %}
     
