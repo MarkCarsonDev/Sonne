@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 
 from sonne import __version__
 from sonne.core.config import Config
+from sonne.script_api import sonne_var
 
 logger = logging.getLogger("sonne")
 

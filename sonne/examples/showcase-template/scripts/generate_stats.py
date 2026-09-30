@@ -11,6 +11,8 @@ from pathlib import Path
 
 import yaml
 
+from sonne.script_api import sonne_var
+
 CONTENT_DIR = Path.cwd() / "content"
 BLOG_DIR = CONTENT_DIR / "blog"
 FRONT_MATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
