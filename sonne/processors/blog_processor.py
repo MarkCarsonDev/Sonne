@@ -389,6 +389,8 @@ class BlogProcessor:
         """
         for post in self.posts:
             self._prepare_post(post)
+        # Templates (not content Jinja) get site.images, from pass 2 on.
+        self._expose_images_config()
         for post in self.posts:
             self._render_timed_post(post)
 
@@ -455,10 +457,7 @@ class BlogProcessor:
             return
 
         context = self.template_processor.build_content_context(
-            {
-                "global": self.variable_manager.variables.get("global", {}),
-                "site": self.variable_manager.variables.get("site", {}),
-            }
+            self.variable_manager.render_scopes()
         )
         context["page"] = post
         _, html_content = self.template_processor.process_markdown(
@@ -475,19 +474,20 @@ class BlogProcessor:
             post["excerpt"] = self._auto_excerpt(html_content)
 
     def _template_variables(self, page_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Build the global/site/page scopes passed to the page template.
+        """The global/site/page scopes for one page template (globals mirrored into site)."""
+        scopes = self.variable_manager.render_scopes()
+        scopes["page"] = page_data
+        return scopes
 
-        Global variables are also copied into the site scope (without
-        overriding site values) for templates that read them from there.
+    def _expose_images_config(self) -> None:
+        """Make the images config available to templates as site.images.
+
+        Done once, before blog pages render; it stays set for the regular
+        pages rendered afterwards.
         """
-        global_vars = self.variable_manager.variables.get("global", {})
-        site_vars = self.variable_manager.variables.get("site", {})
-        for key, value in global_vars.items():
-            site_vars.setdefault(key, value)
         images_config = self.config.get("images")
         if images_config is not None:
-            site_vars["images"] = images_config
-        return {"global": global_vars, "site": site_vars, "page": page_data}
+            self.variable_manager.variables["site"]["images"] = images_config
 
     def _get_output_path(self, rel_path: str) -> str:
         """Map a path relative to the output root onto a file for the URL style.
