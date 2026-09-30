@@ -5,7 +5,7 @@ Provides secure path handling, validation, and sanitization.
 
 import re
 from pathlib import Path
-from typing import Union
+from typing import Iterable, List, Union
 import logging
 
 logger = logging.getLogger("sonne")
@@ -54,8 +54,8 @@ def sanitize_filename(filename: str, replace_char: str = "_") -> str:
     # Remove null bytes
     filename = filename.replace("\x00", "")
 
-    # Remove path separators and parent directory references
-    filename = filename.replace("..", "")
+    # Replacing separators leaves a single name, so ".." inside it cannot
+    # traverse; the strip below turns "." and ".." themselves into "".
     filename = filename.replace("/", replace_char)
     filename = filename.replace("\\", replace_char)
 
@@ -87,10 +87,21 @@ def validate_path_within_root(path: Union[str, Path], root: Union[str, Path]) ->
         # Check if path is relative to root
         path.relative_to(root)
         return True
-    except (ValueError, RuntimeError):
-        # ValueError: path is not relative to root
+    except (ValueError, RuntimeError, OSError):
+        # ValueError: path is not relative to root (or has a NUL byte)
         # RuntimeError: infinite loop in resolution (symlink loops)
+        # OSError: the path cannot be resolved (e.g. unavailable drive)
         return False
+
+
+def sorted_paths(paths: Iterable[Union[str, Path]]) -> List[Path]:
+    """Paths in a platform-independent order (case-sensitive, by '/'-joined text).
+
+    Directory listings and globs come back in filesystem order, which
+    differs between OSes (and Path ordering itself is case-insensitive on
+    Windows only), so anything whose result depends on order sorts first.
+    """
+    return sorted((Path(path) for path in paths), key=lambda path: path.as_posix())
 
 
 def is_post_local_raster_image(src: str) -> bool:

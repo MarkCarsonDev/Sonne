@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("sonne")
 
-DEFAULT_BLOG_DIR = "blog"
 DEFAULT_URL_PATTERN = "{year}/{month}/{day}/{slug}"
 DEFAULT_POSTS_PER_PAGE = 10
 DEFAULT_EXCERPT_LENGTH = 200
@@ -132,8 +131,7 @@ class BlogProcessor:
         self.image_processor = image_processor
         self.stats = None  # Injected by SiteGenerator
 
-        configured_dir = self.config.get("blog", "directory", default=DEFAULT_BLOG_DIR)
-        self.blog_dir = DEFAULT_BLOG_DIR if configured_dir is None else configured_dir
+        self.blog_dir = self.config.blog_directory()
         self.blog_content_dir = os.path.join(self.paths.get("content") or "", self.blog_dir)
         self.blog_output_dir = os.path.join(self.paths.get("output") or "", self.blog_dir)
         os.makedirs(self.blog_output_dir, exist_ok=True)
@@ -935,7 +933,7 @@ class BlogProcessor:
 
     def _generate_rss_feed(self) -> None:
         """Write the RSS 2.0 feed of the newest posts."""
-        if not self.config.get("blog", "rss", "enabled", default=True) or not self.posts:
+        if not self._rss_enabled() or not self.posts:
             return
         try:
             rss_path = self.config.get("blog", "rss", "path", default="feed.xml")
@@ -944,6 +942,13 @@ class BlogProcessor:
             logger.debug(f"Generated RSS feed -> {output_path}")
         except Exception as e:
             _log_error(f"Error generating RSS feed: {e}")
+
+    def _rss_enabled(self) -> bool:
+        """blog.rss.enabled, or blog.rss itself when it is given as true/false."""
+        rss = self.config.get("blog", "rss")
+        if isinstance(rss, bool):
+            return rss
+        return bool(self.config.get("blog", "rss", "enabled", default=True))
 
     def _rss_document(self, rss_path: str) -> str:
         """Build the feed XML. All interpolated text is XML-escaped."""

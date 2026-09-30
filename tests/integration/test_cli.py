@@ -149,3 +149,69 @@ class TestWatchRelevance:
         rebuilder = self.rebuilder_for(tmp_path)
 
         assert not rebuilder.affects_site(str(tmp_path / "output" / "index.html"))
+
+
+class TestWatchRebuilds:
+    def test_change_during_rebuild_triggers_another_rebuild(self, tmp_path, monkeypatch):
+        import sonne.cli.commands as commands
+        from sonne.core.config import Config
+
+        rebuilder = commands.SiteRebuilder(str(tmp_path), Config(base_dir=str(tmp_path)))
+        builds = []
+
+        def rebuild_site(base_dir):
+            builds.append(base_dir)
+            if len(builds) == 1:
+                rebuilder._rebuild()  # the debounce timer fires again mid-build
+
+        monkeypatch.setattr(commands, "_rebuild_site", rebuild_site)
+
+        rebuilder._rebuild()
+
+        assert len(builds) == 2
+
+    def test_moved_file_reports_its_destination(self, tmp_path):
+        from types import SimpleNamespace
+
+        from sonne.cli.commands import _paths_touched_by
+
+        event = SimpleNamespace(
+            event_type="moved",
+            is_directory=False,
+            src_path=str(tmp_path / "content" / ".post.md.swp"),
+            dest_path=str(tmp_path / "content" / "post.md"),
+        )
+
+        assert str(tmp_path / "content" / "post.md") in _paths_touched_by(event)
+
+
+class TestProgressOutput:
+    def test_no_progress_hides_step_lines(self, runner, tmp_path, caplog):
+        target = tmp_path / "quiet"
+        runner.invoke(cli, ["new", "-p", str(target), "-t", "minimal"])
+
+        with caplog.at_level(logging.INFO, logger="sonne"):
+            result = runner.invoke(cli, ["build", "-p", str(target), "--no-progress"])
+
+        assert result.exit_code == 0, result.output
+        assert not any(record.getMessage().startswith("[1/") for record in caplog.records)
+
+    def test_step_lines_shown_by_default(self, runner, tmp_path, caplog):
+        target = tmp_path / "chatty"
+        runner.invoke(cli, ["new", "-p", str(target), "-t", "minimal"])
+
+        with caplog.at_level(logging.INFO, logger="sonne"):
+            runner.invoke(cli, ["build", "-p", str(target)])
+
+        assert any(record.getMessage().startswith("[1/") for record in caplog.records)
+
+
+def test_path_defaults_to_the_directory_at_invocation(runner, tmp_path, monkeypatch):
+    target = tmp_path / "here"
+    runner.invoke(cli, ["new", "-p", str(target), "-t", "minimal"])
+    monkeypatch.chdir(target)
+
+    result = runner.invoke(cli, ["build", "--no-progress"])
+
+    assert result.exit_code == 0, result.output
+    assert (target / "output" / "index.html").exists()

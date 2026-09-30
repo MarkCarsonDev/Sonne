@@ -178,8 +178,8 @@
           }
         },
         "rss": {
-          "type": "object",
-          "description": "RSS feed configuration",
+          "type": ["object", "boolean"],
+          "description": "RSS feed configuration; `rss: false` / `rss: true` is shorthand for rss.enabled",
           "properties": {
             "enabled": {
               "type": "boolean",

@@ -139,7 +139,7 @@ class TestValidate:
             (("images", "formats", "webp"), "images.formats should be a list"),
             (("images", "sizes", 800), "images.sizes should be a list"),
             (("images", "sizes", [800, -1]), "images.sizes should contain only positive integers"),
-            (("blog", "directory", ""), "Blog is enabled but directory is not set"),
+            (("blog", "directory", ""), "blog.directory is empty; using 'blog'"),
             (("blog", "template", ""), "Blog is enabled but template is not set"),
             (("blog", "posts_per_page", True), "blog.posts_per_page must be a positive integer"),
             (("serve", "port", 70000), "serve.port must be an integer between 0 and 65535"),
@@ -199,3 +199,31 @@ class TestSave:
         cfg.save(str(target))
 
         assert Config(str(target), base_dir=str(tmp_path)).get("site", "title") == "Saved"
+
+
+class TestBlogDirectory:
+    @pytest.mark.parametrize("configured", [None, "", "blog", "posts", "posts/"])
+    def test_one_resolution_of_the_blog_directory(self, tmp_path, configured):
+        cfg = config_with(tmp_path, ("blog", "directory", configured))
+
+        expected = "posts" if configured and configured.startswith("posts") else "blog"
+        assert cfg.blog_directory() == expected
+
+    def test_validate_says_empty_directory_falls_back(self, tmp_path):
+        cfg = config_with(tmp_path, ("blog", "directory", ""))
+
+        assert cfg.validate() == ["blog.directory is empty; using 'blog'"]
+
+
+class TestSectionShapes:
+    @pytest.mark.parametrize("keys", [("images",), ("blog", "taxonomies"), ("serve",)])
+    def test_scalar_for_a_mapping_section_warns(self, tmp_path, keys):
+        cfg = config_with(tmp_path, (*keys, "yes"))
+
+        assert f"{'.'.join(keys)} should be a mapping (got 'yes')" in cfg.validate()
+
+    @pytest.mark.parametrize("value", [False, True])
+    def test_rss_accepts_a_boolean(self, tmp_path, value):
+        cfg = config_with(tmp_path, ("blog", "rss", value))
+
+        assert cfg.validate() == []

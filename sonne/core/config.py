@@ -9,7 +9,7 @@ import json
 import yaml
 from pathlib import Path
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 from sonne.core.deprecations import apply_config_deprecations
 from sonne.utils.path_utils import CONFIG_FILENAMES, CONFIG_SEARCH_DEPTH
@@ -125,6 +125,12 @@ JSON_EXTENSIONS = (".json", ".config")
 
 DEFAULT_URL_STYLE = "clean"
 MAX_PORT = 65535
+DEFAULT_BLOG_DIRECTORY = DEFAULT_CONFIG["blog"]["directory"]
+# Sections that may also be given as one scalar: url_style: clean (one
+# style for every environment) and blog.rss: false (feed on/off).
+SCALARS_ALLOWED_FOR_SECTION = {("url_style",): str, ("blog", "rss"): bool}
+# Trimmed from both ends of blog.directory: slashes of either kind, spaces.
+BLOG_DIRECTORY_TRIM = "/\\ "
 
 
 class Config:
@@ -302,7 +308,8 @@ class Config:
             List of validation messages. Empty list means configuration is valid.
         """
         return (
-            self._site_problems()
+            self._shape_problems()
+            + self._site_problems()
             + self._path_problems()
             + self._image_problems()
             + self._blog_problems()
@@ -310,10 +317,24 @@ class Config:
             + self._environment_problems()
         )
 
+    def _shape_problems(self) -> List[str]:
+        """Report settings given a scalar where a mapping (section) belongs.
+
+        Such a value replaces the whole default section when merged, and
+        every key inside it silently falls back to its default.
+        """
+        return [
+            f"{'.'.join(keys)} should be a mapping (got {value!r})"
+            for keys, value in _scalars_in_place_of_sections(self.config, DEFAULT_CONFIG)
+            if not isinstance(value, SCALARS_ALLOWED_FOR_SECTION.get(keys, ()))
+        ]
+
     def _site_problems(self) -> List[str]:
         site_config = self.get("site")
         if not site_config:
             return ["Missing 'site' configuration section"]
+        if not isinstance(site_config, dict):
+            return []  # reported by _shape_problems
         problems = []
         if not site_config.get("title"):
             problems.append("Site title is not set")
@@ -325,6 +346,8 @@ class Config:
         paths = self.get("paths")
         if not paths:
             return ["Missing 'paths' configuration section"]
+        if not isinstance(paths, dict):
+            return []  # reported by _shape_problems
         return [
             f"Required path '{path_key}' is not set"
             for path_key in ["content", "output", "templates"]
@@ -333,7 +356,7 @@ class Config:
 
     def _image_problems(self) -> List[str]:
         images = self.get("images")
-        if not images:
+        if not isinstance(images, dict):
             return []
         problems = []
         formats = images.get("formats", [])
@@ -348,11 +371,11 @@ class Config:
 
     def _blog_problems(self) -> List[str]:
         blog = self.get("blog")
-        if not blog or not blog.get("enabled"):
+        if not isinstance(blog, dict) or not blog.get("enabled"):
             return []
         problems = []
         if not blog.get("directory"):
-            problems.append("Blog is enabled but directory is not set")
+            problems.append(f"blog.directory is empty; using '{DEFAULT_BLOG_DIRECTORY}'")
         if not blog.get("template"):
             problems.append("Blog is enabled but template is not set")
         posts_per_page = blog.get("posts_per_page", 10)
@@ -375,6 +398,18 @@ class Config:
                 f"the '{DEFAULT_URL_STYLE}' URL style will be used"
             ]
         return []
+
+    def blog_directory(self) -> str:
+        """The blog's folder, relative to paths.content (and to the output root).
+
+        A missing, null, empty or non-string blog.directory means the
+        default 'blog'; surrounding slashes are dropped ('posts/' -> 'posts').
+        Every component resolves the directory through this one method.
+        """
+        configured = self.get("blog", "directory")
+        if isinstance(configured, str) and configured.strip(BLOG_DIRECTORY_TRIM):
+            return configured.strip(BLOG_DIRECTORY_TRIM)
+        return DEFAULT_BLOG_DIRECTORY
 
     def get_url_style(self) -> str:
         """Get the URL style based on configuration and environment.
@@ -481,6 +516,25 @@ def _config_file_in(directory: str) -> Optional[str]:
         if os.path.exists(candidate):
             return candidate
     return None
+
+
+def _scalars_in_place_of_sections(
+    config: Dict[str, Any], defaults: Dict[str, Any], prefix: Tuple[str, ...] = ()
+) -> List[Tuple[Tuple[str, ...], Any]]:
+    """(key path, value) wherever config has a non-mapping for a non-empty default section.
+
+    A null value is not reported here: it reads as an absent section.
+    """
+    found = []
+    for key, default in defaults.items():
+        if not (isinstance(default, dict) and default) or key not in config:
+            continue
+        value = config[key]
+        if isinstance(value, dict):
+            found += _scalars_in_place_of_sections(value, default, prefix + (key,))
+        elif value is not None:
+            found.append((prefix + (key,), value))
+    return found
 
 
 def _deep_merge(source: Dict[str, Any], destination: Dict[str, Any]) -> None:

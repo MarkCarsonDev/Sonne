@@ -9,7 +9,7 @@ import logging
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, List
+from typing import Iterator, List, Dict
 
 from sonne.core.config import DEFAULT_CONFIG, Config
 from sonne.core.variable_manager import VariableManager
@@ -24,6 +24,7 @@ from sonne.utils.file_utils import (
 )
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import IMAGE_EXTENSIONS, MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
+from sonne.utils.path_utils import sorted_paths, validate_path_within_root
 from sonne.utils.page_size import inject_page_size_labels
 
 logger = logging.getLogger("sonne")
@@ -62,6 +63,12 @@ class SiteGenerator:
 
         # Build statistics (shared across all processors)
         self.stats = BuildStatistics()
+        # Per-build state, reset by each generate().
+        self._progress = _StepProgress(0)
+        # Which source file produced each output file, so collisions
+        # (about.md vs about/index.md) warn instead of silently
+        # last-writer-winning.
+        self._written_outputs: Dict[str, str] = {}
 
     def _fill_missing_paths(self) -> None:
         """Give every standard path key its default when unset or empty."""
@@ -81,14 +88,8 @@ class SiteGenerator:
             item_path = os.path.join(output_dir, item)
             try:
                 _remove_path(item_path)
-            except PermissionError as e:
-                logger.error(f"Permission denied when cleaning {item_path}: {e}")
-                failed_items.append(item)
-            except OSError as e:
-                logger.error(f"OS error when cleaning {item_path}: {e}")
-                failed_items.append(item)
             except Exception as e:
-                logger.error(f"Unexpected error cleaning {item_path}: {e}")
+                logger.error(f"Could not clean {item_path}: {type(e).__name__}: {e}")
                 failed_items.append(item)
 
         if failed_items:
@@ -96,12 +97,16 @@ class SiteGenerator:
         else:
             logger.info(f"Successfully cleaned output directory: {output_dir}")
 
-    def generate(self, skip_images: bool = False, skip_cache: bool = False) -> BuildStatistics:
+    def generate(
+        self, skip_images: bool = False, skip_cache: bool = False, show_progress: bool = True
+    ) -> BuildStatistics:
         """Generate the complete static site.
 
         Args:
             skip_images: Whether to skip image processing.
             skip_cache: Whether to ignore cache and rebuild everything.
+            show_progress: Log the "[n/N] step" lines at INFO; when False they
+                are logged at DEBUG only (``sonne build --no-progress``).
 
         Returns:
             BuildStatistics with timing and metrics for this build.
@@ -111,7 +116,7 @@ class SiteGenerator:
         """
         self._start_statistics()
         try:
-            self._run_build(skip_images, skip_cache)
+            self._run_build(skip_images, skip_cache, show_progress)
         except Exception as e:
             self.stats.finish()
             logger.error(f"Error generating site: {e}", exc_info=logger.isEnabledFor(logging.DEBUG))
@@ -128,14 +133,13 @@ class SiteGenerator:
         self.blog_processor.stats = self.stats
         self.variable_manager.stats = self.stats
 
-    def _run_build(self, skip_images: bool, skip_cache: bool) -> None:
+    def _run_build(self, skip_images: bool, skip_cache: bool, show_progress: bool) -> None:
         ensure_dir(self.paths["output"])
         blog_enabled = self.config.get("blog", "enabled", default=True)
-        self._progress = _StepProgress(_count_build_steps(blog_enabled, skip_images))
+        self._progress = _StepProgress(
+            _count_build_steps(blog_enabled, skip_images), visible=show_progress
+        )
 
-        # Track which source file produced each output file so
-        # collisions (about.md vs about/index.md) warn instead of
-        # silently last-writer-winning.
         self._written_outputs = {}
 
         # Post metadata comes first so data scripts can reference posts.
@@ -153,13 +157,16 @@ class SiteGenerator:
     @contextmanager
     def _timed_phase(self, name: str) -> Iterator[None]:
         started = time.perf_counter()
-        yield
-        self.stats.record_phase(name, time.perf_counter() - started)
+        try:
+            yield
+        finally:
+            # A failed phase still reports how long it ran.
+            self.stats.record_phase(name, time.perf_counter() - started)
 
     def _collect_post_metadata(self) -> None:
         self._progress.step("Collecting post metadata")
         self.blog_processor.collect_post_metadata()
-        logger.info(f"         {_count(len(self.blog_processor.posts), 'post')} found")
+        self._progress.detail(f"{_count(len(self.blog_processor.posts), 'post')} found")
 
     def _run_data_scripts(self) -> None:
         script_count = len(self.variable_manager.data_script_paths())
@@ -223,33 +230,29 @@ class SiteGenerator:
                 inject_page_size_labels(self.paths["output"])
 
     def _page_files(self) -> List[Path]:
-        """Content pages to render: page-type files outside the blog directory."""
+        """Content pages to render: page-type files outside the blog directory.
+
+        Hidden files and anything in hidden folders (.obsidian/, .git/) are
+        skipped, as are directories whose names end in a page extension.
+        """
         content_dir = self.paths.get("content")
         if not content_dir or not os.path.exists(content_dir):
             logger.warning(f"Content directory does not exist: {content_dir}")
             return []
 
-        blog_dir_name = self.config.get("blog", "directory", default="blog")
-        blog_dir = Path(content_dir, blog_dir_name).resolve() if blog_dir_name else None
+        content_root = Path(content_dir)
+        # With the blog off, its folder holds ordinary pages.
+        blog_dir = None
+        if self.config.get("blog", "enabled", default=True):
+            blog_dir = Path(content_dir, self.config.blog_directory()).resolve()
         return [
             file_path
-            for file_path in Path(content_dir).glob("**/*.*")
+            for file_path in sorted_paths(content_root.glob("**/*.*"))
             if file_path.suffix.lower() in PAGE_EXTENSIONS
-            and not (blog_dir and self._is_within(file_path, blog_dir))
+            and file_path.is_file()
+            and not _is_hidden_within(file_path, content_root)
+            and not (blog_dir and validate_path_within_root(file_path, blog_dir))
         ]
-
-    @staticmethod
-    def _is_within(path, ancestor) -> bool:
-        """Whether path is ancestor or inside it, by path components.
-
-        String-prefix comparison is never acceptable here: it treated
-        'content/blog-archive' as part of the 'content/blog' directory.
-        """
-        try:
-            Path(path).resolve().relative_to(Path(ancestor).resolve())
-            return True
-        except (ValueError, OSError):
-            return False
 
     def _process_page_logging_errors(self, file_path: Path) -> None:
         try:
@@ -306,13 +309,8 @@ class SiteGenerator:
         return output_path
 
     def _record_output(self, output_path: Path, file_path: Path) -> None:
-        """Remember which source wrote output_path; warn when two collide.
-
-        Tracking only happens during generate(); the later file wins.
-        """
-        written = getattr(self, "_written_outputs", None)
-        if written is None:
-            return
+        """Remember which source wrote output_path; warn when two collide (the later wins)."""
+        written = self._written_outputs
         out_key = str(output_path)
         prior_source = written.get(out_key)
         if prior_source and prior_source != str(file_path):
@@ -324,15 +322,23 @@ class SiteGenerator:
 
 
 class _StepProgress:
-    """Numbered "[step/total] message" progress lines for one build."""
+    """Numbered "[step/total] message" progress lines for one build.
 
-    def __init__(self, total_steps: int):
+    Hidden progress (--no-progress) is still logged, at DEBUG, so -v shows it.
+    """
+
+    def __init__(self, total_steps: int, visible: bool = True):
         self.total_steps = total_steps
         self.current_step = 0
+        self.level = logging.INFO if visible else logging.DEBUG
 
     def step(self, message: str) -> None:
         self.current_step += 1
-        logger.info(f"[{self.current_step}/{self.total_steps}] {message}")
+        logger.log(self.level, f"[{self.current_step}/{self.total_steps}] {message}")
+
+    def detail(self, message: str) -> None:
+        """An indented line under the current step."""
+        logger.log(self.level, f"         {message}")
 
 
 def _count_build_steps(blog_enabled: bool, skip_images: bool) -> int:
@@ -342,6 +348,11 @@ def _count_build_steps(blog_enabled: bool, skip_images: bool) -> int:
     if not skip_images:
         total += IMAGE_STEP_COUNT
     return total
+
+
+def _is_hidden_within(path: Path, root: Path) -> bool:
+    """Whether path, or any folder between root and it, starts with a dot."""
+    return any(part.startswith(".") for part in path.relative_to(root).parts)
 
 
 def _count(amount: int, noun: str) -> str:

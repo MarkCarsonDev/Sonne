@@ -19,15 +19,8 @@ from shutil import copytree, ignore_patterns
 from typing import List
 
 import yaml
-
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-
-    RICH_AVAILABLE = True
-except ImportError:
-    RICH_AVAILABLE = False
-    Console = None
+from rich.console import Console
+from rich.panel import Panel
 
 from sonne.core.config import Config
 from sonne.core.site_generator import SiteGenerator
@@ -39,8 +32,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sonne")
 
-# Initialize rich console if available
-console = Console() if RICH_AVAILABLE else None
+# Rich output for interactive use. Setting this to None routes CLI output
+# through the "sonne" logger instead (plain text; used by tests).
+console = Console()
 
 DEFAULT_SERVE_HOST = "localhost"
 DEFAULT_SERVE_PORT = 8000
@@ -49,7 +43,7 @@ OBSERVER_STOP_TIMEOUT_SECONDS = 5
 
 
 def _use_rich() -> bool:
-    return bool(console and RICH_AVAILABLE)
+    return console is not None
 
 
 def _print_traceback_if_verbose() -> None:
@@ -153,8 +147,8 @@ def cli(ctx, verbose, quiet):
     "--path",
     "-p",
     type=click.Path(exists=True),
-    default=os.getcwd(),
-    help="Path to the site directory.",
+    default=None,
+    help="Path to the site directory (default: the current directory).",
 )
 @click.option(
     "--config", "-c", type=click.Path(exists=False), help="Path to the configuration file."
@@ -184,6 +178,7 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         sonne build --clean           # Clean build from scratch
         sonne build --dev             # Build for development
     """
+    path = path or os.getcwd()
     try:
         if not check_sonne_directory(path):
             sys.exit(1)
@@ -196,7 +191,9 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         output_dir = generator.paths["output"]
         if clean:
             _clean_output(generator, output_dir)
-        stats = generator.generate(skip_images=skip_images, skip_cache=skip_cache)
+        stats = generator.generate(
+            skip_images=skip_images, skip_cache=skip_cache, show_progress=not no_progress
+        )
 
         _announce_build_complete(time.time() - ctx.obj["start_time"], output_dir)
         if perf and stats:
@@ -285,8 +282,8 @@ def _echo_degrading_unencodable(text: str) -> None:
     "--path",
     "-p",
     type=click.Path(),
-    default=os.getcwd(),
-    help="Path where the new site will be created.",
+    default=None,
+    help="Where to create the site (default: the current directory).",
 )
 @click.option(
     "--template",
@@ -300,7 +297,7 @@ def _echo_degrading_unencodable(text: str) -> None:
 def new(path, template, name, force):
     """Create a new Sonne site from a template."""
     try:
-        site_path = Path(path)
+        site_path = Path(path or os.getcwd())
         site_name = name or site_path.name
 
         if site_path.exists() and any(site_path.iterdir()) and not force:
@@ -385,8 +382,8 @@ def _rebuild_site(base_dir: str) -> None:
     "--path",
     "-p",
     type=click.Path(exists=True),
-    default=os.getcwd(),
-    help="Path to the site directory.",
+    default=None,
+    help="Path to the site directory (default: the current directory).",
 )
 @click.option("--port", default=None, type=int, help="Port to serve on.")
 @click.option("--host", default=None, help="Host to serve on.")
@@ -410,7 +407,7 @@ def serve(path, port, host, browser, watch):
     try:
         # Resolve up front: relative paths would otherwise break watch
         # rebuilds and observer scheduling.
-        path = os.path.abspath(path)
+        path = os.path.abspath(path or os.getcwd())
         if not check_sonne_directory(path):
             sys.exit(1)
 
@@ -488,6 +485,7 @@ class SiteRebuilder:
         self._lock = threading.Lock()
         self._pending = None  # pending debounce timer
         self._building = False
+        self._rerun_requested = False  # a change arrived while building
 
         self.watch_dirs = [
             directory
@@ -530,10 +528,32 @@ class SiteRebuilder:
         return any(changed == root or root in changed.parents for root in self._watched_roots)
 
     def _rebuild(self) -> None:
+        """Rebuild; if another change lands mid-build, rebuild again after it.
+
+        The build may already have read the changed file's old contents, so
+        a change during a build must not be dropped.
+        """
         with self._lock:
             if self._building:
+                self._rerun_requested = True
                 return
             self._building = True
+        try:
+            while True:
+                self._rebuild_once()
+                with self._lock:
+                    if not self._rerun_requested:
+                        self._building = False
+                        return
+                    self._rerun_requested = False
+        except BaseException:
+            # Only abnormal exits get here; the normal exit above already
+            # released the flag under the lock.
+            with self._lock:
+                self._building = self._rerun_requested = False
+            raise
+
+    def _rebuild_once(self) -> None:
         try:
             click.echo("\nChange detected — rebuilding...")
             # Fresh Config: the edit may have BEEN the config
@@ -542,9 +562,19 @@ class SiteRebuilder:
         except Exception as e:
             click.echo(f"Rebuild failed: {e}")
             _print_traceback_if_verbose()
-        finally:
-            with self._lock:
-                self._building = False
+
+
+def _paths_touched_by(event) -> List[str]:
+    """Paths a watchdog event affects.
+
+    A move reports both ends: editors that save by writing a temp file and
+    renaming it over the original produce only a move whose destination is
+    the real file. Moves count for directories too (a folder of posts moved
+    into content/); other directory events are ignored.
+    """
+    if event.event_type == "moved":
+        return [path for path in (event.src_path, getattr(event, "dest_path", "")) if path]
+    return [] if event.is_directory else [event.src_path]
 
 
 def _start_watching(path: str, config: Config):
@@ -565,8 +595,8 @@ def _start_watching(path: str, config: Config):
 
     class _WatchdogAdapter(FileSystemEventHandler):
         def on_any_event(self, event):
-            if not event.is_directory:
-                rebuilder.file_changed(event.src_path)
+            for changed_path in _paths_touched_by(event):
+                rebuilder.file_changed(changed_path)
 
     observer = Observer()
     observer.schedule(_WatchdogAdapter(), path, recursive=True)

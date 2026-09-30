@@ -86,7 +86,6 @@ DITHER_ICON_CELL_SIZE = "24.28"
 LEGACY_MARKER_RE = re.compile(r"\{\+\}\{|\{-\}\{|\{p\}\{#")
 
 # Blog content directory (under content/) when blog.directory is unset.
-DEFAULT_BLOG_DIR = "blog"
 
 # Markup.format escapes every interpolated value.
 PLAIN_IMAGE_MARKUP = Markup('<img src="{src}" alt="{alt}" loading="{loading}">')
@@ -670,14 +669,15 @@ class TemplateProcessor:
         return None
 
     def _is_blog_post(self, source_path: str) -> bool:
-        """Whether a source file lies under the configured blog content directory."""
+        """Whether a source file is a blog post: under the blog directory, blog enabled.
+
+        With the blog off, files in its folder are ordinary pages.
+        """
         content_dir = self.paths.get("content")
-        if not content_dir:
+        if not content_dir or not self.config.get("blog", "enabled", default=True):
             return False
-        blog_dir = self.config.get("blog", "directory", default=DEFAULT_BLOG_DIR)
-        if blog_dir is None:
-            blog_dir = DEFAULT_BLOG_DIR
-        return validate_path_within_root(source_path, os.path.join(content_dir, blog_dir))
+        blog_dir = os.path.join(content_dir, self.config.blog_directory())
+        return validate_path_within_root(source_path, blog_dir)
 
     def _render_with_template(
         self,

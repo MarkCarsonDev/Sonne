@@ -15,18 +15,11 @@ from pathlib import Path
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
-logger = logging.getLogger("sonne")
+from markupsafe import Markup
 
-# Try to import Markup from the correct location
-try:
-    from markupsafe import Markup
-except ImportError:
-    try:
-        from jinja2 import Markup
-    except ImportError:
-        # Fallback if Markup is not available
-        class Markup(str):
-            pass
+from sonne.utils.path_utils import sorted_paths
+
+logger = logging.getLogger("sonne")
 
 
 DEFAULT_VARIABLE_FILE = "sonne_variables.json"
@@ -196,7 +189,7 @@ class VariableManager:
         if not self.data_dir:
             return
         for pattern in DATA_FILE_PATTERNS:
-            for file_path in Path(self.data_dir).glob(f"**/{pattern}"):
+            for file_path in sorted_paths(Path(self.data_dir).glob(f"**/{pattern}")):
                 try:
                     self._load_data_file(str(file_path), "site")
                 except Exception as e:
@@ -231,7 +224,7 @@ class VariableManager:
             return []
         return [
             script_path
-            for script_path in Path(self.scripts_dir).glob("*.py")
+            for script_path in sorted_paths(Path(self.scripts_dir).glob("*.py"))
             if not script_path.name.startswith("_")
         ]
 
@@ -334,6 +327,10 @@ class VariableManager:
         Candidates in order: <site>/data/footer.py, <paths.data>/footer.py,
         <site>/scripts/footer.py. One already run as a data script counts as
         found without running again; one that fails falls through to the next.
+
+        Note that this executes Python from the data folder, which otherwise
+        holds only JSON/YAML/CSV. Like data scripts it is trusted site code
+        (documented in README "Security"); never extend this to other files.
         """
         for footer_path in self._footer_script_candidates():
             if not os.path.exists(footer_path):

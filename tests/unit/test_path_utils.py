@@ -15,8 +15,19 @@ class TestSanitizeFilename:
         assert "/" not in sanitize_filename("a/b")
         assert "\\" not in sanitize_filename("a\\b")
 
-    def test_parent_refs_removed(self):
-        assert ".." not in sanitize_filename("../../etc/passwd")
+    def test_parent_refs_cannot_traverse(self):
+        # Separators are replaced and leading dots stripped, so the result
+        # is a single name that cannot climb out of its directory.
+        sanitized = sanitize_filename("../../etc/passwd")
+        assert "/" not in sanitized and "\\" not in sanitized
+        assert not sanitized.startswith(".")
+
+    @pytest.mark.parametrize("name", ["..", ".", "...", " .. "])
+    def test_dot_only_names_become_unnamed(self, name):
+        assert sanitize_filename(name) == "unnamed"
+
+    def test_double_dots_inside_a_name_are_kept(self):
+        assert sanitize_filename("v1..2.txt") == "v1..2.txt"
 
     def test_windows_reserved_names_prefixed(self):
         assert sanitize_filename("CON.txt") != "CON.txt"
@@ -97,3 +108,15 @@ class TestIsPostLocalRasterImage:
         from sonne.utils.path_utils import is_post_local_raster_image
 
         assert not is_post_local_raster_image(src)
+
+
+class TestValidatePathWithinRootErrors:
+    def test_os_error_while_resolving_means_not_within(self, tmp_path, monkeypatch):
+        from pathlib import Path
+
+        def failing_resolve(self, strict=False):
+            raise OSError("device not ready")
+
+        monkeypatch.setattr(Path, "resolve", failing_resolve)
+
+        assert validate_path_within_root(tmp_path / "a", tmp_path) is False
