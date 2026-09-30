@@ -200,7 +200,6 @@ class TestDraftsAndPaths:
 
         assert (out / "blog" / "2025" / "02" / "01" / "hello-world" / "index.html").exists()
 
-    @pytest.mark.xfail(strict=True, reason="B36: post images can be written outside output/")
     def test_post_image_cannot_escape_output_dir(
         self, site_factory, builder, image_factory, tmp_path
     ):

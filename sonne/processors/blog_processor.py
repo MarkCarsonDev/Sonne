@@ -532,25 +532,42 @@ class BlogProcessor:
     def _publish_inline_image(
         self, post: Dict[str, Any], image_ref: str, transforms: dict, output_dir: str
     ) -> Optional[_PublishedImage]:
-        source_path = _source_image_path(post, image_ref)
-        if not os.path.exists(source_path):
-            logger.warning(f"Image not found: {source_path} (referenced in {post['title']})")
+        source_path = self._publishable_source(post, image_ref, output_dir, "Image")
+        if source_path is None:
             return None
         return self._publish_image(
             source_path, image_ref, transforms, output_dir, dither=self._dither_enabled
         )
+
+    def _publishable_source(
+        self, post: Dict[str, Any], image_ref: str, output_dir: str, kind: str
+    ) -> Optional[str]:
+        """The source file for image_ref, or None (with a warning) if it can't be published.
+
+        It can't when the source is missing, or when the ref's ../ segments
+        would place the published copy outside the output directory.
+        """
+        title = post.get("title", "unknown")
+        source_path = _source_image_path(post, image_ref)
+        if not os.path.exists(source_path):
+            logger.warning(f"{kind} not found: {source_path} (referenced in {title})")
+            return None
+        published_path = os.path.join(output_dir, strip_relative_prefix(image_ref))
+        if not validate_path_within_root(published_path, self.paths["output"]):
+            logger.warning(
+                f"{kind} {image_ref} (referenced in {title}) would be published outside "
+                "the output directory; skipping it"
+            )
+            return None
+        return source_path
 
     def _publish_cover_image(self, post: Dict[str, Any], output_dir: str) -> None:
         """Publish the cover image and record its web paths and sizes on the post."""
         cover_img = post.get("cover_img")
         if not cover_img or _is_external_or_vector(cover_img):
             return
-        source_path = _source_image_path(post, cover_img)
-        if not os.path.exists(source_path):
-            logger.warning(
-                f"Cover image not found: {source_path} "
-                f"(referenced in {post.get('title', 'unknown')})"
-            )
+        source_path = self._publishable_source(post, cover_img, output_dir, "Cover image")
+        if source_path is None:
             return
 
         transforms = {}
