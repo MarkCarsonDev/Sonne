@@ -88,13 +88,11 @@ class TestProcessImageFilter:
         template = processor.jinja_env.get_template("image_filter.html")
         return template.render(alt=self.ALT_WITH_MARKUP)
 
-    @pytest.mark.xfail(strict=True, reason="B24: filter output autoescaped when dithering is off")
     def test_plain_image_renders_as_markup_with_escaped_alt(self, site):
         html = self.render(site, dither=False)
         assert '<img src="pic.png"' in html
         assert self.ESCAPED_ALT in html
 
-    @pytest.mark.xfail(strict=True, reason="B24: alt interpolated unescaped into Markup")
     def test_dithered_image_escapes_alt(self, site):
         html = self.render(site, dither=True)
         assert '<img src="pic.png"' in html

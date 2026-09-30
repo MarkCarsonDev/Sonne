@@ -89,6 +89,26 @@ LEGACY_MARKER_RE = re.compile(r"\{\+\}\{|\{-\}\{|\{p\}\{#")
 # Blog content directory (under content/) when blog.directory is unset.
 DEFAULT_BLOG_DIR = "blog"
 
+# Markup.format escapes every interpolated value.
+PLAIN_IMAGE_MARKUP = Markup('<img src="{src}" alt="{alt}" loading="{loading}">')
+DITHERED_IMAGE_MARKUP = Markup("""
+            <div class="dithered-image-container">
+                <img src="{src}" alt="{alt}" loading="{loading}" class="dithered">
+                <img src="{original_src}" alt="{alt}" loading="{loading}" class="original">
+                <div class="dither-toggle">
+                    <div class="dither-toggle-dot"></div>
+                    <div class="dither-toggle-dot empty"></div>
+                    <div class="dither-toggle-dot"></div>
+                    <div class="dither-toggle-dot empty"></div>
+                    <div class="dither-toggle-dot"></div>
+                    <div class="dither-toggle-dot empty"></div>
+                    <div class="dither-toggle-dot"></div>
+                    <div class="dither-toggle-dot empty"></div>
+                    <div class="dither-toggle-dot"></div>
+                </div>
+            </div>
+            """)
+
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 
 # Markers identify Sonne's injected assets so they are never added twice.
@@ -279,28 +299,14 @@ class TemplateProcessor:
             loading: Loading attribute value.
 
         Returns:
-            HTML for the image, with the dithering toggle when dithering is enabled.
+            Markup for the image, with the dithering toggle when dithering is
+            enabled. All arguments are HTML-escaped.
         """
         if not self.dithering_enabled:
-            return f'<img src="{src}" alt="{alt}" loading="{loading}">'
-        original_src = _original_image_src(src)
-        return Markup(f"""
-            <div class="dithered-image-container">
-                <img src="{src}" alt="{alt}" loading="{loading}" class="dithered">
-                <img src="{original_src}" alt="{alt}" loading="{loading}" class="original">
-                <div class="dither-toggle">
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                    <div class="dither-toggle-dot empty"></div>
-                    <div class="dither-toggle-dot"></div>
-                </div>
-            </div>
-            """)
+            return PLAIN_IMAGE_MARKUP.format(src=src, alt=alt, loading=loading)
+        return DITHERED_IMAGE_MARKUP.format(
+            src=src, original_src=_original_image_src(src), alt=alt, loading=loading
+        )
 
     def validate_templates(self) -> List[str]:
         """Validate all site templates for syntax and render errors.
