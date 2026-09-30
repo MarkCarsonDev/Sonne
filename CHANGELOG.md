@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented, work while Sonne runs the script during a build, and raise
   `RuntimeError` elsewhere. Scripts using them without the import keep
   working.
+- `all_pages` template variable: every content page (front matter plus
+  `title`, `url`, `section`, `source_path`), sorted by URL, so templates
+  can list non-blog pages, e.g. `{% for p in all_pages if p.section ==
+  'projects' %}`. Blog posts stay in `all_blog_posts`. Page URLs and output
+  paths now come from one function, so they can no longer disagree.
 - `sonne_config(*keys, default=None)` in `sonne.script_api` (and as an
   injected global): data scripts read the running build's configuration,
   e.g. `sonne_config("site", "base_url")`, instead of locating and
@@ -49,6 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- Builds show a new "Collecting page metadata" step (one more `[n/N]`
+  line).
+- `solar` scaffold: data scripts read settings with `sonne_config`; the
+  Projects nav link now leads to a real `/projects/` page listing the
+  project pages, and `portfolio.html` shows its page body.
 - Sonne requires Pillow 9.1 or newer (typed `Image.Resampling`/`Dither`/
   `Palette` enums; output is unchanged).
 - The codebase type-checks with pyright in standard mode (the checker
