@@ -9,8 +9,7 @@ import random
 from datetime import datetime
 from pathlib import Path
 
-from sonne.core.config import Config
-from sonne.script_api import sonne_var
+from sonne.script_api import sonne_config, sonne_var
 
 DAYLIGHT_HOURS = range(6, 18)
 MINUTES_TO_CHARGE_ONE_PERCENT = 2.4  # about 4 hours from empty to full
@@ -31,8 +30,7 @@ def main():
 
 
 def simulation_enabled():
-    site_config = Config(base_dir=str(Path(__file__).parent.parent))
-    return site_config.get("solar", "battery_simulation", default=True)
+    return sonne_config("solar", "battery_simulation", default=True)
 
 
 def read_system_battery():

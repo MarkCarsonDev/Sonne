@@ -64,3 +64,9 @@ class TestSolarTemplate:
         with caplog.at_level(logging.WARNING, logger="sonne"):
             builder(solar_site)
         assert "replaces the site variable" not in caplog.text
+
+    def test_projects_page_lists_the_projects(self, solar_site, builder):
+        _, output = builder(solar_site)
+        page = read_page(output, "projects")
+        assert 'href="/projects/project-1/"' in page
+        assert "Solar-Powered Monitoring Station" in page
