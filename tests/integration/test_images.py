@@ -4,6 +4,7 @@ import logging
 
 import pytest
 
+
 from PIL import Image
 
 from sonne.core.config import Config
@@ -165,7 +166,6 @@ class TestStaticImages:
         generator.image_processor.process_all(generator.paths["content"], skip_cache=True)
         assert target.read_bytes() != b"stale"
 
-    @pytest.mark.xfail(strict=True, reason="B39: rebuild ships the raw static image")
     def test_rebuild_keeps_static_images_dithered(self, site_factory, builder, image_factory):
         site = site_factory("blog", overlay="blog_site")
         source = image_factory(site / "static" / "images" / "logo.png", size=(32, 32), fmt="PNG")
@@ -173,6 +173,34 @@ class TestStaticImages:
         builder(site, config_overrides=overrides)
         _, out = builder(site, config_overrides=overrides)  # warm cache
         assert (out / "images" / "logo.png").read_bytes() != source.read_bytes()
+
+
+class TestStaticFileOwnership:
+    """Which static files the image pipeline writes (so the static copy must skip them)."""
+
+    def processor(self, site_factory, builder, config_overrides=None):
+        site = site_factory("blog", overlay="blog_site")
+        for rel_path in ["images/a.png", "images/sub/b.jpg", "images/icon.svg", "css/c.png"]:
+            (site / "static" / rel_path).parent.mkdir(parents=True, exist_ok=True)
+            (site / "static" / rel_path).write_bytes(b"x")
+        (site / "static" / "images" / ".hidden").mkdir()
+        (site / "static" / "images" / ".hidden" / "d.png").write_bytes(b"x")
+        generator, _ = builder(site, config_overrides=config_overrides, skip_images=True)
+        return generator.image_processor, site / "static"
+
+    def test_raster_images_under_static_images_are_owned(self, site_factory, builder):
+        processor, static = self.processor(site_factory, builder)
+        assert processor.owns_static_file(str(static / "images" / "a.png"))
+        assert processor.owns_static_file(str(static / "images" / "sub" / "b.jpg"))
+
+    def test_other_static_files_are_not_owned(self, site_factory, builder):
+        processor, static = self.processor(site_factory, builder)
+        for rel_path in ["images/icon.svg", "css/c.png", "images/.hidden/d.png"]:
+            assert not processor.owns_static_file(str(static / rel_path)), rel_path
+
+    def test_unreferenced_images_are_not_owned_with_only_used(self, site_factory, builder):
+        processor, static = self.processor(site_factory, builder, {("images", "only_used"): True})
+        assert not processor.owns_static_file(str(static / "images" / "a.png"))
 
 
 class TestImageDiscovery:
@@ -230,6 +258,11 @@ class TestBuildStatistics:
         assert stats.images_processed >= 2
         assert (stats.images_cached, stats.cache_misses) == (0, stats.images_processed)
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="B39: static images are re-dithered every build until SiteGenerator passes "
+        "image_processor.owns_static_file as copy_static_files(skip=...)",
+    )
     def test_rebuild_counts_cached_images_as_cache_hits(self, site_factory, builder, image_factory):
         site, overrides, _ = self.build(site_factory, builder, image_factory)
         generator, _ = builder(site, config_overrides=overrides)

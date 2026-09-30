@@ -7,6 +7,7 @@ import os
 import shutil
 import logging
 import glob
+from typing import Callable, Optional
 
 logger = logging.getLogger("sonne")
 
@@ -43,7 +44,9 @@ def copy_core_static_files(output_dir: str) -> None:
     logger.debug(f"Copied core static files to {output_dir}")
 
 
-def copy_static_files(static_dir: str, output_dir: str) -> None:
+def copy_static_files(
+    static_dir: str, output_dir: str, skip: Optional[Callable[[str], bool]] = None
+) -> None:
     """Copy static files to the output directory, skipping hidden entries.
 
     A missing static directory only warns: SiteGenerator then falls back to
@@ -54,6 +57,9 @@ def copy_static_files(static_dir: str, output_dir: str) -> None:
     Args:
         static_dir: Path to the static directory.
         output_dir: Path to the output directory.
+        skip: Optional predicate on a source file path; files it accepts are
+            not copied (e.g. ImageProcessor.owns_static_file, whose outputs
+            the image pipeline writes).
     """
     if not static_dir or not os.path.exists(static_dir):
         logger.warning(f"Static directory does not exist or is not specified: {static_dir}")
@@ -65,10 +71,10 @@ def copy_static_files(static_dir: str, output_dir: str) -> None:
         if rel_path != ".":
             ensure_dir(os.path.join(output_dir, rel_path))
         for filename in files:
-            if not _is_hidden(filename):
-                _copy_static_file(
-                    os.path.join(root, filename), os.path.join(output_dir, rel_path, filename)
-                )
+            source_file = os.path.join(root, filename)
+            if _is_hidden(filename) or (skip and skip(source_file)):
+                continue
+            _copy_static_file(source_file, os.path.join(output_dir, rel_path, filename))
 
 
 def _is_hidden(name: str) -> bool:
