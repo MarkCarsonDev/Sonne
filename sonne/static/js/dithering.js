@@ -3,8 +3,12 @@
 // Static pipeline convention: the dithered image is served at the image's
 // own URL and the untouched original beside it with an "_original" suffix
 // before the extension (images/a.png -> images/a_original.png, sized
-// variants b_800.webp -> b_800_original.webp). Every other image on the
-// page (except SVGs) is wrapped with a toggle between the two.
+// variants b_800.webp -> b_800_original.webp). Every other same-origin
+// raster image is wrapped with a toggle between the two.
+//
+// Blog figures (<figure class="dithered-image-figure"> with
+// data-original-src/data-dithered-src) follow the blog convention and have
+// their own inline script; they are left alone here.
 (function () {
 	"use strict";
 
@@ -12,6 +16,7 @@
 	var TOGGLE_CLASS = "dither-toggle";
 	var SHOW_ORIGINAL_CLASS = "show-original";
 	var BOUND_ATTRIBUTE = "data-has-listener";
+	var BLOG_FIGURE_SELECTOR = ".dithered-image-figure";
 
 	// 3x3 grid forming an X: filled corners and centre.
 	var TOGGLE_DOT_IS_FILLED = [true, false, true, false, true, false, true, false, true];
@@ -39,10 +44,31 @@
 	}
 
 	function isStandaloneImage(img) {
-		if (img.classList.contains("dithered") || img.classList.contains("original")) {
+		if (img.closest("." + CONTAINER_CLASS) || img.closest(BLOG_FIGURE_SELECTOR)) {
 			return false;
 		}
-		return !img.closest("." + CONTAINER_CLASS) && !img.src.endsWith(".svg");
+		if (img.hasAttribute("data-original-src")) {
+			return false;
+		}
+		var url = sameOriginUrl(img.getAttribute("src"));
+		// SVGs are never dithered; other origins have no "_original" twin.
+		return url !== null && !/\.svg$/i.test(url.pathname);
+	}
+
+	function sameOriginUrl(src) {
+		if (!src) {
+			return null;
+		}
+		var url;
+		try {
+			url = new URL(src, document.baseURI);
+		} catch (e) {
+			return null;
+		}
+		if (url.protocol === "data:" || url.protocol === "blob:") {
+			return null;
+		}
+		return url.origin === window.location.origin ? url : null;
 	}
 
 	// Sized variants: name_800.png -> name_800_original.png; otherwise
