@@ -97,3 +97,16 @@ class TestIsPostLocalRasterImage:
         from sonne.utils.path_utils import is_post_local_raster_image
 
         assert not is_post_local_raster_image(src)
+
+
+class TestValidatePathWithinRootErrors:
+    @pytest.mark.xfail(strict=True, reason="B51: OSError from resolve() escapes")
+    def test_os_error_while_resolving_means_not_within(self, tmp_path, monkeypatch):
+        from pathlib import Path
+
+        def failing_resolve(self, strict=False):
+            raise OSError("device not ready")
+
+        monkeypatch.setattr(Path, "resolve", failing_resolve)
+
+        assert validate_path_within_root(tmp_path / "a", tmp_path) is False

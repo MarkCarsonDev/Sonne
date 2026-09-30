@@ -3,6 +3,8 @@
 import logging
 import shutil
 
+import pytest
+
 
 class TestMinimalBuild:
     def test_build_produces_pages(self, site_factory, builder):
@@ -124,3 +126,63 @@ def test_rendered_templates_are_counted(site_factory, builder):
     generator, _ = builder(site)
 
     assert generator.stats.templates_rendered > 0
+
+
+class TestPageDiscovery:
+    @pytest.mark.xfail(strict=True, reason="B42: pages render in filesystem (glob) order")
+    def test_pages_render_in_sorted_order(self, site_factory, builder, monkeypatch):
+        from pathlib import Path
+
+        site = site_factory("minimal")
+        for name in ["b.md", "a.md", "c.md"]:
+            (site / "content" / name).write_text(f"---\ntitle: {name}\n---\nx\n", "utf-8")
+        real_glob = Path.glob
+        monkeypatch.setattr(
+            Path, "glob", lambda self, pattern: reversed(list(real_glob(self, pattern)))
+        )
+        rendered = []
+        from sonne.core.site_generator import SiteGenerator
+
+        real_process_page = SiteGenerator._process_page
+        monkeypatch.setattr(
+            SiteGenerator,
+            "_process_page",
+            lambda self, path: rendered.append(path.name) or real_process_page(self, path),
+        )
+
+        builder(site)
+
+        assert rendered == sorted(rendered)
+
+    @pytest.mark.xfail(strict=True, reason="B43: hidden folders are rendered as pages")
+    def test_hidden_folders_are_not_pages(self, site_factory, builder):
+        site = site_factory("minimal")
+        hidden = site / "content" / ".obsidian"
+        hidden.mkdir()
+        (hidden / "workspace.md").write_text("# notes\n", encoding="utf-8")
+
+        _, out = builder(site)
+
+        assert not (out / ".obsidian").exists()
+
+    @pytest.mark.xfail(strict=True, reason="B43: a directory named *.md is treated as a page")
+    def test_directory_named_like_a_page_is_not_rendered(self, site_factory, builder, caplog):
+        site = site_factory("minimal")
+        (site / "content" / "notes.md").mkdir()
+
+        with caplog.at_level(logging.ERROR, logger="sonne"):
+            builder(site)
+
+        assert not [r for r in caplog.records if "notes.md" in r.getMessage()]
+
+
+class TestDisabledBlogDirectory:
+    @pytest.mark.xfail(strict=True, reason="B44: content/blog is skipped even with the blog off")
+    def test_blog_folder_renders_as_pages_when_blog_disabled(self, site_factory, builder):
+        site = site_factory("minimal")  # blog.enabled: false
+        (site / "content" / "blog").mkdir()
+        (site / "content" / "blog" / "note.md").write_text("---\ntitle: Note\n---\nHi\n", "utf-8")
+
+        _, out = builder(site)
+
+        assert (out / "blog" / "note" / "index.html").exists()

@@ -199,3 +199,34 @@ class TestSave:
         cfg.save(str(target))
 
         assert Config(str(target), base_dir=str(tmp_path)).get("site", "title") == "Saved"
+
+
+class TestBlogDirectory:
+    @pytest.mark.xfail(strict=True, reason="B45: blog.directory None/'' resolved inconsistently")
+    @pytest.mark.parametrize("configured", [None, "", "blog", "posts", "posts/"])
+    def test_one_resolution_of_the_blog_directory(self, tmp_path, configured):
+        cfg = config_with(tmp_path, ("blog", "directory", configured))
+
+        expected = "posts" if configured and configured.startswith("posts") else "blog"
+        assert cfg.blog_directory() == expected
+
+    @pytest.mark.xfail(strict=True, reason="B45: validate does not say which directory is used")
+    def test_validate_says_empty_directory_falls_back(self, tmp_path):
+        cfg = config_with(tmp_path, ("blog", "directory", ""))
+
+        assert cfg.validate() == ["blog.directory is empty; using 'blog'"]
+
+
+class TestSectionShapes:
+    @pytest.mark.xfail(strict=True, reason="B46: a scalar where a mapping belongs is not flagged")
+    @pytest.mark.parametrize("keys", [("images",), ("blog", "taxonomies"), ("serve",)])
+    def test_scalar_for_a_mapping_section_warns(self, tmp_path, keys):
+        cfg = config_with(tmp_path, (*keys, "yes"))
+
+        assert f"{'.'.join(keys)} should be a mapping (got 'yes')" in cfg.validate()
+
+    @pytest.mark.parametrize("value", [False, True])
+    def test_rss_accepts_a_boolean(self, tmp_path, value):
+        cfg = config_with(tmp_path, ("blog", "rss", value))
+
+        assert cfg.validate() == []

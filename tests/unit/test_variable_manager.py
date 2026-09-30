@@ -4,6 +4,8 @@ import json
 import logging
 import textwrap
 
+import pytest
+
 
 import sonne
 from sonne.core.config import Config
@@ -274,3 +276,37 @@ class TestVersion:
         monkeypatch.setattr(sonne, "__version__", "99.0.0-test")
         vm = make_vm(tmp_path)
         assert vm._get_version() == "99.0.0-test"
+
+
+class TestDeterministicOrder:
+    @pytest.fixture
+    def reversed_glob(self, monkeypatch):
+        from pathlib import Path
+
+        real_glob = Path.glob
+        monkeypatch.setattr(
+            Path, "glob", lambda self, pattern: reversed(list(real_glob(self, pattern)))
+        )
+
+    @pytest.mark.xfail(strict=True, reason="B42: data scripts run in filesystem (glob) order")
+    def test_data_scripts_run_in_sorted_order(self, tmp_path, reversed_glob):
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        for name in ["b.py", "a.py", "c.py"]:
+            (scripts / name).write_text("", encoding="utf-8")
+
+        names = [path.name for path in make_vm(tmp_path).data_script_paths()]
+
+        assert names == ["a.py", "b.py", "c.py"]
+
+    @pytest.mark.xfail(strict=True, reason="B42: data files load in filesystem (glob) order")
+    def test_later_data_file_wins_in_sorted_order(self, tmp_path, reversed_glob):
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / "a.json").write_text(json.dumps({"x": "from a"}), encoding="utf-8")
+        (data / "b.json").write_text(json.dumps({"x": "from b"}), encoding="utf-8")
+        vm = make_vm(tmp_path)
+
+        vm.load_variables()
+
+        assert vm.get("x", scope="site") == "from b"
