@@ -28,12 +28,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `security.allow_embedded_python` config key (it only gated the dead
   executor). Configs that still set it get a warning naming the
   replacement.
+- Unused, undocumented internal helpers `file_utils.get_file_mtime`,
+  `is_file_modified`, `get_all_files`, `clean_directory` and
+  `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
 - Error tracebacks in library code now go through the `sonne` logger
   (shown with `-vv`/debug logging) instead of being printed straight to
   stderr.
-
+- `data/footer.py` scripts can call `get_post()`, and their `footer_custom`
+  is marked HTML-safe exactly like `scripts/footer.py`.
+- A data script's `sonne_var()` that replaces an existing site variable (a
+  site config key, data-file key or Sonne default such as `nav`) now logs a
+  warning once per key per build; the value is still replaced (B18).
 - `solar` scaffold: removed the unused `solar.*` keys (`theme`,
   `contrast`, `font_size`, `reduce_motion`, `minimize_images`,
   `data_saver`, `weather_update_interval`) — nothing read them. The theme
@@ -56,6 +63,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Image syntax inside fenced code blocks or inline code in a blog post
   (e.g. a Markdown tutorial) is no longer treated as a real image, which
   logged a spurious "Image not found" warning per sample (B26).
+- `sonne build --perf` no longer reports "Build failed" (exit 1) when
+  stdout is a non-UTF-8 pipe or redirect (cp1252 on Windows); characters
+  that can't be encoded print as `?`.
+- The build report counts rendered pages ("Pages: Processed" was always 0).
+- `sonne build -p <site>` reports the site's own output directory; the
+  "Build complete" and `--clean` messages resolved `paths.output` against
+  the current directory.
+- `sonne serve --watch` rebuilds for configured paths written with `/` on
+  Windows, with a `./` prefix, or as absolute paths; edits under e.g.
+  `content: src/pages` were silently ignored.
+- `footer.py` under a relative custom `paths.data` is found relative to the
+  site, not the current directory.
+- `Config.save()` to an unsupported extension no longer empties the
+  existing file.
+- Sites without a `static/` directory no longer get `dithering.css`/`.js`
+  when `images.dither` is false.
 - `blog.rss.path` pointing into a subdirectory (e.g. `feeds/blog.xml`)
   failed because the directory was never created.
 - `solar` scaffold (affects new `sonne new -t solar` sites): the battery
