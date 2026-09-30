@@ -255,9 +255,7 @@ class BlogProcessor:
         if raw_date is None:
             prefix = FILENAME_DATE_PREFIX.match(file_path.stem)
             raw_date = prefix.group(1) if prefix else "auto"
-        stat = file_path.stat()
-        # st_birthtime exists on macOS/BSD (and Windows on Python 3.12+).
-        created = datetime.fromtimestamp(getattr(stat, "st_birthtime", stat.st_mtime))
+        created = _file_created_at(file_path.stat())
         return _parse_front_matter_date(raw_date, created, file_path.name)
 
     def _post_modified_date(self, front_matter: Dict[str, Any], file_path: Path) -> datetime:
@@ -1013,6 +1011,19 @@ def _as_aware(moment: datetime) -> datetime:
     # Attaches the current local offset instead of calling astimezone(),
     # which raises OSError on Windows for naive datetimes near 1970.
     return moment if moment.tzinfo else moment.replace(tzinfo=LOCAL_TIMEZONE)
+
+
+def _file_created_at(stat: Any) -> datetime:
+    """A file's creation time from its stat result, as well as the platform allows.
+
+    st_birthtime exists on macOS/BSD and on Windows from Python 3.12. Older
+    Windows Pythons report creation time as st_ctime; on other POSIX
+    systems st_ctime is the metadata-change time, so mtime is the fallback.
+    """
+    created = getattr(stat, "st_birthtime", None)
+    if created is None:
+        created = stat.st_ctime if os.name == "nt" else stat.st_mtime
+    return datetime.fromtimestamp(created)
 
 
 def _parse_front_matter_date(value: Any, fallback: datetime, source_name: str) -> datetime:
