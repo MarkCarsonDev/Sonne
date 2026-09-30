@@ -1,4 +1,4 @@
-"""all_pages: every content page, available to templates."""
+"""all_pages: every content page, available to templates and data scripts."""
 
 from pathlib import Path
 
@@ -103,3 +103,15 @@ class TestAllPages:
         blog_dir = str(Path("content", "blog"))
         assert all(blog_dir not in page["source_path"] for page in all_pages(generator))
         assert generator.variable_manager.variables["global"]["all_blog_posts"]
+
+    def test_data_scripts_can_read_all_pages(self, site_with_projects, builder):
+        write(
+            site_with_projects / "scripts" / "projects.py",
+            "from sonne.script_api import get_variable, sonne_var\n"
+            "pages = get_variable('all_pages', [])\n"
+            "titles = [p['title'] for p in pages if p['section'] == 'projects']\n"
+            "sonne_var('project_titles', titles)\n",
+        )
+        generator, _ = builder(site_with_projects)
+        titles = generator.variable_manager.variables["global"]["project_titles"]
+        assert titles == ["Projects", "Solar Monitor", "untitled"]

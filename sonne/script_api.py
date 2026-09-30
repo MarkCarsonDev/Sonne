@@ -4,9 +4,10 @@ The functions Sonne data scripts call to hand data to templates.
 Import them in ``scripts/*.py`` (and ``footer.py``) so editors, type
 checkers and linters know where they come from::
 
-    from sonne.script_api import get_post, sonne_config, sonne_filter, sonne_global, sonne_var
+    from sonne.script_api import get_variable, sonne_config, sonne_filter, sonne_var
 
     city = sonne_config("site", "weather", "city", default="Berlin")
+    projects = [p for p in get_variable("all_pages", []) if p["section"] == "projects"]
     sonne_var("team", [{"name": "Ada", "role": "Engineer"}])
     sonne_filter("shout", lambda text: str(text).upper())
 
@@ -21,9 +22,20 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, fields
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
-__all__ = ["get_post", "sonne_config", "sonne_filter", "sonne_global", "sonne_var"]
+if TYPE_CHECKING:
+    from PIL import Image
+
+__all__ = [
+    "dither_image",
+    "get_post",
+    "get_variable",
+    "sonne_config",
+    "sonne_filter",
+    "sonne_global",
+    "sonne_var",
+]
 
 Post = dict[str, Any]
 
@@ -37,6 +49,8 @@ class ScriptHooks:
     sonne_filter: Callable[[str, Callable[..., Any]], None]
     sonne_global: Callable[[str, Any], None]
     sonne_config: Callable[..., Any]
+    get_variable: Callable[..., Any]
+    dither_image: Callable[["Image.Image"], "Image.Image"]
 
     def as_globals(self) -> dict[str, Callable[..., Any]]:
         """The hooks by name, for injecting into a script module's globals."""
@@ -170,3 +184,50 @@ def sonne_config(*keys: str, default: Any = None) -> Any:
         >>> city = sonne_config("site", "weather", "city", default="Berlin")  # doctest: +SKIP
     """
     return _current_hooks().sonne_config(*keys, default=default)
+
+
+def get_variable(name: str, default: Any = None) -> Any:
+    """Read a variable of the running build.
+
+    Anything templates can see is readable: collected content
+    (``all_pages``, ``all_blog_posts``, ``tags``, ``categories``), data
+    files, site config values and variables set by scripts that ran earlier
+    (scripts run in file-name order). The result is a deep copy, so
+    changing it does not affect the build. Large values are copied on every
+    call (``all_blog_posts`` includes each post's rendered content), so
+    call it once and keep the result.
+
+    Args:
+        name: Variable name, as used in templates.
+        default: Returned (as given, not copied) when there is no such variable.
+
+    Returns:
+        A deep copy of the variable's value, or default.
+
+    Raises:
+        RuntimeError: If called outside a data script run by Sonne.
+
+    Example:
+        >>> pages = get_variable("all_pages", [])  # doctest: +SKIP
+    """
+    return _current_hooks().get_variable(name, default)
+
+
+def dither_image(image: "Image.Image") -> "Image.Image":
+    """Dither an in-memory image with the site's ``images.dither_*`` settings.
+
+    Resize first if needed; the result is ready to save as PNG.
+
+    Args:
+        image: A Pillow image, in any mode.
+
+    Returns:
+        The dithered image.
+
+    Raises:
+        RuntimeError: If called outside a data script run by Sonne.
+
+    Example:
+        >>> dither_image(Image.open("cover.jpg")).save("cover.png")  # doctest: +SKIP
+    """
+    return _current_hooks().dither_image(image)

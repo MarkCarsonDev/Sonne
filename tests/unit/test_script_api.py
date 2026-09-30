@@ -1,10 +1,12 @@
 """sonne.script_api: the importable data-script API (sonne_var, get_post, ...)."""
 
 import pytest
+from PIL import Image
 
 from sonne import script_api
 from sonne.core.config import Config
 from sonne.core.variable_manager import VariableManager
+from sonne.processors.image_processor import ImageProcessor
 
 IMPORT_LINE = "from sonne.script_api import get_post, sonne_filter, sonne_global, sonne_var\n"
 
@@ -83,8 +85,18 @@ class TestOutsideABuild:
             lambda: script_api.sonne_filter("f", str),
             lambda: script_api.sonne_global("g", 1),
             lambda: script_api.sonne_config("site", "title"),
+            lambda: script_api.get_variable("all_pages"),
+            lambda: script_api.dither_image(Image.new("L", (4, 4))),
         ],
-        ids=["sonne_var", "get_post", "sonne_filter", "sonne_global", "sonne_config"],
+        ids=[
+            "sonne_var",
+            "get_post",
+            "sonne_filter",
+            "sonne_global",
+            "sonne_config",
+            "get_variable",
+            "dither_image",
+        ],
     )
     def test_calls_raise_a_clear_error(self, call):
         with pytest.raises(RuntimeError, match="only be called while Sonne runs a data script"):
@@ -215,3 +227,120 @@ class TestSonneConfig:
         vm = load(site)
 
         assert vm.get("imported") == vm.get("injected") == {"city": "Oslo"}
+
+
+READ_IMPORT = "from sonne.script_api import get_variable, sonne_var\n"
+
+
+class TestGetVariable:
+    def test_reads_collected_content_config_and_earlier_scripts(self, tmp_path):
+        site = site_with_config(
+            tmp_path,
+            {
+                "a_first.py": READ_IMPORT + "sonne_var('team', ['Ada'])\n",
+                "b_second.py": READ_IMPORT
+                + "sonne_var('post_count', len(get_variable('all_blog_posts')))\n"
+                + "sonne_var('site_title', get_variable('title'))\n"
+                + "sonne_var('team_seen', get_variable('team'))\n",
+            },
+        )
+
+        vm = load(site, posts=[{"slug": "a", "title": "A", "tags": []}])
+
+        assert vm.get("post_count") == 1
+        assert vm.get("site_title") == "Real"
+        assert vm.get("team_seen") == ["Ada"]
+
+    def test_missing_variable_returns_the_default_as_given(self, tmp_path):
+        site = make_site(
+            tmp_path,
+            {
+                "r.py": READ_IMPORT
+                + "marker = []\n"
+                + "sonne_var('none', get_variable('nope'))\n"
+                + "sonne_var('same', get_variable('nope', marker) is marker)\n"
+            },
+        )
+
+        vm = load(site)
+
+        assert vm.get("none") is None
+        assert vm.get("same") is True
+
+    def test_changing_the_result_does_not_change_the_build(self, tmp_path):
+        site = make_site(
+            tmp_path,
+            {
+                "r.py": READ_IMPORT
+                + "posts = get_variable('all_blog_posts')\n"
+                + "posts[0]['title'] = 'Hacked'\n"
+                + "posts.clear()\n"
+            },
+        )
+
+        vm = load(site, posts=[{"slug": "a", "title": "A", "tags": []}])
+
+        assert vm.get("all_blog_posts") == [{"slug": "a", "title": "A", "tags": []}]
+
+    def test_injected_and_imported_forms_agree(self, tmp_path):
+        site = site_with_config(
+            tmp_path,
+            {
+                "imported.py": READ_IMPORT + "sonne_var('imported', get_variable('title'))\n",
+                "injected.py": "sonne_var('injected', get_variable('title'))\n",
+            },
+        )
+
+        vm = load(site)
+
+        assert vm.get("imported") == vm.get("injected") == "Real"
+
+
+DITHER_IMPORT = "from PIL import Image\nfrom sonne.script_api import dither_image, sonne_var\n"
+ONE_BIT_DITHER_CONFIG = "images:\n  dither_method: 1bit\n"
+
+
+def site_dithering_in_one_bit(tmp_path, scripts):
+    (tmp_path / "sonne.yaml").write_text(ONE_BIT_DITHER_CONFIG, encoding="utf-8")
+    return make_site(tmp_path, scripts)
+
+
+class TestDitherImage:
+    def test_dithers_with_the_sites_image_settings(self, tmp_path):
+        site = site_dithering_in_one_bit(
+            tmp_path,
+            {
+                "d.py": DITHER_IMPORT
+                + "result = dither_image(Image.linear_gradient('L').resize((32, 32)))\n"
+                + "sonne_var('pixels', result.convert('L').tobytes())\n"
+            },
+        )
+
+        vm = load(site)
+
+        gradient = Image.linear_gradient("L").resize((32, 32))
+        expected = ImageProcessor(vm.config, {}).dither(gradient).convert("L").tobytes()
+        assert vm.get("pixels") == expected
+        assert set(vm.get("pixels")) <= {0, 255}  # 1bit: only black and white
+
+    def test_one_image_processor_serves_every_call_in_a_build(self, tmp_path, monkeypatch):
+        created = []
+        original_init = ImageProcessor.__init__
+
+        def counting_init(self, *args, **kwargs):
+            created.append(self)
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(ImageProcessor, "__init__", counting_init)
+        site = site_dithering_in_one_bit(
+            tmp_path,
+            {
+                "a.py": DITHER_IMPORT + "dither_image(Image.new('L', (4, 4)))\n",
+                "b.py": DITHER_IMPORT
+                + "for _ in range(3):\n    dither_image(Image.new('L', (4, 4)))\n",
+            },
+        )
+
+        load(site)
+
+        assert len(created) == 1
