@@ -213,8 +213,8 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
                 sys.exit(1)
 
         # Clean if requested
+        output_dir = generator.paths["output"]
         if clean:
-            output_dir = config_obj.get("paths", "output")
             if console and RICH_AVAILABLE:
                 console.print("[yellow]Cleaning output directory...[/yellow]")
             else:
@@ -226,7 +226,6 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
 
         # Calculate elapsed time
         elapsed = time.time() - ctx.obj["start_time"]
-        output_dir = os.path.abspath(config_obj.get("paths", "output"))
 
         if console and RICH_AVAILABLE:
             console.print(f"\n[bold green]Build complete[/bold green]  ({elapsed:.2f}s)")

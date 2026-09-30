@@ -1,5 +1,7 @@
 """CLI surface via click's CliRunner."""
 
+import logging
+
 import pytest
 from click.testing import CliRunner
 
@@ -63,6 +65,20 @@ class TestBuild:
 
         assert result.exit_code == 0, result.output
         assert "Performance Breakdown" in result.output
+
+    def test_build_reports_the_sites_own_output_dir(self, runner, tmp_path, monkeypatch, caplog):
+        import sonne.cli.commands as commands
+
+        target = tmp_path / "elsewhere"
+        runner.invoke(cli, ["new", "-p", str(target), "-t", "minimal"])
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(commands, "console", None)  # plain log output
+
+        with caplog.at_level(logging.INFO, logger="sonne"):
+            runner.invoke(cli, ["build", "-p", str(target), "--no-progress"])
+
+        completion = [r.message for r in caplog.records if r.message.startswith("Build complete")]
+        assert completion and completion[0].endswith(f"[{target / 'output'}]")
 
     def test_build_has_yes_flag(self, runner):
         result = runner.invoke(cli, ["build", "--help"])
