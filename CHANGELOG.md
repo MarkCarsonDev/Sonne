@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Error tracebacks in library code now go through the `sonne` logger
   (shown with `-vv`/debug logging) instead of being printed straight to
   stderr.
+- `sanitize_filename` keeps `..` inside names (`v1..2.txt` was mangled to
+  `v12.txt`); names made only of dots still become `unnamed`. Slugs are
+  unaffected.
+- The "could not clean" message of `sonne build --clean` names the error type.
+- README documents that `footer.py` (in `data/`, `paths.data` or
+  `scripts/`) runs as trusted code and that data scripts run in
+  alphabetical order; `blog.rss` may be a boolean.
 - An image referenced more than once in a post is resized and dithered once.
 - Blog errors from content Jinja are reported as such instead of as "Error
   processing images"; those posts' images are still published.
@@ -105,6 +112,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing file.
 - Sites without a `static/` directory no longer get `dithering.css`/`.js`
   when `images.dither` is false.
+- `sonne serve --watch` no longer drops edits saved while a rebuild is
+  running; it rebuilds once more afterwards (B41). It also rebuilds when
+  an editor saves by writing a temp file and renaming it over the
+  original (B50).
+- Data scripts, data files and content pages are processed in a fixed
+  alphabetical order, so a site builds the same on Windows, macOS and
+  Linux (later data files override earlier ones; data files still load
+  JSON, then YAML, then CSV) (B42).
+- Files in hidden content folders (e.g. `content/.obsidian/`) are no longer
+  published as pages, and a directory named like a page (`notes.md/`) no
+  longer causes an error (B43).
+- With `blog.enabled: false`, files in the blog folder are rendered as
+  ordinary pages with the page template instead of not at all (B44).
+- A null or empty `blog.directory` consistently means `blog`; it could turn
+  the whole content folder into the blog. `validate()` reports it (B45).
+- `blog: {rss: false}` turns the RSS feed off. A plain value where a
+  settings section belongs (e.g. `images: yes`) is reported by config
+  validation instead of silently discarding the section (it used to crash
+  validation) (B46).
+- `sonne build --no-progress` no longer prints the `[n/N]` step lines
+  (still visible with `-v`) (B48).
+- Path checks no longer crash on paths that can't be resolved, e.g. an
+  unavailable drive (B51).
+- The CLI's default `--path` is the current directory when the command
+  runs, not when Sonne was imported.
 - A post dated with a timezone (e.g. `2024-01-05 12:00:00+02:00`) no
   longer crashes the build when other posts have plain dates; URLs keep the
   written date and RSS keeps the written offset (B31).
