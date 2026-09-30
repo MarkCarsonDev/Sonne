@@ -134,17 +134,20 @@
 		toggle.setAttribute(BOUND_ATTRIBUTE, "true");
 	}
 
+	// Only newly added subtrees are scanned, so a page that keeps changing
+	// does not re-walk the whole document each time.
 	function watchForNewImages() {
 		if (!("MutationObserver" in window)) {
 			return;
 		}
 		new MutationObserver(function (mutations) {
-			var nodesWereAdded = mutations.some(function (mutation) {
-				return mutation.addedNodes.length > 0;
+			mutations.forEach(function (mutation) {
+				mutation.addedNodes.forEach(function (node) {
+					if (node.nodeType === Node.ELEMENT_NODE && node.isConnected) {
+						wrapImagesWithin(node);
+					}
+				});
 			});
-			if (nodesWereAdded) {
-				wrapImagesWithin(document.body);
-			}
 		}).observe(document.body, { childList: true, subtree: true });
 	}
 
