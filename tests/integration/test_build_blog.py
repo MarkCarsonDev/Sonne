@@ -304,3 +304,43 @@ class TestBlogConfigShapes:
         assert (out / "blog" / "2025" / "02" / "01" / "hello-world" / "index.html").exists()
         assert (out / "about" / "index.html").exists()
         assert not (out / "2025").exists()
+
+
+class TestGeneratedPageTemplates:
+    """Listing pages use the template configured for them (or the default name)."""
+
+    @pytest.mark.parametrize(
+        "config_keys, output_page",
+        [
+            (("blog", "list_template"), "blog/index.html"),
+            (("blog", "taxonomies", "tags", "template"), "blog/tags/alpha/index.html"),
+            (("blog", "taxonomies", "tags", "list_template"), "blog/tags/index.html"),
+            (
+                ("blog", "taxonomies", "categories", "template"),
+                "blog/categories/general/index.html",
+            ),
+            (("blog", "taxonomies", "categories", "list_template"), "blog/categories/index.html"),
+            (("blog", "archive_template"), "blog/2025/index.html"),
+        ],
+    )
+    def test_configured_template_is_used(self, site_factory, builder, config_keys, output_page):
+        site = site_factory("blog", overlay="blog_site")
+        (site / "templates" / "custom_listing.html").write_text(
+            "CUSTOM-LISTING {{ page.title }}", encoding="utf-8"
+        )
+
+        _, out = builder(site, {config_keys: "custom_listing.html"})
+
+        assert "CUSTOM-LISTING" in (out / output_page).read_text(encoding="utf-8")
+
+    def test_generated_page_gets_its_page_data_unchanged(self, site_factory, builder):
+        site = site_factory("blog", overlay="blog_site")
+        (site / "templates" / "tag.html").write_text(
+            "TAG={{ page.tag }} SLUG={{ page.tag_slug }} URL={{ page.url }}", encoding="utf-8"
+        )
+
+        generator, out = builder(site)
+
+        html = (out / "blog" / "tags" / "alpha" / "index.html").read_text(encoding="utf-8")
+        expected_url = generator.config.format_url("/blog/tags/alpha")
+        assert f"TAG=alpha SLUG=alpha URL={expected_url}" in html

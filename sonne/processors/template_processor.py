@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from pathlib import PurePath
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import jinja2
 import markdown
@@ -38,15 +38,6 @@ MARKDOWN_PARSER_EXTENSIONS = [
     "markdown.extensions.abbr",
     "markdown.extensions.sane_lists",
 ]
-
-# (source-key prefix, taxonomy, template config key, default template)
-TAXONOMY_PAGE_TEMPLATES = [
-    ("tags_", "tags", "list_template", "tags.html"),
-    ("tag_", "tags", "template", "tag.html"),
-    ("categories_", "categories", "list_template", "categories.html"),
-    ("category_", "categories", "template", "category.html"),
-]
-GENERATED_PAGE_PREFIXES = tuple(prefix for prefix, *_ in TAXONOMY_PAGE_TEMPLATES)
 
 TEMPLATE_EXTENSIONS = (".html", ".htm", ".xml", ".txt", ".j2", ".jinja2")
 
@@ -540,13 +531,14 @@ class TemplateProcessor:
     def process_page(
         self, content: str, is_markdown: bool, source_path: str, variables: dict[str, Any]
     ) -> tuple[dict[str, Any], str]:
-        """Process a page: render its body, work out its URL, wrap it in a template.
+        """Process a content page or blog post: render its body, work out its URL, template it.
+
+        Listing pages without a source file use render_generated_page().
 
         Args:
             content: Page content.
             is_markdown: Whether the content is Markdown.
-            source_path: Path to the source file, or a generated-page key such
-                as ``blog_index`` or ``tag_<slug>``.
+            source_path: Path to the source file.
             variables: Variable scopes (``global``, ``site``, ``page``).
 
         Returns:
@@ -559,11 +551,43 @@ class TemplateProcessor:
         logger.debug(f"Template for {source_path}: {template_name}")
         if template_name:
             page_html = self._render_with_template(
-                template_name, front_matter, html_content, source_path, variables
+                template_name,
+                front_matter,
+                html_content,
+                variables,
+                page_factory=lambda: _with_page_variables(front_matter, variables),
             )
         else:
             page_html = _untemplated_page(front_matter, html_content)
         return front_matter, self.inject_dithering_assets(page_html)
+
+    def render_generated_page(
+        self,
+        template_name: str,
+        page: dict[str, Any],
+        placeholder_html: str,
+        variables: dict[str, Any],
+    ) -> str:
+        """Render a listing page that has no source file (blog index, taxonomy, archive).
+
+        The caller names the template (config overrides included), and
+        ``page`` reaches the template unchanged; its ``url`` is the page URL.
+
+        Args:
+            template_name: Template to render, e.g. the configured blog.list_template.
+            page: The template's ``page`` variable.
+            placeholder_html: Body used as ``content``, and in the fallback page
+                when the template is missing.
+            variables: Variable scopes (``global``, ``site``).
+
+        Returns:
+            The complete page HTML.
+        """
+        logger.debug(f"Template for generated page {page.get('url')}: {template_name}")
+        page_html = self._render_with_template(
+            template_name, {}, placeholder_html, variables, page_factory=lambda: page
+        )
+        return self.inject_dithering_assets(page_html)
 
     def _render_body(
         self, content: str, is_markdown: bool, source_path: str, variables: dict[str, Any]
@@ -606,7 +630,7 @@ class TemplateProcessor:
         if isinstance(page_vars, dict) and page_vars.get("full_url"):
             return page_vars["full_url"]
         if isinstance(source_path, str) and not os.path.exists(source_path):
-            # Generated pages (blog_index, tag_<slug>, ...) have no file.
+            # Content rendered without a file on disk: trust the page URL given.
             return page_vars.get("url", "/") if isinstance(page_vars, dict) else "/"
         return self._content_file_url(source_path)
 
@@ -621,8 +645,8 @@ class TemplateProcessor:
     ):
         """Pick the page template: front matter, then page variables, then defaults.
 
-        Page variables carry the template for generated pages (e.g. date
-        archives) whose front matter is empty.
+        Page variables carry the template for blog posts, whose rendered
+        content has no front matter.
         """
         if "template" in front_matter:
             return front_matter["template"]
@@ -633,19 +657,13 @@ class TemplateProcessor:
             return self._default_template_name(source_path)
         return None
 
-    def _default_template_name(self, source_path: str):
-        """Default template for a Markdown source or a generated-page key."""
-        if PurePath(source_path).suffix.lower() in MARKDOWN_EXTENSIONS:
-            if self._is_blog_post(source_path):
-                return self.config.get("blog", "template", default="blog_post.html")
-            return "page.html"
-        if source_path == "blog_index":
-            return self.config.get("blog", "list_template", default="blog_list.html")
-        for prefix, taxonomy, template_key, default in TAXONOMY_PAGE_TEMPLATES:
-            if source_path.startswith(prefix):
-                taxonomy_config = self.config.get("blog", "taxonomies", taxonomy, default={})
-                return taxonomy_config.get(template_key, default)
-        return None
+    def _default_template_name(self, source_path: str) -> Optional[str]:
+        """Default template for a Markdown source: the post template, else page.html."""
+        if PurePath(source_path).suffix.lower() not in MARKDOWN_EXTENSIONS:
+            return None
+        if self._is_blog_post(source_path):
+            return self.config.get("blog", "template", default="blog_post.html")
+        return "page.html"
 
     def _is_blog_post(self, source_path: str) -> bool:
         """Whether a source file is a blog post: under the blog directory, blog enabled.
@@ -663,15 +681,24 @@ class TemplateProcessor:
         template_name: str,
         front_matter: dict[str, Any],
         html_content: str,
-        source_path: str,
         variables: dict[str, Any],
+        page_factory: Callable[[], dict[str, Any]],
     ) -> str:
-        """Render the page through its template, falling back to bare HTML on errors."""
+        """Render the page through its template, falling back to bare HTML on errors.
+
+        Args:
+            template_name: Template to render.
+            front_matter: Supplies the title of the fallback page.
+            html_content: The page body, passed to the template as ``content``.
+            variables: Variable scopes (``global``, ``site``).
+            page_factory: Builds the template's ``page`` variable; called only
+                once the template has been found.
+        """
         try:
             template = self.jinja_env.get_template(template_name)
-            context = self._template_context(front_matter, html_content, source_path, variables)
+            context = self._template_context(page_factory(), html_content, variables)
             rendered = template.render(**context)
-            logger.debug(f"Rendered template {template_name} for {source_path}")
+            logger.debug(f"Rendered template {template_name}")
             self._count("templates_rendered")
             return rendered
         except jinja2.TemplateNotFound:
@@ -689,29 +716,14 @@ class TemplateProcessor:
             setattr(self.stats, counter, getattr(self.stats, counter) + 1)
 
     def _template_context(
-        self,
-        front_matter: dict[str, Any],
-        html_content: str,
-        source_path: str,
-        variables: dict[str, Any],
+        self, page: dict[str, Any], html_content: str, variables: dict[str, Any]
     ) -> dict[str, Any]:
-        """Build the page-template context.
-
-        For regular pages the front matter becomes ``page``, filled in (in
-        place, so the caller's front matter matches what the template saw)
-        with page variables it does not set. Generated pages use the page
-        variables as-is.
-        """
+        """The page-template context: global/site variables, ``page`` and ``content``."""
         context = self.build_content_context(variables)
         site_images = self.config.get("images")
         if "images" not in context["site"] and site_images is not None:
             context["site"]["images"] = site_images
-        if _is_generated_page(source_path):
-            context["page"] = variables.get("page", {})
-        else:
-            for key, value in variables.get("page", {}).items():
-                front_matter.setdefault(key, value)
-            context["page"] = front_matter
+        context["page"] = page
         context["content"] = Markup(html_content)
         return context
 
@@ -819,11 +831,15 @@ def _is_html_source_file(source_path) -> bool:
     )
 
 
-def _is_generated_page(source_path) -> bool:
-    """Whether a source key names a generated blog index or taxonomy page."""
-    return isinstance(source_path, str) and (
-        source_path == "blog_index" or source_path.startswith(GENERATED_PAGE_PREFIXES)
-    )
+def _with_page_variables(front_matter: dict[str, Any], variables: dict[str, Any]) -> dict[str, Any]:
+    """A content page's ``page``: its front matter, filled in from the page variables.
+
+    Fills the front matter in place, so the caller's front matter matches
+    what the template saw.
+    """
+    for key, value in variables.get("page", {}).items():
+        front_matter.setdefault(key, value)
+    return front_matter
 
 
 def _untemplated_page(front_matter: dict[str, Any], html_content: str) -> str:
