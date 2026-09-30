@@ -106,6 +106,11 @@ DITHERED_IMAGE_MARKUP = Markup("""
             """)
 
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
+# Last on the search path: tag/tags/category/categories/archive pages for
+# sites that do not ship their own.
+FALLBACK_TEMPLATES_DIR = os.path.join(BUILTIN_TEMPLATES_DIR, "_fallback")
+SITE_BASE_TEMPLATE = "base.html"
+FALLBACK_BASE_TEMPLATE = "sonne_fallback_base.html"
 
 # Markers identify Sonne's injected assets so they are never added twice.
 DITHER_CSS_MARKER = "Dithered image styling - injected by Sonne"
@@ -257,10 +262,14 @@ class TemplateProcessor:
         self._legacy_marker_warned = set()
 
     def _create_jinja_env(self) -> jinja2.Environment:
-        """Create the Jinja environment: site templates first, then built-ins."""
+        """Create the Jinja environment: site templates, then built-ins, then fallbacks."""
         template_dirs = [
             directory
-            for directory in (self.paths.get("templates"), BUILTIN_TEMPLATES_DIR)
+            for directory in (
+                self.paths.get("templates"),
+                BUILTIN_TEMPLATES_DIR,
+                FALLBACK_TEMPLATES_DIR,
+            )
             if directory and os.path.exists(directory)
         ]
         logger.info(f"Template directories: {template_dirs}")
@@ -283,6 +292,13 @@ class TemplateProcessor:
             }
         )
         env.globals["dithering_enabled"] = self.dithering_enabled
+        # What the fallback templates extend: the site's base.html when the
+        # search path has one, else a minimal built-in page.
+        env.globals["sonne_base_template"] = (
+            SITE_BASE_TEMPLATE
+            if _template_exists(env, SITE_BASE_TEMPLATE)
+            else FALLBACK_BASE_TEMPLATE
+        )
         blog_urls = BlogUrls(self.config)
         env.globals.update(
             {
@@ -866,6 +882,17 @@ def _error_page(error: Exception, html_content: str) -> str:
         "<html><body><h1>Error rendering template</h1>"
         f"<p>{error}</p><div>{html_content}</div></body></html>"
     )
+
+
+def _template_exists(env: jinja2.Environment, name: str) -> bool:
+    """Whether the loader can find a template, without compiling it."""
+    if env.loader is None:
+        return False
+    try:
+        env.loader.get_source(env, name)
+    except jinja2.TemplateNotFound:
+        return False
+    return True
 
 
 def _template_names(templates_dir: str) -> list[str]:

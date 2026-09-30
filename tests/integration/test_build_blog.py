@@ -408,3 +408,62 @@ class TestBlogUrlHelpers:
         assert len(pages) >= 6
         for path in pages:
             assert "SAME=True" in path.read_text(encoding="utf-8"), path
+
+
+BLOG_ON = {("blog", "enabled"): True}  # the minimal scaffold turns the blog off
+
+
+class TestFallbackTemplates:
+    """Sites without their own listing templates still get working listing pages."""
+
+    POST = "---\ntitle: Fallback Post\ndate: 2025-02-01\ntags: [alpha]\ncategories: [general]\n---\nBody\n"
+
+    def site_with_post(self, site_factory):
+        site = site_factory("minimal")  # ships base.html and page.html only
+        post = site / "content" / "blog" / "2025-02-01-fallback-post.md"
+        post.parent.mkdir(parents=True, exist_ok=True)
+        post.write_text(self.POST, encoding="utf-8")
+        (site / "templates" / "base.html").write_text(
+            "SITE-BASE {% block content %}{% endblock %}", encoding="utf-8"
+        )
+        return site
+
+    @pytest.mark.parametrize(
+        "output_page, expected",
+        [
+            ("blog/tags/alpha/index.html", "Posts Tagged: alpha"),
+            ("blog/tags/index.html", "alpha"),
+            ("blog/categories/general/index.html", "general"),
+            ("blog/categories/index.html", "general"),
+            ("blog/2025/index.html", "Fallback Post"),
+        ],
+    )
+    def test_listing_pages_render_inside_the_site_base(
+        self, site_factory, builder, output_page, expected
+    ):
+        site = self.site_with_post(site_factory)
+
+        _, out = builder(site, BLOG_ON, skip_images=True)
+
+        html = (out / output_page).read_text(encoding="utf-8")
+        assert html.startswith("SITE-BASE")
+        assert expected in html
+
+    def test_site_without_base_template_gets_a_minimal_page(self, site_factory, builder):
+        site = self.site_with_post(site_factory)
+        (site / "templates" / "base.html").unlink()
+
+        _, out = builder(site, BLOG_ON, skip_images=True)
+
+        html = (out / "blog" / "tags" / "alpha" / "index.html").read_text(encoding="utf-8")
+        assert "<main>" in html
+        assert "Posts Tagged: alpha" in html
+
+    def test_site_template_takes_precedence(self, site_factory, builder):
+        site = self.site_with_post(site_factory)
+        (site / "templates" / "tag.html").write_text("OWN-TAG {{ page.tag }}", encoding="utf-8")
+
+        _, out = builder(site, BLOG_ON, skip_images=True)
+
+        html = (out / "blog" / "tags" / "alpha" / "index.html").read_text(encoding="utf-8")
+        assert "OWN-TAG alpha" in html

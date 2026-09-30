@@ -1,9 +1,11 @@
-{% extends "base.html" %}
+{% extends sonne_base_template %}
+{# Built-in fallback, used when a site has no template of this name. It renders
+   inside the site's base.html, or a minimal built-in page if there is none. #}
 
 {% block content %}
-<div class="category-page">
+<div class="archive-page">
     <header class="page-header">
-        <h1>Posts in Category: {{ page.category }}</h1>
+        <h1>Archive: {{ page.title }}</h1>
     </header>
 
     {% if page.posts %}
@@ -20,15 +22,13 @@
             <div class="post-excerpt">
                 {{ post.excerpt }}
             </div>
-
-            <a href="{{ post.full_url }}" class="read-more">Read More</a>
         </article>
         {% endfor %}
     </div>
     {% else %}
-    <p>No posts found in this category.</p>
+    <p>No posts in this period.</p>
     {% endif %}
 
-    <p class="tag-nav"><a href="{{ category_url() }}">View all categories</a></p>
+    <p class="tag-nav"><a href="{{ blog_url() }}">Back to Blog</a></p>
 </div>
 {% endblock %}
