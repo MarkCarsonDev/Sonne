@@ -224,6 +224,7 @@ Any other key under `site` is passed through to templates unchanged.
 | `url_style.prod` | `clean` | URL style in `prod`: `clean`, `html` or `directory` (see [URL Configuration](#url-configuration)). `url_style` may also be a single style for every environment. |
 | `url_style.dev` | `directory` | URL style in `dev`. |
 | `build.show_page_size` | `false` | Add a small page-weight label to every generated page. |
+| `build.accessibility_checks` | `warn` | Check generated pages for machine-detectable accessibility failures: `warn` reports them, `error` also fails the build (for CI), `off` skips the checks. See [Accessibility](#accessibility). |
 | `build.incremental` | none | Deprecated: has no effect and will be removed (every build is a full build). |
 | `build.show_progress` | none | Deprecated: has no effect and will be removed; use `sonne build --no-progress`. |
 | `build.statistics` | none | Deprecated: has no effect and will be removed; use `sonne build --perf` for the build report. |
@@ -774,7 +775,7 @@ Options:
 
 ```bash
 sonne build [-p PATH] [-c CONFIG] [--clean] [--skip-images] [--skip-cache]
-            [--dev] [--no-progress] [--perf] [--yes]
+            [--dev] [--no-progress] [--perf] [--a11y-strict] [--yes]
 ```
 
 Options:
@@ -787,6 +788,7 @@ Options:
 - `--dev`: Build for the development environment (dev url_style)
 - `--no-progress`: Disable progress output
 - `--perf`: Show a detailed performance breakdown after the build
+- `--a11y-strict`: Fail the build on accessibility issues, as with `build.accessibility_checks: error` (for CI)
 - `-y, --yes`: Continue past confirmation prompts (for CI)
 
 ### Serve the site
@@ -853,6 +855,52 @@ Increase verbosity for more detailed logs (debug level):
 ```bash
 sonne build -v
 ```
+
+## Accessibility
+
+Sonne aims for sites that meet [WCAG 2.2](https://www.w3.org/TR/WCAG22/) level AA. It can't guarantee that on its own: much of accessibility depends on your content, your templates and your CSS. It does build accommodations in where it can and checks what a program can check.
+
+### Build-time checks
+
+Every build checks the pages it wrote for machine-detectable failures and reports them per page:
+
+| Check | WCAG |
+|-------|------|
+| `<img>` without an `alt` attribute (`alt=""` is fine for decorative images) | 1.1.1 |
+| Links and buttons without an accessible name (text, `aria-label`, `aria-labelledby`, `title`, or an image with alt text inside) | 2.4.4, 4.1.2 |
+| Form fields without a label (`<label for>`, a wrapping `<label>`, `aria-label` or `aria-labelledby`) | 1.3.1, 4.1.2 |
+| Missing or empty `<html lang>` | 3.1.1 |
+| Missing or empty `<title>` (an empty page is reported as such) | 2.4.2 |
+| Duplicate `id` values | 4.1.1 (robustness) |
+| Positive `tabindex`, which changes the keyboard focus order | 2.4.3 |
+| Skipped heading levels, e.g. `h2` followed by `h4` (advisory only) | 1.3.1 |
+
+Elements hidden from assistive technology (`aria-hidden="true"`, `hidden`) are skipped. Each finding names the element, the problem and how to fix it. Long reports are capped (10 pages, 5 findings each), and the build summary always shows the totals.
+
+`build.accessibility_checks` controls what happens:
+
+- `warn` (default): report the findings; the build succeeds.
+- `error`: report them and fail the build (exit code 1) if there are any, apart from advisories. Use this in CI, or pass `sonne build --a11y-strict` for one build.
+- `off`: skip the checks.
+
+### What the checks can't tell you
+
+A clean report means none of the checks above failed, not that the site is accessible. No program can decide these for you:
+
+- whether alt text actually describes the image, and link text makes sense out of context;
+- colour contrast of arbitrary CSS, in every theme and state;
+- reading and focus order that matches the visual layout, and visible focus indicators;
+- captions and transcripts for audio and video;
+- how the site works with a keyboard, a screen reader, zoom to 400% or reduced motion.
+
+### Testing your site by hand
+
+Check your templates and a few representative pages yourself, at least whenever you change the layout:
+
+- Use the site with only a keyboard: every link and control is reachable, in a sensible order, with a visible focus indicator.
+- Try a screen reader (NVDA or Narrator on Windows, VoiceOver on macOS and iOS, TalkBack on Android).
+- Zoom to 200% and 400% and check that nothing is cut off or overlaps.
+- Run an automated audit in the browser (for example Lighthouse or axe DevTools) for colour contrast and other rendering-dependent checks.
 
 ## Security
 

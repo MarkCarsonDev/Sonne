@@ -111,6 +111,9 @@ DEFAULT_CONFIG = {
     "environment": "prod",
     "build": {
         "show_page_size": False,
+        # Check generated pages for machine-detectable WCAG failures:
+        # "warn" reports them, "error" also fails the build, "off" skips.
+        "accessibility_checks": "warn",
     },
 }
 
@@ -119,6 +122,7 @@ YAML_EXTENSIONS = (".yaml", ".yml")
 JSON_EXTENSIONS = (".json", ".config")
 
 DEFAULT_URL_STYLE = "clean"
+ACCESSIBILITY_CHECK_MODES = ("warn", "error", "off")
 MAX_PORT = 65535
 DEFAULT_BLOG_DIRECTORY = DEFAULT_CONFIG["blog"]["directory"]
 # Sections that may also be given as one scalar: url_style: clean (one
@@ -310,6 +314,7 @@ class Config:
             + self._blog_problems()
             + self._serve_problems()
             + self._environment_problems()
+            + self._accessibility_problems()
         )
 
     def _shape_problems(self) -> list[str]:
@@ -393,6 +398,18 @@ class Config:
                 f"the '{DEFAULT_URL_STYLE}' URL style will be used"
             ]
         return []
+
+    def _accessibility_problems(self) -> list[str]:
+        mode = self.get("build", "accessibility_checks")
+        if mode in ACCESSIBILITY_CHECK_MODES:
+            return []
+        allowed = ", ".join(repr(choice) for choice in ACCESSIBILITY_CHECK_MODES)
+        return [f"build.accessibility_checks must be one of {allowed} (got {mode!r}); using 'warn'"]
+
+    def accessibility_check_mode(self) -> str:
+        """build.accessibility_checks: 'warn', 'error' or 'off' ('warn' if invalid)."""
+        mode = self.get("build", "accessibility_checks")
+        return mode if mode in ACCESSIBILITY_CHECK_MODES else "warn"
 
     def blog_directory(self) -> str:
         """The blog's folder, relative to paths.content (and to the output root).
