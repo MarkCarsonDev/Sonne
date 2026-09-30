@@ -152,7 +152,6 @@ class TestWatchRelevance:
 
 
 class TestWatchRebuilds:
-    @pytest.mark.xfail(strict=True, reason="B41: edits made during a rebuild are dropped")
     def test_change_during_rebuild_triggers_another_rebuild(self, tmp_path, monkeypatch):
         import sonne.cli.commands as commands
         from sonne.core.config import Config

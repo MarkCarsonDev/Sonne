@@ -488,6 +488,7 @@ class SiteRebuilder:
         self._lock = threading.Lock()
         self._pending = None  # pending debounce timer
         self._building = False
+        self._rerun_requested = False  # a change arrived while building
 
         self.watch_dirs = [
             directory
@@ -530,10 +531,32 @@ class SiteRebuilder:
         return any(changed == root or root in changed.parents for root in self._watched_roots)
 
     def _rebuild(self) -> None:
+        """Rebuild; if another change lands mid-build, rebuild again after it.
+
+        The build may already have read the changed file's old contents, so
+        a change during a build must not be dropped.
+        """
         with self._lock:
             if self._building:
+                self._rerun_requested = True
                 return
             self._building = True
+        try:
+            while True:
+                self._rebuild_once()
+                with self._lock:
+                    if not self._rerun_requested:
+                        self._building = False
+                        return
+                    self._rerun_requested = False
+        except BaseException:
+            # Only abnormal exits get here; the normal exit above already
+            # released the flag under the lock.
+            with self._lock:
+                self._building = self._rerun_requested = False
+            raise
+
+    def _rebuild_once(self) -> None:
         try:
             click.echo("\nChange detected — rebuilding...")
             # Fresh Config: the edit may have BEEN the config
@@ -542,9 +565,6 @@ class SiteRebuilder:
         except Exception as e:
             click.echo(f"Rebuild failed: {e}")
             _print_traceback_if_verbose()
-        finally:
-            with self._lock:
-                self._building = False
 
 
 def _start_watching(path: str, config: Config):
