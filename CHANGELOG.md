@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   e.g. `sonne_config("site", "base_url")`, instead of locating and
   re-reading the config file themselves. Values include defaults, and the
   result is a copy, so scripts can't change the build's configuration.
+- Template helpers `blog_url()`, `tag_url()`, `category_url()` and
+  `archive_url()` for linking to blog pages. They follow `blog.directory`
+  and `url_style` and slugify terms like the pages themselves. The bundled
+  blog and portfolio templates and the showcase example use them.
+- Built-in tag, tags, category, categories and archive templates: sites
+  without their own get working listing pages, rendered inside the site's
+  `base.html` (or a minimal page if there is none), instead of an
+  "Untitled" placeholder.
 - The `data` namespace: every data file is available in templates as
   `data.<file name>` and every script variable as `data.<name>` (also
   `site.data.*`). New `variables.flatten_data` (default `true`) keeps the
@@ -92,6 +100,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- Blog links in the bundled templates follow `url_style`: in the clean
+  style they no longer end in a slash (`/blog/tags/python`, matching the
+  pages' own URLs), in the html style they end in `.html`, and they follow a
+  custom `blog.directory` instead of `/blog/`.
+- New sites from `sonne new -t blog` / `-t portfolio` no longer include
+  tag/tags/category/categories/archive templates; the built-in ones render
+  identically. Existing sites' copies still take precedence.
+- Script globals named `blog_url`, `tag_url`, `category_url`,
+  `archive_url` or `sonne_base_template` are ignored with a warning
+  (built-in names win, as for other built-ins).
+- Generated listing pages name their template explicitly; template
+  selection no longer depends on synthetic source-path prefixes.
 - README: the URL Configuration section now describes `url_style` and the
   environments accurately (it described a default that no longer exists).
 - The dithered/original image toggle is a keyboard-operable button
