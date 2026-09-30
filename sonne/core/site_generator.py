@@ -9,7 +9,7 @@ import logging
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, List
+from typing import Iterator, List, Dict
 
 from sonne.core.config import DEFAULT_CONFIG, Config
 from sonne.core.variable_manager import VariableManager
@@ -63,6 +63,12 @@ class SiteGenerator:
 
         # Build statistics (shared across all processors)
         self.stats = BuildStatistics()
+        # Per-build state, reset by each generate().
+        self._progress = _StepProgress(0)
+        # Which source file produced each output file, so collisions
+        # (about.md vs about/index.md) warn instead of silently
+        # last-writer-winning.
+        self._written_outputs: Dict[str, str] = {}
 
     def _fill_missing_paths(self) -> None:
         """Give every standard path key its default when unset or empty."""
@@ -82,14 +88,8 @@ class SiteGenerator:
             item_path = os.path.join(output_dir, item)
             try:
                 _remove_path(item_path)
-            except PermissionError as e:
-                logger.error(f"Permission denied when cleaning {item_path}: {e}")
-                failed_items.append(item)
-            except OSError as e:
-                logger.error(f"OS error when cleaning {item_path}: {e}")
-                failed_items.append(item)
             except Exception as e:
-                logger.error(f"Unexpected error cleaning {item_path}: {e}")
+                logger.error(f"Could not clean {item_path}: {type(e).__name__}: {e}")
                 failed_items.append(item)
 
         if failed_items:
@@ -140,9 +140,6 @@ class SiteGenerator:
             _count_build_steps(blog_enabled, skip_images), visible=show_progress
         )
 
-        # Track which source file produced each output file so
-        # collisions (about.md vs about/index.md) warn instead of
-        # silently last-writer-winning.
         self._written_outputs = {}
 
         # Post metadata comes first so data scripts can reference posts.
@@ -160,8 +157,11 @@ class SiteGenerator:
     @contextmanager
     def _timed_phase(self, name: str) -> Iterator[None]:
         started = time.perf_counter()
-        yield
-        self.stats.record_phase(name, time.perf_counter() - started)
+        try:
+            yield
+        finally:
+            # A failed phase still reports how long it ran.
+            self.stats.record_phase(name, time.perf_counter() - started)
 
     def _collect_post_metadata(self) -> None:
         self._progress.step("Collecting post metadata")
@@ -309,13 +309,8 @@ class SiteGenerator:
         return output_path
 
     def _record_output(self, output_path: Path, file_path: Path) -> None:
-        """Remember which source wrote output_path; warn when two collide.
-
-        Tracking only happens during generate(); the later file wins.
-        """
-        written = getattr(self, "_written_outputs", None)
-        if written is None:
-            return
+        """Remember which source wrote output_path; warn when two collide (the later wins)."""
+        written = self._written_outputs
         out_key = str(output_path)
         prior_source = written.get(out_key)
         if prior_source and prior_source != str(file_path):
