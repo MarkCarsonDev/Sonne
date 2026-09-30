@@ -37,6 +37,7 @@ RELATED_POSTS_COUNT = 3
 ADJACENCY_WEIGHT = 0.1
 JPEG_QUALITY = 85
 EPOCH = datetime(1970, 1, 1)
+LOCAL_TIMEZONE = datetime.now().astimezone().tzinfo
 TAXONOMY_SINGULAR = {"tags": "tag", "categories": "category"}
 TAXONOMY_TYPES = tuple(TAXONOMY_SINGULAR)
 MONTH_NAMES = (
@@ -841,7 +842,7 @@ class BlogProcessor:
                 group.setdefault(parts[:depth], []).append(post)
         merged = {key: posts for group in groups for key, posts in group.items()}
         for posts in merged.values():
-            posts.sort(key=lambda post: post.get("date", datetime.min), reverse=True)
+            posts.sort(key=_post_sort_key, reverse=True)
         return merged
 
     def _archive_page(
@@ -953,13 +954,24 @@ def _first_present(mapping: Dict[str, Any], *keys: str, default: Any = None) -> 
 
 
 def _post_sort_key(post: Dict[str, Any]) -> datetime:
+    """The post's date as a timezone-aware datetime, so all posts compare.
+
+    Front matter may mix plain dates with timezone-aware timestamps
+    (``2024-01-05 12:00:00+02:00``); plain ones are read as local time.
+    """
     date = post.get("date", "")
     if isinstance(date, datetime):
-        return date
+        return _as_aware(date)
     if all(hasattr(date, part) for part in ("year", "month", "day")):
-        return datetime(date.year, date.month, date.day)
+        return _as_aware(datetime(date.year, date.month, date.day))
     logger.warning(f"Invalid date format for post {post.get('title', 'Unknown')}, using epoch")
-    return EPOCH
+    return _as_aware(EPOCH)
+
+
+def _as_aware(moment: datetime) -> datetime:
+    # Attaches the current local offset instead of calling astimezone(),
+    # which raises OSError on Windows for naive datetimes near 1970.
+    return moment if moment.tzinfo else moment.replace(tzinfo=LOCAL_TIMEZONE)
 
 
 def _parse_front_matter_date(value: Any, fallback: datetime, source_name: str) -> datetime:

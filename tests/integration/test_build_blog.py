@@ -134,7 +134,6 @@ def feed_thumbnail_urls(out):
 
 
 class TestPostDates:
-    @pytest.mark.xfail(strict=True, reason="B31: timezone-aware dates crash the post sort")
     def test_timezone_aware_and_plain_dates_build_together(self, site_factory, builder):
         site = site_factory("blog", overlay="blog_site")
         write_post(site, "zoned.md", "title: Zoned\ndate: 2024-01-05 12:00:00+02:00")
