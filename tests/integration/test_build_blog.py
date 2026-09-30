@@ -467,3 +467,22 @@ class TestFallbackTemplates:
 
         html = (out / "blog" / "tags" / "alpha" / "index.html").read_text(encoding="utf-8")
         assert "OWN-TAG alpha" in html
+
+
+class TestFigureWithoutDitheredCopy:
+    def test_no_toggle_when_the_image_could_not_be_dithered(self, site_factory, builder):
+        site = site_factory("blog", overlay="blog_site")
+        (site / "content" / "blog" / "broken.png").write_bytes(b"not an image")
+        post = site / "content" / "blog" / "2025-02-01-hello-world.md"
+        post.write_text(
+            post.read_text(encoding="utf-8") + "\n![Broken](broken.png)\n", encoding="utf-8"
+        )
+
+        _, out = builder(site, {("images", "dither"): True})
+
+        html = (out / "blog" / "2025" / "02" / "01" / "hello-world" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        figure = re.search(r'<figure[^>]*>(?:(?!</figure>).)*alt="Broken".*?</figure>', html, re.S)
+        assert figure, "figure for the broken image"
+        assert "request-original-btn" not in figure.group(0)

@@ -807,7 +807,8 @@ def _wrap_in_dither_figure(soup: BeautifulSoup, img, image_id: str) -> None:
     """Replace ``img`` in the tree with a figure showing its dithered variant."""
     original_src = img.get("src", "")
     dithered_src = _dithered_src(original_src)
-    figcaption = _dither_figcaption(soup, img, image_id)
+    figcaption = _dither_figcaption(soup, img)
+    toggle = _toggle_button(soup, image_id, img.get("data-original-size", ""))
 
     img["class"] = "dithered-image active"
     img["data-dithered-src"] = dithered_src
@@ -823,19 +824,25 @@ def _wrap_in_dither_figure(soup: BeautifulSoup, img, image_id: str) -> None:
     # tree, then move the img inside it.
     img.insert_before(figure)
     img_wrapper.append(img.extract())
+    img_wrapper.append(toggle)
     figure.append(img_wrapper)
-    figure.append(figcaption)
+    if figcaption is not None:
+        figure.append(figcaption)
 
 
-def _dither_figcaption(soup: BeautifulSoup, img, image_id: str):
-    """Caption ("title · 12k (−80%)") plus the dithered/original toggle button."""
-    figcaption = soup.new_tag("figcaption")
+def _dither_figcaption(soup: BeautifulSoup, img) -> Optional[Tag]:
+    """The figure's caption ("title · 12k (−80%)"), or None if there is no text for one.
+
+    The <figcaption> holds only the caption, so it is the figure's accessible
+    name; the toggle button sits with the image instead.
+    """
     caption_text = _caption_text(img)
-    if caption_text:
-        span = soup.new_tag("span", attrs={"class": "caption-text"})
-        span.string = caption_text
-        figcaption.append(span)
-    figcaption.append(_toggle_button(soup, image_id, img.get("data-original-size", "")))
+    if not caption_text:
+        return None
+    figcaption = soup.new_tag("figcaption")
+    span = soup.new_tag("span", attrs={"class": "caption-text"})
+    span.string = caption_text
+    figcaption.append(span)
     return figcaption
 
 
@@ -856,10 +863,13 @@ def _caption_text(img) -> str:
 
 
 def _toggle_button(soup: BeautifulSoup, image_id: str, original_size: str):
-    """Button that swaps between the dithered and the original image."""
-    button = soup.new_tag("button", attrs={"class": "request-original-btn"})
+    """Button that swaps between the dithered and the original image.
+
+    Its accessible name is its visible text ("view original", then
+    "dithered (12KB)"), which names what a press shows (WCAG 2.5.3).
+    """
+    button = soup.new_tag("button", attrs={"class": "request-original-btn", "type": "button"})
     button["data-image-id"] = image_id
-    button["aria-label"] = "Toggle between dithered and original image"
     if original_size:
         button["data-original-size"] = original_size
     button.append(_dither_icon(soup))
