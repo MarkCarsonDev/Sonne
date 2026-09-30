@@ -23,6 +23,7 @@ pytest                      # full test suite
 pytest tests/unit           # fast unit tests only
 ruff check .                # lint
 ruff format --check .       # formatting
+pyright                     # type check (what VS Code/Pylance shows)
 ```
 
 To try your changes against a real site:
