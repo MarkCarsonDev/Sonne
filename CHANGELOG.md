@@ -254,6 +254,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unavailable drive (B51).
 - The CLI's default `--path` is the current directory when the command
   runs, not when Sonne was imported.
+- `solar` scaffold: a post's cover image stored next to the post gets a
+  working dithered/original toggle.
 - `solar` scaffold: blog, tag and category links follow `blog.directory`
   and `url_style` (they were hardcoded to `/blog/.../`, so a custom blog
   directory or the clean style produced broken links).
