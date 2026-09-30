@@ -683,7 +683,7 @@ class BlogProcessor:
                 img = ImageOps.exif_transpose(img)
                 resized = _resize_to_width(_apply_transforms(img, transforms), max_width)
                 if self.image_processor is not None:
-                    dithered = self.image_processor._apply_dither(resized)
+                    dithered = self.image_processor.dither(resized)
                 else:
                     dithered = resized.convert("L").convert("P", palette=1, colors=4, dither=1)
                 dithered.save(dithered_path, format="PNG", optimize=True)
