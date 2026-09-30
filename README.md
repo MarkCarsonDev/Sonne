@@ -897,6 +897,14 @@ The `blog`, `portfolio` and `minimal` templates (and the showcase example) start
 - External links in blog posts announce that they open in a new tab; wide tables can be scrolled with the keyboard.
 - Portfolio: filter buttons announce how many projects are shown, the image gallery opens in a keyboard-accessible dialog, and form errors are announced and tied to their fields.
 
+Sonne's own built-in pages (the fallback tag, category, archive and blog index templates) meet the same baseline, and add pagination that marks the current page.
+
+### Dithered images and the "original images" setting
+
+Dithering can make images hard to read, so visitors can always switch to the original. Each dithered image has a toggle button, and every page with dithered images offers an "Always show original images" setting that applies to every image and is remembered in the browser (no account needed). Visitors whose system asks for more contrast (`prefers-contrast: more`) or uses forced colours (such as Windows High Contrast) see the originals by default; their own choice always wins. The toggles work with the keyboard and screen readers, stay visible in forced-colours mode, and skip their animation when reduced motion is requested.
+
+**Placing the setting in your template.** On a page with dithered images, `dithering.js` adds a small "Always show original images" button before the first one. To put the setting elsewhere, for example in your header or a settings panel, add any element with the `data-sonne-original-images` attribute: a `<button>` becomes a toggle (its `aria-pressed` reflects the setting), and a checkbox is checked when originals are on. Once your template provides one, no button is added. Scripts can call `window.sonneDithering.showOriginals(true)` or `.showsOriginals()`, and listen for the `sonne:original-images` event on `document`.
+
 A post's cover image takes its alt text from `cover_alt` in the front matter. It defaults to empty (decorative) because the post title sits right next to it. Set `cover_alt` when the image carries information the title doesn't.
 
 ### What the checks can't tell you

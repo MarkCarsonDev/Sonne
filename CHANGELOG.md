@@ -48,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forced-colours and reduced-motion support, AA text contrast, and
   keyboard-accessible menus, filters, gallery and form errors. Cover images
   take alt text from `cover_alt` front matter.
+- "Always show original images": a visitor setting, remembered in the
+  browser, that shows every dithered image's original. `dithering.js` adds
+  a small button on pages with dithered images unless the template provides
+  its own control (any element with `data-sonne-original-images`); scripts
+  can use `window.sonneDithering`. Originals are the default for visitors
+  whose system asks for more contrast or uses forced colours.
+- A built-in blog index template (fallback) with accessible pagination,
+  for sites without their own `blog_list.html`.
 - README: an Accessibility section (what Sonne checks, what the starter
   templates provide, what no checker can decide, how to test by hand).
 - Template helpers `blog_url()`, `tag_url()`, `category_url()` and
@@ -132,6 +140,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   automatically when a page doesn't link them), so pages are smaller.
 - The `process_image` template filter renders a plain `<img>`; pages mark
   it like any other image if the build dithered it.
+- The built-in tag, category, archive and blog index templates meet WCAG
+  2.2 AA: skip link, labelled navigation, term lists as real lists, "Read
+  more" links that name the post, and `aria-current` pagination.
+- Dithering toggles are fully visible (no longer faded), at least 24×24px,
+  usable in forced-colours mode, and without animation under reduced
+  motion. Blog figure captions and buttons are no longer semi-transparent.
+- Blog post figures: the caption is the figure's accessible name; the
+  "view original" button is named by its visible text; figures whose image
+  could not be dithered no longer show a toggle that does nothing.
+- The page-size note (`build.show_page_size`) is a readable line after the
+  page content instead of a faint fixed label with hover-only details.
+- Pages written when a template is missing or fails declare their
+  language and title and escape their content.
+- `solar` scaffold: WCAG 2.2 AA pass: landmarks and skip link, labelled
+  navigation, a theme toggle button that follows the system colour scheme,
+  AA contrast, visible focus, reduced motion, 24px targets and descriptive
+  link names; `cover_alt`/`image_alt` front matter describe covers
+  (otherwise decorative).
 - Blog links in the bundled templates follow `url_style`: in the clean
   style they no longer end in a slash (`/blog/tags/python`, matching the
   pages' own URLs), in the html style they end in `.html`, and they follow a
