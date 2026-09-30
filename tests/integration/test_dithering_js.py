@@ -133,15 +133,9 @@ class TestStandaloneImages:
     ):
         assert harness_results[image_id] == expected_original
 
-    @pytest.mark.xfail(
-        strict=True, reason="original URL computed on the whole src, not the file name"
-    )
     def test_query_string_is_kept_after_the_suffix(self, harness_results):
         assert harness_results["query"] == "/images/q_original.png?v=1.2"
 
-    @pytest.mark.xfail(
-        strict=True, reason="original URL computed on the whole src, not the file name"
-    )
     def test_dots_in_directories_are_not_extensions(self, harness_results):
         assert harness_results["dotdir"] == "/v_1.2/a_original.png"
 

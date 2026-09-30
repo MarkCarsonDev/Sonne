@@ -71,18 +71,20 @@
 		return url.origin === window.location.origin ? url : null;
 	}
 
-	// Sized variants: name_800.png -> name_800_original.png; otherwise
-	// "_original" goes before the last dot (or at the end without one).
+	// Insert "_original" before the file name's extension, leaving any
+	// directories, query string and fragment untouched.
 	function originalSrcFor(src) {
-		var sizeMatch = src.match(/_(\d+)\./);
-		if (sizeMatch) {
-			return src.replace("_" + sizeMatch[1] + ".", "_" + sizeMatch[1] + "_original.");
+		var suffixStart = src.search(/[?#]/);
+		var path = suffixStart === -1 ? src : src.substring(0, suffixStart);
+		var suffix = suffixStart === -1 ? "" : src.substring(suffixStart);
+		var fileNameStart = path.lastIndexOf("/") + 1;
+		var extensionStart = path.lastIndexOf(".");
+		if (extensionStart < fileNameStart) {
+			return path + "_original" + suffix;
 		}
-		var extensionStart = src.lastIndexOf(".");
-		if (extensionStart === -1) {
-			return src + "_original";
-		}
-		return src.substring(0, extensionStart) + "_original" + src.substring(extensionStart);
+		return (
+			path.substring(0, extensionStart) + "_original" + path.substring(extensionStart) + suffix
+		);
 	}
 
 	function wrapWithToggle(img) {
