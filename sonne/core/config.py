@@ -12,7 +12,7 @@ import logging
 from typing import Dict, Any, Optional, List
 
 from sonne.core.deprecations import apply_config_deprecations
-from sonne.utils.path_utils import CONFIG_FILENAMES
+from sonne.utils.path_utils import CONFIG_FILENAMES, CONFIG_SEARCH_DEPTH
 
 logger = logging.getLogger("sonne")
 
@@ -104,10 +104,6 @@ DEFAULT_CONFIG = {
 
 YAML_EXTENSIONS = (".yaml", ".yml")
 JSON_EXTENSIONS = (".json", ".config")
-
-# How many directories config discovery examines: the base directory and
-# its ancestors.
-CONFIG_SEARCH_DEPTH = 3
 
 DEFAULT_URL_STYLE = "clean"
 MAX_PORT = 65535

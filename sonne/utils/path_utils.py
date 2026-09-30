@@ -23,6 +23,10 @@ CONFIG_FILENAMES = [
     ".sonne.json",
 ]
 
+# How many directories config discovery examines: the base directory and
+# its ancestors.
+CONFIG_SEARCH_DEPTH = 3
+
 
 def sanitize_filename(filename: str, replace_char: str = "_") -> str:
     """Sanitize a filename by removing/replacing dangerous characters.

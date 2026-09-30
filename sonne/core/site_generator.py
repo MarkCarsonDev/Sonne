@@ -23,13 +23,10 @@ from sonne.utils.file_utils import (
     copy_core_static_files,
 )
 from sonne.utils.build_stats import BuildStatistics
+from sonne.utils.constants import IMAGE_EXTENSIONS, MARKDOWN_EXTENSIONS, PAGE_EXTENSIONS
 from sonne.utils.page_size import inject_page_size_labels
 
 logger = logging.getLogger("sonne")
-
-PAGE_EXTENSIONS = {".html", ".htm", ".md", ".markdown"}
-MARKDOWN_EXTENSIONS = {".md", ".markdown"}
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 # Steps every build runs: data scripts, static copy, pages, finalize.
 ALWAYS_RUN_STEP_COUNT = 4
