@@ -22,8 +22,7 @@
             <div class="post-excerpt">
                 {{ post.excerpt }}
             </div>
-
-            <a href="{{ post.full_url }}" class="read-more">Read More</a>
+            <a href="{{ post.full_url }}" class="read-more">Read More<span style="position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0;">: {{ post.title }}</span></a>
         </article>
         {% endfor %}
     </div>
@@ -31,6 +30,8 @@
     <p>No posts found in this category.</p>
     {% endif %}
 
-    <p class="tag-nav"><a href="{{ category_url() }}">View all categories</a></p>
+    <nav class="tag-nav" aria-label="Blog">
+        <p><a href="{{ category_url() }}">View all categories</a></p>
+    </nav>
 </div>
 {% endblock %}

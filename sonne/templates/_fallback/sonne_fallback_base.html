@@ -5,9 +5,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ page.title }}{% if site.title %} | {{ site.title }}{% endif %}</title>
+    <style>
+        /* Off-screen until focused, then shown in place (WCAG 2.4.1). */
+        .skip-link { position: absolute; left: -10000px; }
+        .skip-link:focus { position: static; }
+    </style>
 </head>
 <body>
-    <main>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <header>
+        <p><a href="/">{{ site.title | default('Home') }}</a></p>
+    </header>
+    <main id="main-content">
         {% block content %}{% endblock %}
     </main>
 </body>
