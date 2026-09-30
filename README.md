@@ -525,6 +525,10 @@ Then access in templates:
 </div>
 ```
 
+Every `*.py` directly in `scripts/` runs on each build, in alphabetical order; files whose names start with `_` are skipped (use them for shared helpers). Scripts are trusted code: see [Security](#security).
+
+A script named `footer.py`, placed in `data/`, your `paths.data` folder, or `scripts/`, can set custom footer HTML with `sonne_var('footer_custom', '<p>...</p>')`. The first one found runs (once), and its value is marked HTML-safe and exposed as `site.footer.custom`.
+
 ## Image Processing
 
 ### Automatic Image Optimization
@@ -749,6 +753,10 @@ Building a Sonne site executes code:
 - **Data scripts** (`scripts/*.py`) run with full process privileges on every
   build — the same trust model as Jekyll plugins or a Makefile. Only build
   sites you trust, and never point CI at untrusted site content.
+- **Footer scripts**: a `footer.py` in `data/`, in your `paths.data` folder or
+  in `scripts/` is executed the same way, even though the data folder
+  otherwise holds only JSON, YAML and CSV. The `footer_custom` it sets is
+  inserted into pages as raw HTML.
 - **Content Jinja** (`content.render_jinja`) makes content files templates.
   Jinja is not a security boundary — treat content authors as trusted, the
   same as script authors. There is no embedded-Python-in-content feature

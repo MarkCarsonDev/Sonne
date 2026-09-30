@@ -327,6 +327,10 @@ class VariableManager:
         Candidates in order: <site>/data/footer.py, <paths.data>/footer.py,
         <site>/scripts/footer.py. One already run as a data script counts as
         found without running again; one that fails falls through to the next.
+
+        Note that this executes Python from the data folder, which otherwise
+        holds only JSON/YAML/CSV. Like data scripts it is trusted site code
+        (documented in README "Security"); never extend this to other files.
         """
         for footer_path in self._footer_script_candidates():
             if not os.path.exists(footer_path):

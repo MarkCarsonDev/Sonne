@@ -33,7 +33,10 @@ REMOVED_CONFIG_KEYS = {
     ),
 }
 
-# Keys we have warned about already (once per process, not per Config load).
+# Keys already warned about in this process. Deliberately per process, not
+# per Config load: `sonne serve --watch` reloads the config on every
+# rebuild, and repeating the same warning on each save would bury real
+# output. Tests reset this set (see tests/unit/test_deprecations.py).
 _warned = set()
 
 
