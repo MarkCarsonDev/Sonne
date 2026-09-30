@@ -59,31 +59,21 @@ class TestBlogKnownBugs:
 
 
 class TestTaxonomyAndArchivePages:
-    @pytest.mark.xfail(
-        strict=True, reason="B13: 'categories'[:-1] gave 'categorie'; pages hit the fallback"
-    )
     def test_category_page_lists_its_posts(self, blog_build):
         _, _, out = blog_build
         html = (out / "blog" / "categories" / "general" / "index.html").read_text(encoding="utf-8")
         assert "general" in html and "Hello World" in html
 
-    @pytest.mark.xfail(
-        strict=True, reason="B14: tag.html read top-level tag/posts, which are never set"
-    )
     def test_tag_page_lists_its_posts(self, blog_build):
         _, _, out = blog_build
         html = (out / "blog" / "tags" / "alpha" / "index.html").read_text(encoding="utf-8")
         assert "Posts Tagged: alpha" in html and "Hello World" in html
 
-    @pytest.mark.xfail(
-        strict=True, reason="B15: templates slug tags with lower|replace, not slugify"
-    )
     def test_post_tag_links_use_canonical_slug(self, blog_build):
         _, _, out = blog_build
         post = out / "blog" / "2025" / "02" / "02" / "tips-tricks-fast" / "index.html"
         assert 'href="/blog/tags/qa-night/"' in post.read_text(encoding="utf-8")
 
-    @pytest.mark.xfail(strict=True, reason="B16: blog template has no archive.html")
     def test_date_archive_lists_its_posts(self, blog_build):
         _, _, out = blog_build
         html = (out / "blog" / "2025" / "02" / "index.html").read_text(encoding="utf-8")

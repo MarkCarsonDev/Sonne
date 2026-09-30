@@ -34,7 +34,7 @@
             {% if post.tags %}
             <div class="post-tags">
                 {% for tag in post.tags %}
-                <a href="/blog/tags/{{ tag | lower | replace(' ', '-') }}/" class="tag">{{ tag }}</a>
+                <a href="/blog/tags/{{ tag | slugify }}/" class="tag">{{ tag }}</a>
                 {% endfor %}
             </div>
             {% endif %}

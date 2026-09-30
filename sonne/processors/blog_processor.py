@@ -37,7 +37,8 @@ RELATED_POSTS_COUNT = 3
 ADJACENCY_WEIGHT = 0.1
 JPEG_QUALITY = 85
 EPOCH = datetime(1970, 1, 1)
-TAXONOMY_TYPES = ("tags", "categories")
+TAXONOMY_SINGULAR = {"tags": "tag", "categories": "category"}
+TAXONOMY_TYPES = tuple(TAXONOMY_SINGULAR)
 MONTH_NAMES = (
     "",
     "January",
@@ -770,7 +771,7 @@ class BlogProcessor:
             _log_error(f"Error generating {taxonomy_type} index page: {e}")
 
     def _generate_term_page(self, taxonomy_type: str, term: Dict[str, Any]) -> None:
-        singular = taxonomy_type[:-1]
+        singular = TAXONOMY_SINGULAR[taxonomy_type]
         page_data = {
             "title": f"{term['name']} ({singular.capitalize()})",
             "description": f"Posts with {singular} {term['name']}",

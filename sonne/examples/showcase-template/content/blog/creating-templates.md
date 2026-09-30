@@ -133,7 +133,7 @@ The `blog_post.html` template is used for individual blog posts:
         <h3>Tags:</h3>
         <ul>
             {% for tag in page.tags %}
-            <li><a href="/blog/tags/{{ tag | lower | replace(' ', '-') }}/">{{ tag }}</a></li>
+            <li><a href="/blog/tags/{{ tag | slugify }}/">{{ tag }}</a></li>
             {% endfor %}
         </ul>
     </div>

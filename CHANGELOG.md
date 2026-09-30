@@ -29,7 +29,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   executor). Configs that still set it get a warning naming the
   replacement.
 
+### Changed
+- Error tracebacks in library code now go through the `sonne` logger
+  (shown with `-vv`/debug logging) instead of being printed straight to
+  stderr.
+
 ### Fixed
+- Category pages rendered as a bare "Untitled" fallback page: the singular
+  of `categories` was computed as `categorie`, so no template matched
+  (B13). Category term pages now expose `page.category`.
+- Tag and category pages said "No posts found": the bundled templates read
+  top-level `tag`/`posts`, which are never set. They now use `page.tag`,
+  `page.category` and `page.posts` (B14).
+- Tag and category links in bundled templates used `lower|replace`, which
+  diverges from the canonical slug, so tags such as "Q&A Night" linked to
+  a 404. They now use the `slugify` filter (B15).
+- The `blog` and `portfolio` scaffolds shipped without `archive.html` (and
+  portfolio without tag/category templates), so date archives and taxonomy
+  pages rendered the fallback page. Both scaffolds now include them (B16).
+- `blog.rss.path` pointing into a subdirectory (e.g. `feeds/blog.xml`)
+  failed because the directory was never created.
+- Blog posts, related posts and image size annotations are cheaper to
+  compute on large blogs (tag sets are precomputed; each post's HTML is
+  parsed once rather than once per image).
 - Images beside a blog post (and post covers) keep their own format (B12).
   A PNG was re-encoded as JPEG under its `.png` name, and a PNG with
   transparency failed to save and was copied unresized, logging an error.

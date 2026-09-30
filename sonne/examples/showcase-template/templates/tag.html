@@ -3,12 +3,12 @@
 {% block content %}
 <div class="container">
     <header class="page-header text-center mb-8">
-        <h1>Posts Tagged: {{ tag }}</h1>
+        <h1>Posts Tagged: {{ page.tag }}</h1>
     </header>
     
-    {% if posts %}
+    {% if page.posts %}
     <div class="blog-grid">
-        {% for post in posts %}
+        {% for post in page.posts %}
         <div class="blog-card animate-on-scroll">
             {% if post.cover_img %}
             <div class="blog-card-image">
@@ -30,7 +30,7 @@
                 {% if post.tags %}
                 <div class="blog-card-tags">
                     {% for post_tag in post.tags %}
-                    <a href="/blog/tags/{{ post_tag | lower | replace(' ', '-') }}/" class="tag {% if post_tag == tag %}active{% endif %}">{{ post_tag }}</a>
+                    <a href="/blog/tags/{{ post_tag | slugify }}/" class="tag {% if post_tag == page.tag %}active{% endif %}">{{ post_tag }}</a>
                     {% endfor %}
                 </div>
                 {% endif %}
