@@ -118,14 +118,7 @@ class TestCli:
         "blog",
         "minimal",
         "solar",
-        pytest.param(
-            "portfolio",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="portfolio scaffold: templates/blog_list.html and blog_post.html are "
-                "empty, so its blog pages are empty (reported to sonne-ad)",
-            ),
-        ),
+        "portfolio",
     ],
 )
 def test_bundled_scaffolds_have_no_blocking_issues(site_factory, builder, template):
@@ -137,11 +130,6 @@ def test_bundled_scaffolds_have_no_blocking_issues(site_factory, builder, templa
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="showcase example: templates/tags.html is empty (empty blog/tags page), and the "
-    'contact form\'s id="email" collides with the "### Email" heading id (reported to sonne-ad)',
-)
 def test_showcase_example_has_no_blocking_issues(tmp_path, builder):
     site = tmp_path / "showcase"
     shutil.copytree(REPO_ROOT / "sonne" / "examples" / "showcase-template", site)

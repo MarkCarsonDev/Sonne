@@ -4,7 +4,7 @@ subtitle: Let's discuss your project
 template: page.html
 ---
 
-# Get In Touch
+## Get In Touch
 
 I'm always interested in hearing about new projects and opportunities. Whether you have a question about my work or want to discuss a potential collaboration, feel free to reach out.
 
@@ -19,12 +19,12 @@ I'm always interested in hearing about new projects and opportunities. Whether y
 <form class="contact-form" action="#" method="post">
     <div class="form-group">
         <label for="name">Name</label>
-        <input type="text" id="name" name="name" required>
+        <input type="text" id="name" name="name" autocomplete="name" required>
     </div>
     
     <div class="form-group">
         <label for="email">Email</label>
-        <input type="email" id="email" name="email" required>
+        <input type="email" id="email" name="email" autocomplete="email" required>
     </div>
     
     <div class="form-group">

@@ -31,7 +31,7 @@ blog:
   list_template: blog_list.html
   posts_per_page: 5
   excerpt_length: 200
-  url_pattern: 'blog/{slug}'
+  url_pattern: '{slug}'  # under blog.directory: /blog/<slug>/
   include_drafts: false
 
 images:

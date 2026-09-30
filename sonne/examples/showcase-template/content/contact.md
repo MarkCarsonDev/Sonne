@@ -13,23 +13,23 @@ We'd love to hear from you! Whether you have questions about Sonne, need help wi
 <div class="contact-form">
     <form action="#" method="POST" id="contact-form">
         <div class="form-group">
-            <label for="name">Name</label>
-            <input type="text" id="name" name="name" required>
+            <label for="contact-name">Name</label>
+            <input type="text" id="contact-name" name="name" autocomplete="name" required>
         </div>
         
         <div class="form-group">
-            <label for="email">Email</label>
-            <input type="email" id="email" name="email" required>
+            <label for="contact-email">Email</label>
+            <input type="email" id="contact-email" name="email" autocomplete="email" required>
         </div>
         
         <div class="form-group">
-            <label for="subject">Subject</label>
-            <input type="text" id="subject" name="subject" required>
+            <label for="contact-subject">Subject</label>
+            <input type="text" id="contact-subject" name="subject" required>
         </div>
         
         <div class="form-group">
-            <label for="message">Message</label>
-            <textarea id="message" name="message" rows="6" required></textarea>
+            <label for="contact-message">Message</label>
+            <textarea id="contact-message" name="message" rows="6" required></textarea>
         </div>
         
         <button type="submit" class="btn btn-primary">Send Message</button>

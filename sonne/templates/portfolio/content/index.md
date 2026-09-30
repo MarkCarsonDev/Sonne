@@ -3,7 +3,7 @@ title: Welcome to My Portfolio
 template: page.html
 ---
 
-# Hello, I'm Your Name
+## Hello, I'm Your Name
 
 I'm a designer and developer specializing in creating beautiful, functional websites and applications.
 

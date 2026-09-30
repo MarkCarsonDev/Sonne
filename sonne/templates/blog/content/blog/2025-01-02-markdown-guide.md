@@ -10,8 +10,6 @@ categories:
   - guides
 ---
 
-# Markdown Guide for Blogging
-
 Markdown is a lightweight markup language that makes it easy to format text for the web. This guide covers the basics of using Markdown in your Sonne blog posts.
 
 ## Basic Formatting

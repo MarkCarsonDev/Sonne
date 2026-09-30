@@ -9,19 +9,20 @@
     {% if dithering_enabled %}<link rel="stylesheet" href="/css/dithering.css">{% endif %}
 </head>
 <body>
+    <a class="skip-link" href="#main">Skip to content</a>
     <header>
         <div class="container">
-            <h1 class="site-title"><a href="/">{{ site.title }}</a></h1>
-            <nav>
+            <p class="site-title"><a href="/">{{ site.title }}</a></p>
+            <nav aria-label="Main">
                 <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/about/">About</a></li>
+                    <li><a href="/"{% if page.url == "/" %} aria-current="page"{% endif %}>Home</a></li>
+                    <li><a href="/about/"{% if page.url in ["/about", "/about/", "/about.html"] %} aria-current="page"{% endif %}>About</a></li>
                 </ul>
             </nav>
         </div>
     </header>
 
-    <main class="container">
+    <main id="main" class="container" tabindex="-1">
         {% block content %}{% endblock %}
     </main>
 

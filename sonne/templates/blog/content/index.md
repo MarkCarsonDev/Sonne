@@ -3,8 +3,6 @@ title: Welcome to My Blog
 template: page.html
 ---
 
-# Welcome to My Blog
-
 This is a blog site created with Sonne Static Site Generator. You can edit this page by modifying the `content/index.md` file.
 
 ## Recent Posts

@@ -4,7 +4,7 @@ subtitle: Designer, developer, and creative problem-solver
 template: page.html
 ---
 
-# Hello, I'm Your Name
+## Hello, I'm Your Name
 
 I'm a passionate web designer and developer with over 5 years of experience creating beautiful, functional websites and applications.
 
