@@ -341,11 +341,10 @@ class ImageProcessor:
             logger.error(f"I/O error processing static image {source_path}: {e}")
             self._copy_static_image(source_path)
         except Exception as e:
-            logger.error(f"Unexpected error processing static image {source_path}: {e}")
-            if logger.level <= logging.DEBUG:
-                import traceback
-
-                traceback.print_exc()
+            logger.error(
+                f"Unexpected error processing static image {source_path}: {e}",
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
             self._copy_static_image(source_path)
 
     def _write_static_pair(
@@ -431,11 +430,10 @@ class ImageProcessor:
             if not skip_cache and self.cache_file:
                 self.cache[cache_key] = results
         except Exception as e:
-            logger.error(f"Error processing image {source_path}: {e}")
-            if logger.level <= logging.DEBUG:
-                import traceback
-
-                traceback.print_exc()
+            logger.error(
+                f"Error processing image {source_path}: {e}",
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
 
         if self.stats:
             self.stats.record_image(
