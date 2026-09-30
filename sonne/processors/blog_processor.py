@@ -897,7 +897,9 @@ class BlogProcessor:
 
     def _rss_document(self, rss_path: str) -> str:
         """Build the feed XML. All interpolated text is XML-escaped."""
-        site_url = self.config.get("site", "base_url", default="")
+        # Every feed URL is site_url + "/path"; a configured trailing slash
+        # would otherwise double it.
+        site_url = str(self.config.get("site", "base_url", default="") or "").rstrip("/")
         site_title = self.config.get("site", "title", default="My Sonne Site")
         site_description = self.config.get("site", "description", default="")
         language = self.config.get("site", "language", default="en")

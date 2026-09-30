@@ -193,7 +193,6 @@ class TestFeedUrls:
         [thumbnail] = feed_thumbnail_urls(out)
         assert (out / thumbnail.removeprefix("http://localhost/")).exists()
 
-    @pytest.mark.xfail(strict=True, reason="B34: trailing-slash base_url doubles slashes in feed")
     def test_trailing_slash_base_url_gives_single_slashes(self, site_factory, builder):
         site = site_factory("blog", overlay="blog_site")
 
