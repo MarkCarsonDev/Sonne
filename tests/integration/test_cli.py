@@ -1,6 +1,7 @@
 """CLI surface via click's CliRunner."""
 
 import logging
+import os
 
 import pytest
 from click.testing import CliRunner
@@ -262,3 +263,69 @@ def test_path_defaults_to_the_directory_at_invocation(runner, tmp_path, monkeypa
 
     assert result.exit_code == 0, result.output
     assert (target / "output" / "index.html").exists()
+
+
+class TestStaleServerWarning:
+    @pytest.fixture
+    def fake_sonne(self, tmp_path):
+        package = tmp_path / "fake_sonne"
+        (package / "core").mkdir(parents=True)
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "core" / "config.py").write_text("X = 1\n", encoding="utf-8")
+        return package
+
+    @pytest.fixture
+    def rebuilder(self, tmp_path, fake_sonne, monkeypatch):
+        import sonne.cli.commands as commands
+        from sonne.core.config import Config
+
+        monkeypatch.setattr(commands, "_rebuild_site", lambda base, dev=False: None)
+        site = tmp_path / "site"
+        site.mkdir()
+        return commands.SiteRebuilder(
+            str(site), Config(base_dir=str(site)), sonne_source_dir=fake_sonne
+        )
+
+    @staticmethod
+    def stale_warnings(caplog):
+        return [r for r in caplog.records if "Sonne itself has changed" in r.getMessage()]
+
+    @staticmethod
+    def edit(path, text):
+        path.write_text(text, encoding="utf-8")
+        later = path.stat().st_mtime + 10
+        os.utime(path, (later, later))
+
+    def test_no_warning_while_sonne_is_unchanged(self, rebuilder, caplog):
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            rebuilder._rebuild()
+
+        assert self.stale_warnings(caplog) == []
+
+    def test_changed_sonne_code_warns_once(self, rebuilder, fake_sonne, caplog):
+        self.edit(fake_sonne / "core" / "config.py", "X = 2  # upgraded\n")
+
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            rebuilder._rebuild()
+            rebuilder._rebuild()
+
+        [warning] = self.stale_warnings(caplog)
+        assert "run `sonne serve` again" in warning.getMessage()
+
+    def test_a_further_change_warns_again(self, rebuilder, fake_sonne, caplog):
+        self.edit(fake_sonne / "core" / "config.py", "X = 2\n")
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            rebuilder._rebuild()
+            (fake_sonne / "core" / "new_module.py").write_text("Y = 1\n", encoding="utf-8")
+            rebuilder._rebuild()
+
+        assert len(self.stale_warnings(caplog)) == 2
+
+    def test_serve_watches_the_installed_sonne_package(self, tmp_path):
+        from sonne.cli.commands import SONNE_PACKAGE_DIR, SiteRebuilder
+        from sonne.core.config import Config
+
+        rebuilder = SiteRebuilder(str(tmp_path), Config(base_dir=str(tmp_path)))
+
+        assert rebuilder._sonne_source_dir == SONNE_PACKAGE_DIR
+        assert (SONNE_PACKAGE_DIR / "cli" / "commands.py").is_file()

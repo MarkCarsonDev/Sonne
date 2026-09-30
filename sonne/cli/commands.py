@@ -46,6 +46,11 @@ DEFAULT_SERVE_PORT = 8000
 BROWSER_OPEN_DELAY_SECONDS = 1.0
 OBSERVER_STOP_TIMEOUT_SECONDS = 5
 
+# The installed Sonne package, watched by `serve` for code changes.
+SONNE_PACKAGE_DIR = Path(__file__).resolve().parent.parent
+
+SourceFingerprint = tuple[tuple[str, int, int], ...]
+
 
 def _use_rich() -> bool:
     return console is not None
@@ -583,9 +588,20 @@ class SiteRebuilder:
 
     DEBOUNCE_SECONDS = 0.4
 
-    def __init__(self, base_dir: str, config: Config, dev: bool = False):
+    def __init__(
+        self,
+        base_dir: str,
+        config: Config,
+        dev: bool = False,
+        sonne_source_dir: Path = SONNE_PACKAGE_DIR,
+    ):
         self.base_dir = base_dir
         self.dev = dev
+        # A running server keeps the Sonne code it started with; remember
+        # that code so a rebuild can tell the user when it went stale.
+        self._sonne_source_dir = sonne_source_dir
+        self._startup_fingerprint = _source_fingerprint(sonne_source_dir)
+        self._warned_fingerprint: Optional[SourceFingerprint] = None
         self._lock = threading.Lock()
         self._pending = None  # pending debounce timer
         self._building = False
@@ -658,6 +674,7 @@ class SiteRebuilder:
             raise
 
     def _rebuild_once(self) -> None:
+        self._warn_if_sonne_changed()
         try:
             click.echo("\nChange detected — rebuilding...")
             # Fresh Config: the edit may have BEEN the config
@@ -666,6 +683,40 @@ class SiteRebuilder:
         except Exception as e:
             click.echo(f"Rebuild failed: {e}")
             _print_traceback_if_verbose()
+
+    def _warn_if_sonne_changed(self) -> None:
+        """Warn (once per new version) when Sonne's own code changed since startup.
+
+        The server process still runs the code it started with, so an
+        upgraded or edited Sonne only takes effect after a restart.
+        """
+        current = _source_fingerprint(self._sonne_source_dir)
+        if current in (self._startup_fingerprint, self._warned_fingerprint):
+            return
+        self._warned_fingerprint = current
+        logger.warning(
+            f"Sonne itself has changed since `sonne serve` started ({self._sonne_source_dir}). "
+            "This server keeps running the old code: stop it and run `sonne serve` again "
+            "to use the new version."
+        )
+
+
+def _source_fingerprint(package_dir: Path) -> SourceFingerprint:
+    """(path, mtime_ns, size) of every .py file under package_dir: cheap to compare.
+
+    Files that vanish while being scanned are skipped.
+    """
+    entries = []
+    for source_file in package_dir.rglob("*.py"):
+        if "__pycache__" in source_file.parts:
+            continue
+        try:
+            stat = source_file.stat()
+        except OSError:
+            continue
+        rel_path = source_file.relative_to(package_dir).as_posix()
+        entries.append((rel_path, stat.st_mtime_ns, stat.st_size))
+    return tuple(sorted(entries))
 
 
 def _paths_touched_by(event) -> list[str]:

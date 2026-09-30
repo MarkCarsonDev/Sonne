@@ -784,6 +784,8 @@ Options:
 - `--watch/--no-watch`: Watch for changes (default: watch)
 - `--dev`: Serve the development environment (the `dev` settings, e.g. `url_style.dev`), like `sonne build --dev`
 
+With `--watch`, a running server rebuilds your site on every change, but it keeps running the Sonne code it started with. If Sonne itself is upgraded or edited meanwhile, the next rebuild warns you to restart `sonne serve`.
+
 ### Update an old config file
 
 ```bash
