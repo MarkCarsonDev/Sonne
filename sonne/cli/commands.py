@@ -16,13 +16,14 @@ import webbrowser
 import threading
 from pathlib import Path
 from shutil import copytree, ignore_patterns
-from typing import List
+from typing import List, Optional
 
 import yaml
 from rich.console import Console
 from rich.panel import Panel
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
 
 from sonne.core.config import Config
 from sonne.core.site_generator import SiteGenerator
@@ -579,7 +580,7 @@ def _paths_touched_by(event) -> List[str]:
     return [] if event.is_directory else [event.src_path]
 
 
-def _start_watching(path: str, config: Config) -> Observer:
+def _start_watching(path: str, config: Config) -> Optional[BaseObserver]:
     """Start a watchdog observer that feeds a SiteRebuilder.
 
     Returns:

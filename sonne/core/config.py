@@ -145,7 +145,7 @@ class Config:
         """
         self.base_dir = base_dir or os.getcwd()
         self.config_path = config_path or self._find_config()
-        self.config = self._load_config()
+        self.config: Dict[str, Any] = self._load_config()
 
     def _find_config(self) -> Optional[str]:
         """Search the base directory, then its parents, for a config file.
@@ -186,29 +186,29 @@ class Config:
             return config
 
         try:
-            self._merge_user_config(config)
+            self._merge_user_config(config, self.config_path)
         except Exception as e:
             logger.error(f"Error loading configuration file: {e}")
             logger.warning("Using default configuration")
         return config
 
-    def _merge_user_config(self, config: Dict[str, Any]) -> None:
-        ext = Path(self.config_path).suffix.lower()
+    def _merge_user_config(self, config: Dict[str, Any], config_path: str) -> None:
+        ext = Path(config_path).suffix.lower()
         if ext not in YAML_EXTENSIONS + JSON_EXTENSIONS:
             logger.warning(f"Unsupported config format: {ext}")
             return
 
-        with open(self.config_path, "r", encoding="utf-8") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             user_config = yaml.safe_load(f) if ext in YAML_EXTENSIONS else json.load(f)
 
         if isinstance(user_config, dict):
             apply_config_deprecations(user_config)
             _deep_merge(user_config, config)
         elif user_config is not None:
-            logger.warning(f"Configuration file {self.config_path} is not a mapping; ignoring it")
-        logger.debug(f"Loaded configuration from {self.config_path}")
+            logger.warning(f"Configuration file {config_path} is not a mapping; ignoring it")
+        logger.debug(f"Loaded configuration from {config_path}")
 
-    def get(self, *keys, default=None):
+    def get(self, *keys: str, default: Any = None) -> Any:
         """Get configuration value using dot notation or nested keys.
 
         Args:
@@ -228,7 +228,7 @@ class Config:
             current = current[key]
         return current
 
-    def set(self, *keys, value=None):
+    def set(self, *keys: str, value: Any = None) -> None:
         """Set configuration value using dot notation or nested keys.
 
         Intermediate keys that are missing or not mappings become empty dicts.

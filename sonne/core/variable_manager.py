@@ -7,6 +7,7 @@ import os
 import json
 import yaml
 import csv
+import importlib.machinery
 import importlib.util
 import sys
 import time
@@ -18,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional
 from markupsafe import Markup
 
 from sonne.script_api import ScriptHooks, running_script
+from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.path_utils import sorted_paths
 
 logger = logging.getLogger("sonne")
@@ -54,7 +56,7 @@ class VariableManager:
         self.config = config
         self.base_dir = base_dir or os.getcwd()
         self.variables = {"global": {}, "site": {}, "page": {}}
-        self.stats = None  # Injected by SiteGenerator
+        self.stats: Optional[BuildStatistics] = None  # Injected by SiteGenerator
 
         # Provenance tracking: names set by data scripts (the only variables
         # that persist across builds when variables.preserve_prior is on),
@@ -268,7 +270,8 @@ class VariableManager:
         """
         self._executed_scripts.add(str(script_path.resolve()))
         spec = importlib.util.spec_from_file_location(module_name, script_path)
-        if spec is None or spec.loader is None:
+        # Python source files always get a SourceFileLoader.
+        if spec is None or not isinstance(spec.loader, importlib.machinery.SourceFileLoader):
             raise ImportError(f"Cannot load script {script_path}")
         module = importlib.util.module_from_spec(spec)
         hooks = self._script_hooks()
