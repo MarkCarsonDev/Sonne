@@ -8,11 +8,11 @@
         <p class="page-subtitle">{{ page.subtitle }}</p>
         {% endif %}
     </header>
-    
+
     <div class="page-content">
         {{ content }}
     </div>
-    
+
     {% if forecast and page.show_forecast %}
     <div class="forecast-section">
         <h2>3-Day Forecast for {{ current_weather.location }}</h2>
@@ -20,7 +20,7 @@
             {% for day in forecast %}
             <div class="forecast-day">
                 <div class="forecast-date">{{ day.day_name }} ({{ day.date }})</div>
-                <div class="forecast-icon">{{ day.icon_text }}</div>
+                <div class="forecast-icon" aria-hidden="true">{{ day.icon_text }}</div>
                 <div class="forecast-temp">{{ day.temperature }}°{{ day.unit_symbol }}</div>
                 <div class="forecast-desc">{{ day.description }}</div>
             </div>
@@ -28,7 +28,7 @@
         </div>
     </div>
     {% endif %}
-    
+
     {% if battery and page.show_battery %}
     <div class="battery-details">
         <h2>Battery Status</h2>
@@ -56,6 +56,6 @@
         </div>
     </div>
     {% endif %}
-    
+
 </article>
 {% endblock %}

@@ -81,9 +81,10 @@ class TestSolarTemplate:
     def test_post_cover_image_points_at_a_real_file(self, solar_site, builder):
         _, output = builder(solar_site)
         page = read_page(output, "blog", "energy-efficient-web-design-principles")
-        # A static image the build dithered: shown dithered, original recorded for the toggle
+        # A static image the build dithered: shown dithered, original recorded for
+        # the toggle, described by the post's cover_alt
         assert (
-            '<img alt="Energy-Efficient Web Design Principles" '
+            '<img alt="A small bird perched at the top of a leafy tree against a pale sky" '
             'data-original-src="/images/vogel.jpg" src="/images/dithered/vogel.png"'
         ) in page
         assert (output / "images" / "vogel.jpg").exists()
@@ -99,9 +100,9 @@ class TestSolarTemplate:
         _, output = builder(solar_site)
         page = read_page(output, "blog", "local-cover")
         # dithering.js adds the toggle to images that name their original
-        cover = re.search(r"<img[^>]*alt=\"Local Cover\"[^>]*>", page)
+        cover = re.search(r"<img[^>]*data-original-src=\"photo.jpg\"[^>]*>", page)
         assert cover is not None
-        assert 'data-original-src="photo.jpg"' in cover.group(0)
+        assert 'alt=""' in cover.group(0)  # decorative without cover_alt
         assert 'src="dithered/photo.png"' in cover.group(0)
         assert (output / "blog" / "local-cover" / "photo.jpg").is_file()
         assert (output / "blog" / "local-cover" / "dithered" / "photo.png").is_file()
@@ -122,3 +123,41 @@ class TestSolarTemplate:
         _, output = builder(solar_site)
         assert (output / "notes" / "tags" / "sustainable" / "index.html").is_file()
         assert broken_internal_links(output) == set()
+
+
+@pytest.mark.usefixtures("offline")
+class TestSolarAccessibility:
+    """Structure the solar scaffold gives assistive technology (WCAG 2.2 AA)."""
+
+    @pytest.fixture
+    def blog_index(self, solar_site, builder):
+        _, output = builder(solar_site)
+        return read_page(output, "blog")
+
+    def test_skip_link_leads_to_the_main_landmark(self, blog_index):
+        assert '<a class="skip-link" href="#main-content">Skip to content</a>' in blog_index
+        assert re.search(r'<main[^>]*id="main-content"', blog_index)
+
+    def test_nav_is_labelled_and_marks_the_current_page(self, blog_index):
+        assert '<nav aria-label="Main" class="site-nav">' in blog_index
+        assert '<a aria-current="page" href="/blog/">Blog</a>' in blog_index
+
+    def test_theme_toggle_is_a_named_toggle_button(self, blog_index):
+        toggle = re.search(r'<button[^>]*class="theme-toggle"[^>]*>', blog_index)
+        assert toggle is not None
+        assert 'type="button"' in toggle.group(0)
+        assert 'aria-label="Dark mode"' in toggle.group(0)
+        assert 'aria-pressed="false"' in toggle.group(0)
+
+    def test_theme_follows_the_system_until_one_is_chosen(self, blog_index):
+        assert re.search(r"<html[^>]*data-theme", blog_index) is None
+        assert "@media (prefers-color-scheme: light)" in blog_index
+
+    def test_read_more_links_name_their_post(self, blog_index):
+        assert (
+            'Read More<span class="sr-only">: Energy-Efficient Web Design Principles</span>'
+        ) in blog_index
+
+    def test_status_icons_have_text_alternatives(self, blog_index):
+        assert '<span aria-hidden="true" class="battery-icon">' in blog_index
+        assert re.search(r'<span aria-label="[^"]+" class="weather-icon" role="img"', blog_index)
