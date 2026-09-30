@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
 
+import numpy as np
 from PIL import Image, ImageOps
 
 logger = logging.getLogger("sonne")
@@ -33,6 +34,37 @@ LOSSY_QUALITY = 85
 BICUBIC_MAX_WIDTH = 400
 
 HASH_CHUNK_BYTES = 8192
+
+DEFAULT_DITHER_COLORS = 4
+MIN_PALETTE_SIZE = 2
+MAX_PALETTE_SIZE = 256
+
+# Ordered-dither threshold map, normalised to [0, 1).
+BAYER_4X4 = (
+    np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]], dtype=float) / 16.0
+)
+
+# sRGB (D65) <-> CIE XYZ matrices and the D65 reference white.
+SRGB_TO_XYZ = np.array(
+    [
+        [0.4124564, 0.3575761, 0.1804375],
+        [0.2126729, 0.7151522, 0.0721750],
+        [0.0193339, 0.1191920, 0.9503041],
+    ]
+)
+XYZ_TO_SRGB = np.array(
+    [
+        [3.2404542, -1.5371385, -0.4985314],
+        [-0.9692660, 1.8760108, 0.0415560],
+        [0.0556434, -0.2040259, 1.0572252],
+    ]
+)
+D65_WHITE = np.array([0.95047, 1.0, 1.08883])
+
+# k-means is seeded so builds are reproducible.
+KMEANS_SEED = 42
+KMEANS_MAX_ITERATIONS = 20
+KMEANS_TOLERANCE = 1e-4
 
 IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
 DEFAULT_MAX_WORKERS = 4
@@ -528,13 +560,13 @@ class ImageProcessor:
     ) -> "Image.Image":
         """Apply dithering to an image using the configured (or specified) method.
 
-        Dispatches to the appropriate dithering implementation. Unknown method names
-        fall back to bayer (the default).
+        Unknown method names fall back to bayer.
 
         Args:
             img: Source PIL Image (any mode).
             method: Dithering method name. If None, reads from config.
-            colors: Number of palette levels/colors. If None, reads from config.
+            colors: Number of palette levels/colors (clamped to 2-256). If
+                None, reads from config.
 
         Returns:
             PIL Image ready to save as PNG.
@@ -552,18 +584,13 @@ class ImageProcessor:
             method = self.config.get("images", "dither_method", default="bayer")
         if colors is None:
             colors = self.config.get("images", "dither_colors", default=4)
-
-        try:
-            colors = max(2, min(256, int(colors or 4)))
-        except (TypeError, ValueError):
-            colors = 4
-
+        colors = _clamp_palette_size(colors)
         method = (method or "bayer").lower().strip()
 
         if method == "bayer":
-            return self._bayer_dither(img, colors)
+            return _bayer_dither(img, colors)
         elif method in ("grayscale", "palette"):
-            return self._grayscale_palette_dither(img, colors)
+            return _grayscale_palette_dither(img, colors)
         elif method in ("1bit", "halftone", "floyd_steinberg"):
             return img.convert("L").convert("1", dither=Image.FLOYDSTEINBERG)
         elif method == "threshold":
@@ -573,172 +600,10 @@ class ImageProcessor:
         elif method == "color_octree":
             return img.convert("RGB").quantize(colors=colors, method=2, dither=1)
         elif method == "color_lab":
-            return self._lab_kmeans_dither(img, colors)
+            return _lab_kmeans_dither(img, colors)
         else:
             logger.warning(f"Unknown dither_method '{method}', defaulting to bayer")
-            return self._bayer_dither(img, 4)
-
-    def _bayer_dither(self, img: "Image.Image", levels: int = 4) -> "Image.Image":
-        """Ordered Bayer 4×4 dithering on grayscale.
-
-        Produces a regular dot-grid pattern. Compresses very well as PNG and
-        avoids the streaky artifacts of error-diffusion on smooth gradients.
-
-        Args:
-            img: Source PIL Image (any mode).
-            levels: Number of gray levels (2–256).
-
-        Returns:
-            PIL Image in P (palette) mode.
-        """
-        try:
-            import numpy as np
-        except ImportError:
-            logger.warning(
-                "numpy not available for Bayer dithering, falling back to grayscale palette"
-            )
-            return self._grayscale_palette_dither(img, levels)
-
-        levels = max(2, min(256, int(levels)))
-        gray = img.convert("L")
-        arr = np.array(gray, dtype=float) / 255.0
-        bayer = (
-            np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]], dtype=float)
-            / 16.0
-        )
-        h, w = arr.shape
-        tiled = np.tile(bayer, (h // 4 + 1, w // 4 + 1))[:h, :w]
-        step = 1.0 / (levels - 1)
-        quantized = np.clip(np.floor(arr / step + tiled) * step, 0.0, 1.0)
-        out = Image.fromarray((quantized * 255).astype("uint8"), "L")
-        # Convert to palette mode for better PNG compression (no dither — already applied)
-        return out.convert("P", palette=1, colors=levels, dither=0)
-
-    def _grayscale_palette_dither(
-        self, img: "Image.Image", palette_colors: int = 4
-    ) -> "Image.Image":
-        """Grayscale + Floyd-Steinberg palette dither.
-
-        Args:
-            img: Source PIL Image (any mode).
-            palette_colors: Number of palette entries (2–256).
-
-        Returns:
-            PIL Image in P (palette) mode with a grayscale palette.
-        """
-        palette_colors = max(2, min(256, int(palette_colors)))
-        gray = img.convert("L")
-        # palette=1 is Image.Palette.ADAPTIVE, dither=1 is Floyd-Steinberg
-        return gray.convert("P", palette=1, colors=palette_colors, dither=1)
-
-    def _lab_kmeans_dither(self, img: "Image.Image", k: int = 4) -> "Image.Image":
-        """Color quantization using k-means clustering in CIELAB color space.
-
-        Minimises perceptual color error rather than RGB distance. Applies
-        Floyd-Steinberg error diffusion using the LAB-derived palette.
-
-        Args:
-            img: Source PIL Image (any mode).
-            k: Number of palette colors.
-
-        Returns:
-            PIL Image in P (palette) mode.
-        """
-        try:
-            import numpy as np
-        except ImportError:
-            logger.warning("numpy not available for LAB k-means, falling back to color_median")
-            return img.convert("RGB").quantize(colors=k, method=0, dither=1)
-
-        def srgb_to_linear(c):
-            return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
-
-        def linear_to_srgb(c):
-            return np.where(c <= 0.0031308, 12.92 * c, 1.055 * c ** (1 / 2.4) - 0.055)
-
-        def to_lab(rgb_u8):
-            rgb = srgb_to_linear(np.clip(rgb_u8.astype(float) / 255.0, 0, 1))
-            M = np.array(
-                [
-                    [0.4124564, 0.3575761, 0.1804375],
-                    [0.2126729, 0.7151522, 0.0721750],
-                    [0.0193339, 0.1191920, 0.9503041],
-                ]
-            )
-            xyz = rgb @ M.T / np.array([0.95047, 1.0, 1.08883])
-
-            def f(t):
-                return np.where(t > 0.008856, t ** (1 / 3), 7.787 * t + 16 / 116)
-
-            fx, fy, fz = f(xyz[..., 0]), f(xyz[..., 1]), f(xyz[..., 2])
-            return np.stack([116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)], axis=-1)
-
-        def from_lab(lab):
-            L, a, b = lab[..., 0], lab[..., 1], lab[..., 2]
-            fy = (L + 16) / 116
-
-            def fi(t):
-                return np.where(t > 0.206897, t**3, (t - 16 / 116) / 7.787)
-
-            xyz = np.stack([fi(a / 500 + fy), fi(fy), fi(fy - b / 200)], axis=-1)
-            xyz *= np.array([0.95047, 1.0, 1.08883])
-            M_inv = np.array(
-                [
-                    [3.2404542, -1.5371385, -0.4985314],
-                    [-0.9692660, 1.8760108, 0.0415560],
-                    [0.0556434, -0.2040259, 1.0572252],
-                ]
-            )
-            rgb_lin = np.clip(xyz @ M_inv.T, 0, 1)
-            return np.clip(linear_to_srgb(rgb_lin), 0, 1)
-
-        arr = np.array(img.convert("RGB"), dtype=np.uint8)
-        H, W, _ = arr.shape
-        lab_arr = to_lab(arr)
-        pixels = lab_arr.reshape(-1, 3)
-
-        rng = np.random.default_rng(42)
-        centres = pixels[rng.choice(len(pixels), k, replace=False)].copy()
-        for _ in range(20):
-            dists = np.sum((pixels[:, None] - centres[None]) ** 2, axis=-1)
-            labels = np.argmin(dists, axis=-1)
-            new_c = np.array(
-                [
-                    pixels[labels == i].mean(0) if (labels == i).any() else centres[i]
-                    for i in range(k)
-                ]
-            )
-            if np.allclose(centres, new_c, atol=1e-4):
-                break
-            centres = new_c
-
-        palette_rgb = (
-            np.clip(from_lab(centres.reshape(1, -1, 3)).reshape(-1, 3), 0, 1) * 255
-        ).astype("uint8")
-
-        # Floyd-Steinberg in RGB with LAB-derived palette
-        out_arr = arr.astype(float)
-        result = np.zeros((H, W), dtype=np.uint8)
-        for r in range(H):
-            for c in range(W):
-                old = out_arr[r, c]
-                old_lab = to_lab(old.reshape(1, 1, 3)).reshape(3)
-                best = int(np.argmin(np.sum((centres - old_lab) ** 2, axis=-1)))
-                result[r, c] = best
-                err = old - palette_rgb[best].astype(float)
-                if c + 1 < W:
-                    out_arr[r, c + 1] += err * 7 / 16
-                if r + 1 < H and c - 1 >= 0:
-                    out_arr[r + 1, c - 1] += err * 3 / 16
-                if r + 1 < H:
-                    out_arr[r + 1, c] += err * 5 / 16
-                if r + 1 < H and c + 1 < W:
-                    out_arr[r + 1, c + 1] += err * 1 / 16
-
-        p_img = Image.fromarray(result, "P")
-        flat = palette_rgb.flatten().tolist() + [0] * (768 - len(palette_rgb.flatten()))
-        p_img.putpalette(flat)
-        return p_img
+            return _bayer_dither(img, DEFAULT_DITHER_COLORS)
 
     def dither_image(self, input_path: str, output_path: str) -> None:
         """Apply dithering to an image.
@@ -837,3 +702,154 @@ def _with_original_suffix(path: str) -> str:
     """``x.png`` -> ``x_original.png``."""
     stem, ext = os.path.splitext(path)
     return f"{stem}_original{ext}"
+
+
+def _clamp_palette_size(colors) -> int:
+    """Palette size clamped to 2-256; unparseable values give the default."""
+    try:
+        return max(MIN_PALETTE_SIZE, min(MAX_PALETTE_SIZE, int(colors or DEFAULT_DITHER_COLORS)))
+    except (TypeError, ValueError):
+        return DEFAULT_DITHER_COLORS
+
+
+def _bayer_dither(img: "Image.Image", levels: int = 4) -> "Image.Image":
+    """Ordered Bayer 4×4 dithering on grayscale.
+
+    Produces a regular dot-grid pattern. Compresses very well as PNG and
+    avoids the streaky artifacts of error-diffusion on smooth gradients.
+
+    Args:
+        img: Source PIL Image (any mode).
+        levels: Number of gray levels (2–256).
+
+    Returns:
+        PIL Image in P (palette) mode.
+    """
+    levels = max(MIN_PALETTE_SIZE, min(MAX_PALETTE_SIZE, int(levels)))
+    gray = np.array(img.convert("L"), dtype=float) / 255.0
+    height, width = gray.shape
+    thresholds = np.tile(BAYER_4X4, (height // 4 + 1, width // 4 + 1))[:height, :width]
+    step = 1.0 / (levels - 1)
+    quantized = np.clip(np.floor(gray / step + thresholds) * step, 0.0, 1.0)
+    out = Image.fromarray((quantized * 255).astype("uint8"), "L")
+    # Palette mode compresses better as PNG; no dither, it is already applied.
+    return out.convert("P", palette=1, colors=levels, dither=0)
+
+
+def _grayscale_palette_dither(img: "Image.Image", palette_colors: int = 4) -> "Image.Image":
+    """Grayscale + Floyd-Steinberg palette dither.
+
+    Args:
+        img: Source PIL Image (any mode).
+        palette_colors: Number of palette entries (2–256).
+
+    Returns:
+        PIL Image in P (palette) mode with a grayscale palette.
+    """
+    palette_colors = max(MIN_PALETTE_SIZE, min(MAX_PALETTE_SIZE, int(palette_colors)))
+    # palette=1 is Image.Palette.ADAPTIVE, dither=1 is Floyd-Steinberg
+    return img.convert("L").convert("P", palette=1, colors=palette_colors, dither=1)
+
+
+def _lab_kmeans_dither(img: "Image.Image", k: int = 4) -> "Image.Image":
+    """Color quantization using k-means clustering in CIELAB color space.
+
+    Minimises perceptual color error rather than RGB distance. Applies
+    Floyd-Steinberg error diffusion using the LAB-derived palette.
+
+    Args:
+        img: Source PIL Image (any mode).
+        k: Number of palette colors.
+
+    Returns:
+        PIL Image in P (palette) mode.
+    """
+    rgb = np.array(img.convert("RGB"), dtype=np.uint8)
+    centres = _kmeans_centres(_srgb_to_lab(rgb).reshape(-1, 3), k)
+    palette_rgb = (
+        np.clip(_lab_to_srgb(centres.reshape(1, -1, 3)).reshape(-1, 3), 0, 1) * 255
+    ).astype("uint8")
+    indices = _diffuse_to_palette(rgb, centres, palette_rgb)
+    paletted = Image.fromarray(indices, "P")
+    flat_palette = palette_rgb.flatten().tolist()
+    paletted.putpalette(flat_palette + [0] * (768 - len(flat_palette)))
+    return paletted
+
+
+def _kmeans_centres(pixels: np.ndarray, k: int) -> np.ndarray:
+    """k cluster centres of (N, 3) LAB pixels (Lloyd's algorithm, seeded start)."""
+    rng = np.random.default_rng(KMEANS_SEED)
+    centres = pixels[rng.choice(len(pixels), k, replace=False)].copy()
+    for _ in range(KMEANS_MAX_ITERATIONS):
+        distances = np.sum((pixels[:, None] - centres[None]) ** 2, axis=-1)
+        labels = np.argmin(distances, axis=-1)
+        new_centres = np.array(
+            [pixels[labels == i].mean(0) if (labels == i).any() else centres[i] for i in range(k)]
+        )
+        if np.allclose(centres, new_centres, atol=KMEANS_TOLERANCE):
+            break
+        centres = new_centres
+    return centres
+
+
+def _diffuse_to_palette(
+    rgb: np.ndarray, centres_lab: np.ndarray, palette_rgb: np.ndarray
+) -> np.ndarray:
+    """Floyd-Steinberg in RGB, choosing each pixel's palette entry by LAB distance.
+
+    Returns:
+        (H, W) uint8 array of palette indices.
+    """
+    height, width, _ = rgb.shape
+    working = rgb.astype(float)
+    indices = np.zeros((height, width), dtype=np.uint8)
+    for r in range(height):
+        for c in range(width):
+            old = working[r, c]
+            old_lab = _srgb_to_lab(old.reshape(1, 1, 3)).reshape(3)
+            best = int(np.argmin(np.sum((centres_lab - old_lab) ** 2, axis=-1)))
+            indices[r, c] = best
+            err = old - palette_rgb[best].astype(float)
+            if c + 1 < width:
+                working[r, c + 1] += err * 7 / 16
+            if r + 1 < height and c - 1 >= 0:
+                working[r + 1, c - 1] += err * 3 / 16
+            if r + 1 < height:
+                working[r + 1, c] += err * 5 / 16
+            if r + 1 < height and c + 1 < width:
+                working[r + 1, c + 1] += err * 1 / 16
+    return indices
+
+
+def _srgb_to_linear(c):
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def _linear_to_srgb(c):
+    return np.where(c <= 0.0031308, 12.92 * c, 1.055 * c ** (1 / 2.4) - 0.055)
+
+
+def _srgb_to_lab(rgb_u8: np.ndarray) -> np.ndarray:
+    """(..., 3) sRGB values in 0-255 (clipped) -> CIELAB."""
+    rgb = _srgb_to_linear(np.clip(rgb_u8.astype(float) / 255.0, 0, 1))
+    xyz = rgb @ SRGB_TO_XYZ.T / D65_WHITE
+
+    def f(t):
+        return np.where(t > 0.008856, t ** (1 / 3), 7.787 * t + 16 / 116)
+
+    fx, fy, fz = f(xyz[..., 0]), f(xyz[..., 1]), f(xyz[..., 2])
+    return np.stack([116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)], axis=-1)
+
+
+def _lab_to_srgb(lab: np.ndarray) -> np.ndarray:
+    """(..., 3) CIELAB -> sRGB in [0, 1]."""
+    lightness, a, b = lab[..., 0], lab[..., 1], lab[..., 2]
+    fy = (lightness + 16) / 116
+
+    def f_inverse(t):
+        return np.where(t > 0.206897, t**3, (t - 16 / 116) / 7.787)
+
+    xyz = np.stack([f_inverse(a / 500 + fy), f_inverse(fy), f_inverse(fy - b / 200)], axis=-1)
+    xyz *= D65_WHITE
+    rgb_linear = np.clip(xyz @ XYZ_TO_SRGB.T, 0, 1)
+    return np.clip(_linear_to_srgb(rgb_linear), 0, 1)
