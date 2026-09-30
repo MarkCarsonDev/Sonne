@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from markupsafe import Markup
 
+from sonne.script_api import ScriptHooks, running_script
 from sonne.utils.path_utils import sorted_paths
 
 logger = logging.getLogger("sonne")
@@ -257,29 +258,39 @@ class VariableManager:
         logger.debug(f"After {script_path.name}: globals={list(self.variables['global'].keys())}")
 
     def _execute_script(self, script_path: Path, module_name: str) -> None:
-        """Run a trusted site script as a module with the Sonne hooks injected.
+        """Run a trusted site script as a module, with the script API active.
+
+        The script can import the API from sonne.script_api (preferred) or
+        use the same functions injected as module globals (legacy). The
+        hooks are active only while this script runs.
 
         Scripts are trusted by design: they run with full process privileges.
         """
         self._executed_scripts.add(str(script_path.resolve()))
         spec = importlib.util.spec_from_file_location(module_name, script_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load script {script_path}")
         module = importlib.util.module_from_spec(spec)
-        for hook_name, hook in self._script_hooks().items():
+        hooks = self._script_hooks()
+        for hook_name, hook in hooks.as_globals().items():
             setattr(module, hook_name, hook)
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        with running_script(hooks):
+            spec.loader.exec_module(module)
 
-    def _script_hooks(self) -> Dict[str, Callable]:
-        """The functions every site script can call without importing anything."""
+    def _script_hooks(self) -> ScriptHooks:
+        """This build's implementation of the script API (see sonne.script_api)."""
 
-        def sonne_var(name, value):
+        def sonne_var(name: str, value: Any) -> None:
             self._warn_if_shadowing_site_variable(name)
             self.variables["global"][name] = value
             self.variables["site"][name] = value
             self._script_vars.add(name)
             logger.debug(f"Variable set: {name}")
 
-        def get_post(slug=None, tag=None):
+        def get_post(
+            slug: Optional[str] = None, tag: Optional[str] = None
+        ) -> Optional[Dict[str, Any]]:
             """Get a blog post by slug, or the first post with a tag; None if not found."""
             posts = self.variables.get("global", {}).get("all_blog_posts", [])
             if not posts:
@@ -289,20 +300,20 @@ class VariableManager:
         # Jinja extension hooks: scripts can register real Python callables
         # usable from every template and (with content.render_jinja) every
         # content file.
-        def sonne_filter(name, fn):
+        def sonne_filter(name: str, fn: Callable[..., Any]) -> None:
             self.custom_filters[name] = fn
             logger.debug(f"Jinja filter registered by script: {name}")
 
-        def sonne_global(name, value):
+        def sonne_global(name: str, value: Any) -> None:
             self.custom_globals[name] = value
             logger.debug(f"Jinja global registered by script: {name}")
 
-        return {
-            "sonne_var": sonne_var,
-            "get_post": get_post,
-            "sonne_filter": sonne_filter,
-            "sonne_global": sonne_global,
-        }
+        return ScriptHooks(
+            sonne_var=sonne_var,
+            get_post=get_post,
+            sonne_filter=sonne_filter,
+            sonne_global=sonne_global,
+        )
 
     def _warn_if_shadowing_site_variable(self, name: str) -> None:
         """Warn (once per load) when a script replaces a site config/data variable.
