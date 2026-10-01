@@ -29,7 +29,10 @@
         <div class="project-gallery">
             {% for image in page.gallery %}
             <div class="gallery-item">
-                <img src="{{ image.url }}" alt="{{ image.alt|default(page.title) }}">
+                <a href="{{ image.url }}" class="gallery-link">
+                    <img src="{{ image.url }}" alt="{{ image.alt|default('') }}">
+                    <span class="visually-hidden">View image {{ loop.index }} full size</span>
+                </a>
             </div>
             {% endfor %}
         </div>
@@ -41,7 +44,7 @@
         
         {% if page.technologies %}
         <div class="project-technologies">
-            <h3>Technologies Used</h3>
+            <h2>Technologies Used</h2>
             <ul class="tech-list">
                 {% for tech in page.technologies %}
                 <li class="tech-item">{{ tech }}</li>
@@ -50,7 +53,7 @@
         </div>
         {% endif %}
         
-        <div class="project-navigation">
+        <nav class="project-navigation" aria-label="Projects">
             <a href="/portfolio/" class="back-to-portfolio">Back to Portfolio</a>
             
             {% if page.prev_project %}
@@ -66,7 +69,7 @@
                 <span class="nav-title">{{ page.next_project.title }}</span>
             </a>
             {% endif %}
-        </div>
+        </nav>
     </div>
 </section>
 {% endblock %}

@@ -7,32 +7,32 @@
         {% if page.subtitle %}
         <p class="page-subtitle">{{ page.subtitle }}</p>
         {% endif %}
-        
+
         <div class="project-meta">
             {% if page.category %}
             <span class="project-category">{{ page.category }}</span>
             {% endif %}
-            
+
             {% if page.client %}
             <span class="project-client">Client: {{ page.client }}</span>
             {% endif %}
-            
+
             {% if page.date %}
             <span class="project-date">{{ page.date }}</span>
             {% endif %}
         </div>
     </header>
-    
+
     {% if page.image %}
     <div class="project-featured-image">
-        <img src="{{ page.image }}" alt="{{ page.title }}" loading="lazy">
+        <img src="{{ page.image }}" alt="{{ page.image_alt | default('') }}" loading="lazy">
     </div>
     {% endif %}
-    
+
     <div class="project-content">
         {{ content }}
     </div>
-    
+
     {% if page.technologies %}
     <div class="project-technologies-section">
         <h2>Technologies Used</h2>
@@ -43,7 +43,7 @@
         </ul>
     </div>
     {% endif %}
-    
+
     {% if page.gallery %}
     <div class="project-gallery">
         <h2>Project Gallery</h2>
@@ -59,7 +59,7 @@
         </div>
     </div>
     {% endif %}
-    
+
     <nav class="project-navigation">
         <a href="/projects/" class="btn">Back to Projects</a>
     </nav>

@@ -3,7 +3,7 @@ title: Welcome to My Site
 template: page.html
 ---
 
-# Welcome
+## Welcome
 
 This is a minimal site created with Sonne Static Site Generator. You can edit this page by modifying the `content/index.md` file.
 

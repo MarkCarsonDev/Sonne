@@ -3,8 +3,6 @@ title: About
 template: page.html
 ---
 
-# About
-
 This is an example about page for your Sonne site. Replace this content with information about yourself, your project, or your organization.
 
 ## Who We Are

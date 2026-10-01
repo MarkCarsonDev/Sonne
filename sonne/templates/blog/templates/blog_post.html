@@ -12,7 +12,7 @@
     
     {% if page.cover_img %}
     <div class="post-cover">
-        <img src="{{ page.cover_img }}" alt="{{ page.title }}">
+        <img src="{{ page.cover_img }}" alt="{{ page.cover_alt | default('') }}">
     </div>
     {% endif %}
     
@@ -22,22 +22,22 @@
     
     {% if page.tags %}
     <div class="post-tags">
-        <h3>Tags</h3>
-        <div class="tag-list">
+        <h2>Tags</h2>
+        <ul class="tag-list">
             {% for tag in page.tags %}
-            <a href="{{ tag_url(tag) }}" class="tag">{{ tag }}</a>
+            <li><a href="{{ tag_url(tag) }}" class="tag">{{ tag }}</a></li>
             {% endfor %}
-        </div>
+        </ul>
     </div>
     {% endif %}
     
-    <nav class="post-navigation">
+    <nav class="post-navigation" aria-label="More posts">
         {% if page.prev_post %}
-        <a href="{{ page.prev_post.url }}" class="prev-post">&larr; {{ page.prev_post.title }}</a>
+        <a href="{{ page.prev_post.url }}" class="prev-post" rel="prev"><span aria-hidden="true">&larr; </span><span class="visually-hidden">Previous post: </span>{{ page.prev_post.title }}</a>
         {% endif %}
         
         {% if page.next_post %}
-        <a href="{{ page.next_post.url }}" class="next-post">{{ page.next_post.title }} &rarr;</a>
+        <a href="{{ page.next_post.url }}" class="next-post" rel="next"><span class="visually-hidden">Next post: </span>{{ page.next_post.title }}<span aria-hidden="true"> &rarr;</span></a>
         {% endif %}
     </nav>
 </article>

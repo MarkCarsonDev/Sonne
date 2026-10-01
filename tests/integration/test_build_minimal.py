@@ -1,6 +1,7 @@
 """Full builds of the minimal fixture site."""
 
 import logging
+import re
 import shutil
 
 
@@ -84,9 +85,9 @@ class TestPageSizeLabel:
         _, out = builder(site, {("build", "show_page_size"): True})
 
         html = (out / "index.html").read_text(encoding="utf-8")
-        assert html.count('<style id="page-size-css">') == 1
-        assert '<span id="page-size-label">~' in html
-        assert " KB*</span></body>" in html
+        assert html.count('id="page-size-label"') == 1
+        assert '<aside id="page-size-label" aria-label="Page size"' in html
+        assert re.search(r"<p>Page size: ~[0-9.]+ KB</p></aside>\s*</body>", html)
 
     def test_label_counts_local_images(self, site_factory, builder, image_factory):
         site = site_factory("minimal")
@@ -98,8 +99,7 @@ class TestPageSizeLabel:
         _, out = builder(site, {("build", "show_page_size"): True})
 
         html = (out / "pic" / "index.html").read_text(encoding="utf-8")
-        assert 'data-full="~' in html
-        assert ' KB with images"' in html
+        assert re.search(r"Page size: ~[0-9.]+ KB \(~[0-9]+ KB with images\)", html)
 
     def test_no_label_by_default(self, site_factory, builder):
         site = site_factory("minimal")

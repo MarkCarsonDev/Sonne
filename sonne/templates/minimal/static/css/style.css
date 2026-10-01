@@ -27,6 +27,7 @@ header {
 
 .site-title {
     font-size: 1.5em;
+    font-weight: 700;
     margin-bottom: 10px;
 }
 
@@ -108,5 +109,68 @@ article.page header {
     nav li {
         margin-right: 0;
         margin-bottom: 10px;
+    }
+}
+
+/* Accessibility */
+
+/* Hidden visually, still read by screen readers. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* First Tab stop on every page; visible only when focused. */
+.skip-link {
+    position: absolute;
+    left: 0.5rem;
+    top: -3rem;
+    z-index: 1000;
+    padding: 0.5rem 1rem;
+    background: #000;
+    color: #fff;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.skip-link:focus {
+    top: 0.5rem;
+}
+
+/* The skip link's target: focused by script, needs no ring. */
+main:focus {
+    outline: none;
+}
+
+/* A clear, two-tone ring that shows on light and dark backgrounds. */
+:focus-visible {
+    outline: 3px solid #1a5fb4;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px #fff;
+}
+
+/* Windows High Contrast / forced colors: let the system colours through. */
+@media (forced-colors: active) {
+    :focus-visible {
+        outline-color: Highlight;
+        box-shadow: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
     }
 }

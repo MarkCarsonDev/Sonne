@@ -224,6 +224,7 @@ Any other key under `site` is passed through to templates unchanged.
 | `url_style.prod` | `clean` | URL style in `prod`: `clean`, `html` or `directory` (see [URL Configuration](#url-configuration)). `url_style` may also be a single style for every environment. |
 | `url_style.dev` | `directory` | URL style in `dev`. |
 | `build.show_page_size` | `false` | Add a small page-weight label to every generated page. |
+| `build.accessibility_checks` | `warn` | Check generated pages for machine-detectable accessibility failures: `warn` reports them, `error` also fails the build (for CI), `off` skips the checks. See [Accessibility](#accessibility). |
 | `build.incremental` | none | Deprecated: has no effect and will be removed (every build is a full build). |
 | `build.show_progress` | none | Deprecated: has no effect and will be removed; use `sonne build --no-progress`. |
 | `build.statistics` | none | Deprecated: has no effect and will be removed; use `sonne build --perf` for the build report. |
@@ -774,7 +775,7 @@ Options:
 
 ```bash
 sonne build [-p PATH] [-c CONFIG] [--clean] [--skip-images] [--skip-cache]
-            [--dev] [--no-progress] [--perf] [--yes]
+            [--dev] [--no-progress] [--perf] [--a11y-strict] [--yes]
 ```
 
 Options:
@@ -787,6 +788,7 @@ Options:
 - `--dev`: Build for the development environment (dev url_style)
 - `--no-progress`: Disable progress output
 - `--perf`: Show a detailed performance breakdown after the build
+- `--a11y-strict`: Fail the build on accessibility issues, as with `build.accessibility_checks: error` (for CI)
 - `-y, --yes`: Continue past confirmation prompts (for CI)
 
 ### Serve the site
@@ -853,6 +855,76 @@ Increase verbosity for more detailed logs (debug level):
 ```bash
 sonne build -v
 ```
+
+## Accessibility
+
+Sonne aims for sites that meet [WCAG 2.2](https://www.w3.org/TR/WCAG22/) level AA. It can't guarantee that on its own: much of accessibility depends on your content, your templates and your CSS. It does build accommodations in where it can and checks what a program can check.
+
+### Build-time checks
+
+Every build checks the pages it wrote for machine-detectable failures and reports them per page:
+
+| Check | WCAG |
+|-------|------|
+| `<img>` without an `alt` attribute (`alt=""` is fine for decorative images) | 1.1.1 |
+| Links and buttons without an accessible name (text, `aria-label`, `aria-labelledby`, `title`, or an image with alt text inside) | 2.4.4, 4.1.2 |
+| Form fields without a label (`<label for>`, a wrapping `<label>`, `aria-label` or `aria-labelledby`) | 1.3.1, 4.1.2 |
+| Missing or empty `<html lang>` | 3.1.1 |
+| Missing or empty `<title>` (an empty page is reported as such) | 2.4.2 |
+| Duplicate `id` values | 4.1.1 (robustness) |
+| Positive `tabindex`, which changes the keyboard focus order | 2.4.3 |
+| Skipped heading levels, e.g. `h2` followed by `h4` (advisory only) | 1.3.1 |
+
+Elements hidden from assistive technology (`aria-hidden="true"`, `hidden`) are skipped. Each finding names the element, the problem and how to fix it. Long reports are capped (10 pages, 5 findings each), and the build summary always shows the totals.
+
+`build.accessibility_checks` controls what happens:
+
+- `warn` (default): report the findings; the build succeeds.
+- `error`: report them and fail the build (exit code 1) if there are any, apart from advisories. Use this in CI, or pass `sonne build --a11y-strict` for one build.
+- `off`: skip the checks.
+
+### What the starter templates give you
+
+The `blog`, `portfolio` and `minimal` templates (and the showcase example) start from an accessible baseline you can keep when you restyle them:
+
+- A "Skip to content" link as the first Tab stop, targeting `<main id="main">`.
+- Labelled navigation landmarks, with `aria-current="page"` on the current page's link.
+- One `<h1>` per page (the page title) and heading levels without gaps. Start your Markdown headings at `##`.
+- Link text that makes sense on its own ("Read more of *Post title*", "Previous post: *Title*"), with decorative arrows hidden from screen readers.
+- A visible two-tone focus ring, support for Windows High Contrast (forced colours) and for `prefers-reduced-motion`.
+- Text colours that meet AA contrast (4.5:1), in both themes where a template has a dark mode.
+- A `.visually-hidden` CSS class for text meant only for screen readers.
+- External links in blog posts announce that they open in a new tab; wide tables can be scrolled with the keyboard.
+- Portfolio: filter buttons announce how many projects are shown, the image gallery opens in a keyboard-accessible dialog, and form errors are announced and tied to their fields.
+
+Sonne's own built-in pages (the fallback tag, category, archive and blog index templates) meet the same baseline, and add pagination that marks the current page.
+
+### Dithered images and the "original images" setting
+
+Dithering can make images hard to read, so visitors can always switch to the original. Each dithered image has a toggle button, and every page with dithered images offers an "Always show original images" setting that applies to every image and is remembered in the browser (no account needed). Visitors whose system asks for more contrast (`prefers-contrast: more`) or uses forced colours (such as Windows High Contrast) see the originals by default; their own choice always wins. The toggles work with the keyboard and screen readers, stay visible in forced-colours mode, and skip their animation when reduced motion is requested.
+
+**Placing the setting in your template.** On a page with dithered images, `dithering.js` adds a small "Always show original images" button before the first one. To put the setting elsewhere, for example in your header or a settings panel, add any element with the `data-sonne-original-images` attribute: a `<button>` becomes a toggle (its `aria-pressed` reflects the setting), and a checkbox is checked when originals are on. Once your template provides one, no button is added. Scripts can call `window.sonneDithering.showOriginals(true)` or `.showsOriginals()`, and listen for the `sonne:original-images` event on `document`.
+
+A post's cover image takes its alt text from `cover_alt` in the front matter. It defaults to empty (decorative) because the post title sits right next to it. Set `cover_alt` when the image carries information the title doesn't.
+
+### What the checks can't tell you
+
+A clean report means none of the checks above failed, not that the site is accessible. No program can decide these for you:
+
+- whether alt text actually describes the image, and link text makes sense out of context;
+- colour contrast of arbitrary CSS, in every theme and state;
+- reading and focus order that matches the visual layout, and visible focus indicators;
+- captions and transcripts for audio and video;
+- how the site works with a keyboard, a screen reader, zoom to 400% or reduced motion.
+
+### Testing your site by hand
+
+Check your templates and a few representative pages yourself, at least whenever you change the layout:
+
+- Use the site with only a keyboard: every link and control is reachable, in a sensible order, with a visible focus indicator.
+- Try a screen reader (NVDA or Narrator on Windows, VoiceOver on macOS and iOS, TalkBack on Android).
+- Zoom to 200% and 400% and check that nothing is cut off or overlaps.
+- Run an automated audit in the browser (for example Lighthouse or axe DevTools) for colour contrast and other rendering-dependent checks.
 
 ## Security
 

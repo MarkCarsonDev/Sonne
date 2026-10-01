@@ -15,7 +15,9 @@
     transition: opacity 0.3s ease;
 }
 
-/* The toggle is a <button>; reset browser button styling. */
+/* The toggle is a <button>; reset browser button styling. It stays fully
+   visible (a faded control fails WCAG 1.4.11 non-text contrast) and at
+   least 24x24px (2.5.8 target size). */
 .dither-toggle {
     appearance: none;
     border: 0;
@@ -27,7 +29,7 @@
     right: 8px;
     width: 24px;
     height: 24px;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(0, 0, 0, 0.65);
     border-radius: 3px;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -35,19 +37,11 @@
     gap: 2px;
     padding: 2px;
     cursor: pointer;
-    opacity: 0.3;
-    transition: opacity 0.3s ease;
     z-index: 10;
-}
-
-.dithered-image-container:hover .dither-toggle,
-.dithered-image-container:focus-within .dither-toggle {
-    opacity: 1;
 }
 
 /* Keyboard focus: a white ring inside a dark one, visible on any image. */
 .dither-toggle:focus-visible {
-    opacity: 1;
     outline: 2px solid #fff;
     outline-offset: 2px;
     box-shadow: 0 0 0 4px #000;
@@ -84,7 +78,7 @@
 }
 
 .dithered-image-container.show-original .dither-toggle {
-    background-color: rgba(255, 255, 255, 0.5);
+    background-color: rgba(255, 255, 255, 0.85);
 }
 
 .dithered-image-container.show-original .dither-toggle-dot {
@@ -110,16 +104,36 @@ article img,
     width: 100%;
 }
 
-/* Mobile responsiveness */
-@media (max-width: 768px) {
-    .dither-toggle {
-        width: 20px;
-        height: 20px;
-    }
+/* "Always show original images": the visitor preference dithering.js adds
+   (or wires up, on any element with data-sonne-original-images). */
+.sonne-original-images-toggle {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    margin: 0 0 0.5rem;
+    padding: 0.2em 0.6em;
+    font: inherit;
+    font-size: 0.85rem;
+    color: inherit;
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 0.4em;
+    cursor: pointer;
+}
+
+.sonne-original-images-toggle[aria-pressed="true"] {
+    font-weight: bold;
+}
+
+.sonne-original-images-toggle:focus-visible,
+.request-original-btn:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
 }
 
 /* Blog post figures (server-rendered by the blog pipeline): caption, size and
-   the "view original" button, which dithering.js wires up. */
+   the "view original" button, which dithering.js wires up. Text keeps the
+   page's own colour at full opacity (1.4.3 contrast). */
 .dithered-image-figure {
     margin: 2rem 0;
 }
@@ -130,15 +144,14 @@ article img,
     display: block;
 }
 
+.dithered-image-figure .image-wrapper .request-original-btn {
+    margin-top: 0.5rem;
+}
+
 .dithered-image-figure figcaption {
     margin-top: 0.5rem;
     font-family: monospace;
-    font-size: 0.75rem;
-    opacity: 0.6;
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    flex-wrap: wrap;
+    font-size: 0.8rem;
 }
 
 .caption-text {
@@ -149,6 +162,7 @@ article img,
     display: inline-flex;
     align-items: center;
     gap: 0.35em;
+    min-height: 24px;
     padding: 0.2em 0.6em;
     font-size: 0.8rem;
     background: transparent;
@@ -159,18 +173,12 @@ article img,
     border-radius: 0.4em;
     cursor: pointer;
     color: var(--text-color, currentColor);
-    opacity: 0.5;
-    transition: opacity 0.1s, background-color 0.1s;
+    transition: background-color 0.1s;
     font-family: inherit;
 }
 
 .request-original-btn:hover {
-    opacity: 1;
-    background-color: var(--bg-hover, rgba(128,128,128,0.15));
-}
-
-.request-original-btn.showing-original {
-    opacity: 1;
+    background-color: var(--bg-hover, rgba(128, 128, 128, 0.15));
 }
 
 /* Dithering toggle icon (LTM quincunx pattern) */
@@ -188,4 +196,52 @@ article img,
 }
 [data-theme="light"] .dithered-image-figure.showing-original {
     mix-blend-mode: normal;
+}
+
+/* Visitors who asked for less motion get instant changes (2.3.3). */
+@media (prefers-reduced-motion: reduce) {
+    .dithered-image-container img,
+    .dither-toggle,
+    .request-original-btn {
+        transition: none;
+    }
+}
+
+/* Forced colours (e.g. Windows High Contrast) drop backgrounds and shadows,
+   which would erase the toggle's dots and its focus ring: draw them in
+   system colours instead. */
+@media (forced-colors: active) {
+    .dither-toggle {
+        forced-color-adjust: none;
+        background-color: ButtonFace;
+        border: 1px solid ButtonText;
+    }
+
+    .dither-toggle-dot {
+        background-color: ButtonText;
+    }
+
+    .dithered-image-container.show-original .dither-toggle {
+        background-color: Highlight;
+    }
+
+    .dithered-image-container.show-original .dither-toggle-dot {
+        background-color: HighlightText;
+    }
+
+    .dither-toggle-dot.empty,
+    .dithered-image-container.show-original .dither-toggle-dot.empty {
+        background-color: transparent;
+    }
+
+    .dither-toggle:focus-visible,
+    .sonne-original-images-toggle:focus-visible,
+    .request-original-btn:focus-visible {
+        outline: 2px solid Highlight;
+        box-shadow: none;
+    }
+
+    [data-theme="light"] .dithered-image-figure {
+        mix-blend-mode: normal;
+    }
 }

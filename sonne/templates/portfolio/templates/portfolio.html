@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 
 {% block content %}
+{# The project list comes from data/projects.json. #}
+{% set projects = data.projects.projects if data.projects else [] %}
 <section class="portfolio-section">
     <div class="container">
         <header class="page-header">
@@ -18,30 +20,28 @@
         {% endif %}
         
         {% if projects %}
-        <div class="portfolio-filters">
-            <button class="filter-btn active" data-filter="all">All</button>
+        <div class="portfolio-filters" role="group" aria-label="Filter projects by category">
+            <button type="button" class="filter-btn active" data-filter="all" aria-pressed="true">All</button>
             
-            {% set categories = [] %}
-            {% for project in projects %}
-                {% if project.category not in categories %}
-                    {% set categories = categories + [project.category] %}
-                {% endif %}
-            {% endfor %}
-            
-            {% for category in categories %}
-            <button class="filter-btn" data-filter="{{ category|lower }}">{{ category }}</button>
+            {% for category in projects | map(attribute="category") | unique %}
+            <button type="button" class="filter-btn" data-filter="{{ category|lower }}" aria-pressed="false">{{ category }}</button>
             {% endfor %}
         </div>
         
+        <p class="visually-hidden" role="status" id="portfolio-status"></p>
+
         <div class="portfolio-grid">
             {% for project in projects %}
             <div class="portfolio-item" data-category="{{ project.category|lower }}">
                 <a href="{{ project.url }}" class="portfolio-link">
+                    {% set cover = project.image or (project.gallery[0].url if project.gallery else none) %}
+                    {% if cover %}
                     <div class="portfolio-img">
-                        <img src="{{ project.image }}" alt="{{ project.title }}">
+                        <img src="{{ cover }}" alt="">
                     </div>
+                    {% endif %}
                     <div class="portfolio-overlay">
-                        <h3 class="portfolio-title">{{ project.title }}</h3>
+                        <h2 class="portfolio-title">{{ project.title }}</h2>
                         <p class="portfolio-category">{{ project.category }}</p>
                     </div>
                 </a>

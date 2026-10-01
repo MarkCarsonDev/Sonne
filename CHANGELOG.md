@@ -34,6 +34,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   e.g. `sonne_config("site", "base_url")`, instead of locating and
   re-reading the config file themselves. Values include defaults, and the
   result is a copy, so scripts can't change the build's configuration.
+- Build-time accessibility checks for machine-detectable WCAG 2.2 failures:
+  images without alt text, links and buttons without an accessible name,
+  unlabelled form fields, a missing page language or title, duplicate ids,
+  positive `tabindex`, and skipped heading levels (advisory). Findings are
+  reported per page with the WCAG criterion and a fix hint; totals appear
+  in the build summary. New setting `build.accessibility_checks`: `warn`
+  (default), `error` (fail the build, for CI) or `off`;
+  `sonne build --a11y-strict` is `error` for one build.
+- The blog, portfolio and minimal starter templates and the showcase
+  example meet a WCAG 2.2 AA baseline: skip link, labelled landmarks,
+  `aria-current`, one `<h1>` per page, meaningful link text, visible focus,
+  forced-colours and reduced-motion support, AA text contrast, and
+  keyboard-accessible menus, filters, gallery and form errors. Cover images
+  take alt text from `cover_alt` front matter.
+- "Always show original images": a visitor setting, remembered in the
+  browser, that shows every dithered image's original. `dithering.js` adds
+  a small button on pages with dithered images unless the template provides
+  its own control (any element with `data-sonne-original-images`); scripts
+  can use `window.sonneDithering`. Originals are the default for visitors
+  whose system asks for more contrast or uses forced colours.
+- A built-in blog index template (fallback) with accessible pagination,
+  for sites without their own `blog_list.html`.
+- README: an Accessibility section (what Sonne checks, what the starter
+  templates provide, what no checker can decide, how to test by hand).
 - Template helpers `blog_url()`, `tag_url()`, `category_url()` and
   `archive_url()` for linking to blog pages. They follow `blog.directory`
   and `url_style` and slugify terms like the pages themselves. The bundled
@@ -116,6 +140,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   automatically when a page doesn't link them), so pages are smaller.
 - The `process_image` template filter renders a plain `<img>`; pages mark
   it like any other image if the build dithered it.
+- The built-in tag, category, archive and blog index templates meet WCAG
+  2.2 AA: skip link, labelled navigation, term lists as real lists, "Read
+  more" links that name the post, and `aria-current` pagination.
+- Dithering toggles are fully visible (no longer faded), at least 24×24px,
+  usable in forced-colours mode, and without animation under reduced
+  motion. Blog figure captions and buttons are no longer semi-transparent.
+- Blog post figures: the caption is the figure's accessible name; the
+  "view original" button is named by its visible text; figures whose image
+  could not be dithered no longer show a toggle that does nothing.
+- The page-size note (`build.show_page_size`) is a readable line after the
+  page content instead of a faint fixed label with hover-only details.
+- Pages written when a template is missing or fails declare their
+  language and title and escape their content.
+- `solar` scaffold: WCAG 2.2 AA pass: landmarks and skip link, labelled
+  navigation, a theme toggle button that follows the system colour scheme,
+  AA contrast, visible focus, reduced motion, 24px targets and descriptive
+  link names; `cover_alt`/`image_alt` front matter describe covers
+  (otherwise decorative).
 - Blog links in the bundled templates follow `url_style`: in the clean
   style they no longer end in a slash (`/blog/tags/python`, matching the
   pages' own URLs), in the html style they end in `.html`, and they follow a
@@ -193,6 +235,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paint, and the JS no longer polls the nonexistent `/api/battery-status`.
 
 ### Fixed
+- `portfolio` starter: the blog index and every blog post were blank (the
+  templates were empty files), posts lived at `/blog/blog/<slug>/`, the
+  category filter never showed any category, and four listed projects
+  linked to pages that don't exist (B53).
+- Showcase example: the tags index was blank (empty template), and the
+  contact form's `email` id collided with a heading's id, so its label was
+  ambiguous (B54). The dark-mode button now works (its script was empty),
+  and the non-functional menu button is gone.
+- `portfolio` starter: footer headings were invisible (same colour as the
+  footer background), and the gallery lightbox added a new Escape listener
+  every time it opened.
 - Dithering toggles appear only on images the build actually dithered.
   `dithering.js` guessed an `_original` URL for every same-origin image, so
   images Sonne never dithered (e.g. a plain `logo.png`) got a toggle that

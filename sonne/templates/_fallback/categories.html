@@ -9,17 +9,19 @@
     </header>
 
     {% if categories %}
-    <div class="tag-cloud">
+    <ul class="tag-cloud" role="list" style="list-style: none; padding: 0;">
         {% for category_name, category_data in categories.items() %}
-        <a href="{{ category_url(category_data.name) }}" class="tag">
-            {{ category_name }} ({{ category_data.posts|length }})
-        </a>
+        <li style="display: inline;"><a href="{{ category_url(category_data.name) }}" class="tag">
+            {{ category_name }} ({{ category_data.posts|length }}<span style="position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0;"> posts</span>)
+        </a></li>
         {% endfor %}
-    </div>
+    </ul>
     {% else %}
     <p>No categories found.</p>
     {% endif %}
 
-    <p class="tag-nav"><a href="{{ blog_url() }}">Back to Blog</a></p>
+    <nav class="tag-nav" aria-label="Blog">
+        <p><a href="{{ blog_url() }}">Back to Blog</a></p>
+    </nav>
 </div>
 {% endblock %}

@@ -81,6 +81,13 @@ DITHER_ICON_CELL_SIZE = "24.28"
 LEGACY_MARKER_RE = re.compile(r"\{\+\}\{|\{-\}\{|\{p\}\{#")
 
 # Markup.format escapes every interpolated value.
+# Page used when a page has no template, or its template fails: still a valid
+# document with a language, a title and a main landmark.
+MINIMAL_PAGE = Markup(
+    "<!DOCTYPE html>\n"
+    '<html lang="{language}"><head><meta charset="utf-8"><title>{title}</title></head>'
+    "<body><main><h1>{title}</h1>{body}</main></body></html>"
+)
 PLAIN_IMAGE_MARKUP = Markup('<img src="{src}" alt="{alt}" loading="{loading}">')
 BUILTIN_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "templates")
 # Last on the search path: tag/tags/category/categories/archive pages for
@@ -440,7 +447,7 @@ class TemplateProcessor:
                 page_factory=lambda: _with_page_variables(front_matter, variables),
             )
         else:
-            page_html = _untemplated_page(front_matter, html_content)
+            page_html = _untemplated_page(front_matter, html_content, self._language())
         return front_matter, self.finish_page(page_html)
 
     def render_generated_page(
@@ -586,11 +593,16 @@ class TemplateProcessor:
         except jinja2.TemplateNotFound:
             logger.warning(f"Template not found: {template_name}")
             self._count("template_errors")
-            return _untemplated_page(front_matter, html_content)
+            return _untemplated_page(front_matter, html_content, self._language())
         except Exception as e:
             logger.error(f"Error rendering template {template_name}: {e}")
             self._count("template_errors")
-            return _error_page(e, html_content)
+            return _error_page(e, html_content, self._language())
+
+    def _language(self) -> str:
+        """The site's language for pages Sonne builds itself (site.language, else "en")."""
+        language = self.config.get("site", "language", default="en")
+        return language if isinstance(language, str) and language else "en"
 
     def _count(self, counter: str) -> None:
         """Increment a BuildStatistics counter, if statistics are being collected."""
@@ -739,18 +751,21 @@ def _with_page_variables(front_matter: dict[str, Any], variables: dict[str, Any]
     return front_matter
 
 
-def _untemplated_page(front_matter: dict[str, Any], html_content: str) -> str:
+def _untemplated_page(front_matter: dict[str, Any], html_content: str, language: str) -> str:
     """Minimal page used when no template applies or the template is missing."""
-    title = front_matter.get("title", "Untitled")
-    return f"<html><body><h1>{title}</h1>{html_content}</body></html>"
+    title = str(front_matter.get("title", "Untitled"))
+    return _minimal_page(title, Markup(html_content), language)
 
 
-def _error_page(error: Exception, html_content: str) -> str:
+def _error_page(error: Exception, html_content: str, language: str) -> str:
     """Minimal page used when rendering the template failed."""
-    return (
-        "<html><body><h1>Error rendering template</h1>"
-        f"<p>{error}</p><div>{html_content}</div></body></html>"
-    )
+    body = Markup("<p>{}</p><div>{}</div>").format(str(error), Markup(html_content))
+    return _minimal_page("Error rendering template", body, language)
+
+
+def _minimal_page(title: str, body: Markup, language: str) -> str:
+    """A complete, valid page: language, title and a main landmark (title escaped)."""
+    return MINIMAL_PAGE.format(language=language, title=title, body=body)
 
 
 def _template_exists(env: jinja2.Environment, name: str) -> bool:
@@ -792,7 +807,8 @@ def _wrap_in_dither_figure(soup: BeautifulSoup, img, image_id: str) -> None:
     """Replace ``img`` in the tree with a figure showing its dithered variant."""
     original_src = img.get("src", "")
     dithered_src = _dithered_src(original_src)
-    figcaption = _dither_figcaption(soup, img, image_id)
+    figcaption = _dither_figcaption(soup, img)
+    toggle = _toggle_button(soup, image_id, img.get("data-original-size", ""))
 
     img["class"] = "dithered-image active"
     img["data-dithered-src"] = dithered_src
@@ -808,19 +824,25 @@ def _wrap_in_dither_figure(soup: BeautifulSoup, img, image_id: str) -> None:
     # tree, then move the img inside it.
     img.insert_before(figure)
     img_wrapper.append(img.extract())
+    img_wrapper.append(toggle)
     figure.append(img_wrapper)
-    figure.append(figcaption)
+    if figcaption is not None:
+        figure.append(figcaption)
 
 
-def _dither_figcaption(soup: BeautifulSoup, img, image_id: str):
-    """Caption ("title · 12k (−80%)") plus the dithered/original toggle button."""
-    figcaption = soup.new_tag("figcaption")
+def _dither_figcaption(soup: BeautifulSoup, img) -> Optional[Tag]:
+    """The figure's caption ("title · 12k (−80%)"), or None if there is no text for one.
+
+    The <figcaption> holds only the caption, so it is the figure's accessible
+    name; the toggle button sits with the image instead.
+    """
     caption_text = _caption_text(img)
-    if caption_text:
-        span = soup.new_tag("span", attrs={"class": "caption-text"})
-        span.string = caption_text
-        figcaption.append(span)
-    figcaption.append(_toggle_button(soup, image_id, img.get("data-original-size", "")))
+    if not caption_text:
+        return None
+    figcaption = soup.new_tag("figcaption")
+    span = soup.new_tag("span", attrs={"class": "caption-text"})
+    span.string = caption_text
+    figcaption.append(span)
     return figcaption
 
 
@@ -841,10 +863,13 @@ def _caption_text(img) -> str:
 
 
 def _toggle_button(soup: BeautifulSoup, image_id: str, original_size: str):
-    """Button that swaps between the dithered and the original image."""
-    button = soup.new_tag("button", attrs={"class": "request-original-btn"})
+    """Button that swaps between the dithered and the original image.
+
+    Its accessible name is its visible text ("view original", then
+    "dithered (12KB)"), which names what a press shows (WCAG 2.5.3).
+    """
+    button = soup.new_tag("button", attrs={"class": "request-original-btn", "type": "button"})
     button["data-image-id"] = image_id
-    button["aria-label"] = "Toggle between dithered and original image"
     if original_size:
         button["data-original-size"] = original_size
     button.append(_dither_icon(soup))

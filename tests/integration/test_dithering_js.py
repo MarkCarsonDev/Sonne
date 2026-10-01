@@ -67,8 +67,9 @@ HARNESS = """<!DOCTYPE html>
 <figure class="dithered-image-figure"><div class="image-wrapper">
   <img id="blog" class="dithered-image active" src="post/dithered/p.png"
        data-dithered-src="post/dithered/p.png" data-original-src="post/p.jpg">
-</div><figcaption><button class="request-original-btn" data-original-size="12KB">
-  <span class="btn-text">view original</span></button></figcaption></figure>
+  <button type="button" class="request-original-btn" data-original-size="12KB">
+  <span class="btn-text">view original</span></button>
+</div><figcaption><span class="caption-text">A caption</span></figcaption></figure>
 {earlier_build_container}
 <div class="dithered-image-container" id="legacy">
   <img src="/y.png" class="dithered"><img src="/y_original.png" class="original">
@@ -177,16 +178,18 @@ def find_browser():
     return None
 
 
-@pytest.fixture(scope="module")
-def harness_results(tmp_path_factory):
+def run_page(tmp_path_factory, page_html, switches=()):
+    """Load a page next to dithering.js/.css in headless Chromium; return its results JSON.
+
+    Each call gets a fresh browser profile, so localStorage starts empty.
+    """
     browser = find_browser()
     if browser is None:
         pytest.skip("no Chromium-family browser available")
     page_dir = tmp_path_factory.mktemp("dithering_js")
     shutil.copy(DITHERING_JS, page_dir / "dithering.js")
     shutil.copy(DITHERING_CSS, page_dir / "dithering.css")
-    harness = HARNESS.replace("{earlier_build_container}", EARLIER_BUILD_CONTAINER)
-    (page_dir / "harness.html").write_text(harness, encoding="utf-8")
+    (page_dir / "page.html").write_text(page_html, encoding="utf-8")
 
     completed = subprocess.run(
         [
@@ -194,9 +197,10 @@ def harness_results(tmp_path_factory):
             "--headless=new",
             "--disable-gpu",
             f"--user-data-dir={page_dir / 'profile'}",
+            *switches,
             "--virtual-time-budget=3000",
             "--dump-dom",
-            (page_dir / "harness.html").as_uri(),
+            (page_dir / "page.html").as_uri(),
         ],
         capture_output=True,
         text=True,
@@ -204,8 +208,14 @@ def harness_results(tmp_path_factory):
         timeout=120,
     )
     match = re.search(r'<pre id="results">(.*?)</pre>', completed.stdout, re.S)
-    assert match, f"harness produced no results: {completed.stdout[-500:]}"
+    assert match, f"page produced no results: {completed.stdout[-500:]}"
     return json.loads(html.unescape(match.group(1)))
+
+
+@pytest.fixture(scope="module")
+def harness_results(tmp_path_factory):
+    harness = HARNESS.replace("{earlier_build_container}", EARLIER_BUILD_CONTAINER)
+    return run_page(tmp_path_factory, harness)
 
 
 class TestOnlyPipelineMarkedImages:
@@ -306,3 +316,208 @@ class TestToggleAccessibility:
         assert harness_results["legacy"] == {"role": "button", "tabIndex": 0, "label": LABEL}
         assert harness_results["legacyEnter"] is True  # Enter shows the original
         assert harness_results["legacySpace"] is False  # Space toggles back
+
+
+# --- "Always show original images" ---------------------------------------------
+
+PREFERENCE_PAGE = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="dithering.css"></head><body>
+<script>
+  var errors = [];
+  window.addEventListener("error", function (e) { errors.push(String(e.message)); });
+  BEFORE
+</script>
+CONTROLS
+<p>Intro</p>
+<img id="one" src="/d/one.png" data-original-src="/one.png" alt="One">
+<img id="two" src="/d/two.png" data-original-src="/two.png" alt="Two">
+<figure class="dithered-image-figure"><div class="image-wrapper">
+  <img id="fig" src="p/dithered/f.png" data-dithered-src="p/dithered/f.png"
+       data-original-src="p/f.jpg" alt="Fig">
+  <button type="button" class="request-original-btn"><span class="btn-text">view original</span></button>
+</div></figure>
+<pre id="results"></pre>
+<script src="dithering.js"></script>
+<script>
+  setTimeout(function () {
+    function showing(id) {
+      return document.getElementById(id).closest(".dithered-image-container")
+        .classList.contains("show-original");
+    }
+    function state() {
+      var controls = document.querySelectorAll("[data-sonne-original-images]");
+      return {
+        one: showing("one"),
+        two: showing("two"),
+        fig: document.getElementById("fig").getAttribute("src"),
+        controls: Array.prototype.map.call(controls, function (c) {
+          return {
+            tag: c.tagName,
+            type: c.getAttribute("type"),
+            text: c.textContent.trim(),
+            pressed: c.getAttribute("aria-pressed"),
+            checked: c.tagName === "INPUT" ? c.checked : null,
+          };
+        }),
+        stored: (function () {
+          try { return localStorage.getItem("sonne-show-original-images"); }
+          catch (e) { return "blocked"; }
+        })(),
+        api: window.sonneDithering.showsOriginals(),
+      };
+    }
+    var results = { initial: state() };
+    var oneBox = document.getElementById("one").closest(".dithered-image-container");
+    results.altPair = Array.prototype.map.call(oneBox.querySelectorAll("img"), function (img) {
+      return img.getAttribute("alt");
+    });
+    var injected = document.querySelector(".sonne-original-images-toggle");
+    results.placedBeforeFirstImage = Boolean(injected) &&
+      injected.nextElementSibling === document.getElementById("one").closest(".dithered-image-container");
+    var toggle = document.querySelector(".dither-toggle");
+    var dot = toggle.querySelector(".dither-toggle-dot");
+    results.css = {
+      transition: getComputedStyle(document.getElementById("one")).transitionDuration,
+      toggleForcedColorAdjust: getComputedStyle(toggle).forcedColorAdjust,
+      toggleBorder: getComputedStyle(toggle).borderTopStyle,
+      dotBackground: getComputedStyle(dot).backgroundColor,
+      toggleOpacity: getComputedStyle(toggle).opacity,
+    };
+    ACTIONS
+    results.after = state();
+    results.errors = errors;
+    document.getElementById("results").textContent = JSON.stringify(results);
+  }, 400);
+</script></body></html>"""
+
+CLICK_CONTROL = 'document.querySelector("[data-sonne-original-images]").click();'
+STORAGE_KEY = "sonne-show-original-images"
+FORCED_COLORS = ("--force-high-contrast",)  # forced-colors: active + prefers-contrast: more
+
+
+def preference_page(before="", controls="", actions=""):
+    return (
+        PREFERENCE_PAGE.replace("BEFORE", before)
+        .replace("CONTROLS", controls)
+        .replace("ACTIONS", actions)
+    )
+
+
+@pytest.fixture(scope="module")
+def default_preference(tmp_path_factory):
+    return run_page(tmp_path_factory, preference_page(actions=CLICK_CONTROL))
+
+
+@pytest.fixture(scope="module")
+def stored_preference(tmp_path_factory):
+    before = f'localStorage.setItem("{STORAGE_KEY}", "true");'
+    return run_page(tmp_path_factory, preference_page(before=before))
+
+
+@pytest.fixture(scope="module")
+def forced_colors(tmp_path_factory):
+    return run_page(tmp_path_factory, preference_page(), FORCED_COLORS)
+
+
+@pytest.fixture(scope="module")
+def forced_colors_with_stored_choice(tmp_path_factory):
+    before = f'localStorage.setItem("{STORAGE_KEY}", "false");'
+    return run_page(tmp_path_factory, preference_page(before=before), FORCED_COLORS)
+
+
+@pytest.fixture(scope="module")
+def template_checkbox(tmp_path_factory):
+    controls = (
+        '<label><input type="checkbox" id="pref" data-sonne-original-images>'
+        " Show original images</label>"
+    )
+    actions = 'document.getElementById("pref").click();'
+    return run_page(tmp_path_factory, preference_page(controls=controls, actions=actions))
+
+
+@pytest.fixture(scope="module")
+def blocked_storage(tmp_path_factory):
+    before = (
+        'Object.defineProperty(window, "localStorage", '
+        '{ get: function () { throw new Error("storage blocked"); } });'
+    )
+    return run_page(tmp_path_factory, preference_page(before=before, actions=CLICK_CONTROL))
+
+
+SHOWING_ALL_DITHERED = {"one": False, "two": False, "fig": "p/dithered/f.png"}
+SHOWING_ALL_ORIGINALS = {"one": True, "two": True, "fig": "p/f.jpg"}
+
+
+def images(state):
+    return {key: state[key] for key in ("one", "two", "fig")}
+
+
+class TestOriginalImagesPreference:
+    def test_pages_without_a_control_get_one_labelled_button(self, default_preference):
+        assert default_preference["initial"]["controls"] == [
+            {
+                "tag": "BUTTON",
+                "type": "button",
+                "text": "Always show original images",
+                "pressed": "false",
+                "checked": None,
+            }
+        ]
+        assert default_preference["placedBeforeFirstImage"] is True
+
+    def test_dithered_images_are_shown_by_default(self, default_preference):
+        assert images(default_preference["initial"]) == SHOWING_ALL_DITHERED
+
+    def test_pressing_the_control_shows_every_original_and_is_remembered(self, default_preference):
+        after = default_preference["after"]
+        assert images(after) == SHOWING_ALL_ORIGINALS
+        assert after["controls"][0]["pressed"] == "true"
+        assert after["stored"] == "true"
+        assert after["api"] is True
+
+    def test_stored_preference_applies_on_load(self, stored_preference):
+        initial = stored_preference["initial"]
+        assert images(initial) == SHOWING_ALL_ORIGINALS
+        assert initial["controls"][0]["pressed"] == "true"
+
+    def test_template_control_is_used_instead_of_adding_one(self, template_checkbox):
+        assert [c["tag"] for c in template_checkbox["initial"]["controls"]] == ["INPUT"]
+        assert template_checkbox["initial"]["controls"][0]["checked"] is False
+        after = template_checkbox["after"]
+        assert images(after) == SHOWING_ALL_ORIGINALS
+        assert after["controls"][0]["checked"] is True
+
+    def test_blocked_storage_still_applies_the_choice(self, blocked_storage):
+        after = blocked_storage["after"]
+        assert images(after) == SHOWING_ALL_ORIGINALS
+        assert after["stored"] == "blocked"
+        assert blocked_storage["errors"] == []
+
+
+class TestHighContrastAndForcedColors:
+    def test_originals_are_shown_by_default(self, forced_colors):
+        assert images(forced_colors["initial"]) == SHOWING_ALL_ORIGINALS
+        assert forced_colors["initial"]["controls"][0]["pressed"] == "true"
+
+    def test_a_stored_choice_wins_over_the_system_setting(self, forced_colors_with_stored_choice):
+        assert images(forced_colors_with_stored_choice["initial"]) == SHOWING_ALL_DITHERED
+
+    def test_toggle_is_drawn_in_system_colours(self, forced_colors):
+        css = forced_colors["css"]
+        assert css["toggleForcedColorAdjust"] == "none"
+        assert css["toggleBorder"] == "solid"
+        assert css["dotBackground"] not in ("rgba(0, 0, 0, 0)", "transparent")
+
+
+class TestMotionAndContrast:
+    def test_reduced_motion_turns_transitions_off(self, default_preference):
+        # Headless Chromium reports prefers-reduced-motion: reduce.
+        assert default_preference["css"]["transition"] == "0s"
+
+    def test_toggle_is_not_faded(self, default_preference):
+        assert default_preference["css"]["toggleOpacity"] == "1"
+
+
+class TestImagePairs:
+    def test_dithered_and_original_share_the_alt_text(self, default_preference):
+        assert default_preference["altPair"] == ["One", "One"]

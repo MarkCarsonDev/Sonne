@@ -12,8 +12,6 @@ featured: true
 cover_img: https://images.unsplash.com/photo-1586717791821-3f44a563fa4c?w=1200
 ---
 
-# The Importance of User-Centered Design
-
 When designing websites and applications, it's easy to get caught up in aesthetics and trends. However, the most successful digital products are those that focus first and foremost on their users' needs, goals, and behaviors. This approach, known as user-centered design, puts the user at the heart of the design process.
 
 ## What is User-Centered Design?

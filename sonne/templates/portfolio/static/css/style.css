@@ -1,11 +1,11 @@
 /* Portfolio Style */
 :root {
-    --color-primary: #5e72e4;
+    --color-primary: #556ae3; /* AA (4.6:1) on white */
     --color-secondary: #2dce89;
-    --color-accent: #fb6340;
+    --color-accent: #e02e05; /* AA (4.6:1) on white */
     --color-dark: #32325d;
     --color-light: #f7fafc;
-    --color-gray: #8898aa;
+    --color-gray: #64778c; /* AA (4.6:1) on white */
     --color-white: #ffffff;
     --color-black: #1f2d3d;
     
@@ -227,6 +227,11 @@ section {
     margin-bottom: var(--spacing-4);
 }
 
+.footer-heading {
+    font-size: 1.5rem;
+    color: var(--color-white);
+}
+
 .footer-info p {
     opacity: 0.8;
 }
@@ -338,7 +343,8 @@ section {
     transition: var(--transition-standard);
 }
 
-.portfolio-item:hover {
+.portfolio-item:hover,
+.portfolio-item:focus-within {
     transform: translateY(-5px);
     box-shadow: 0 15px 30px rgba(0, 0, 0, 0.15);
 }
@@ -366,7 +372,8 @@ section {
     transition: var(--transition-standard);
 }
 
-.portfolio-link:hover .portfolio-overlay {
+.portfolio-link:hover .portfolio-overlay,
+.portfolio-link:focus-visible .portfolio-overlay {
     background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.5));
 }
 
@@ -599,5 +606,138 @@ section {
     
     .project-gallery {
         grid-template-columns: 1fr;
+    }
+}
+
+.gallery-link {
+    display: block;
+}
+
+/* Gallery lightbox (a modal <dialog>, see main.js) */
+.lightbox {
+    max-width: min(90vw, 1200px);
+    max-height: 90vh;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.lightbox::backdrop {
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.lightbox-content img {
+    display: block;
+    max-width: 100%;
+    max-height: 85vh;
+    margin: 0 auto;
+}
+
+.lightbox-close {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 2rem;
+    line-height: 1;
+    color: var(--color-white);
+    background: rgba(0, 0, 0, 0.6);
+    border: 0;
+    cursor: pointer;
+}
+
+.error-message {
+    color: #c62828;
+    margin-top: var(--spacing-1);
+}
+
+/* Blog tags and pagination */
+.tag-list,
+ul.post-tags {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-2);
+    padding: 0;
+}
+
+.tag {
+    display: inline-block;
+    padding: var(--spacing-1) var(--spacing-3);
+    border-radius: 20px;
+    background-color: var(--color-light);
+    color: var(--color-dark);
+    font-size: 0.85rem;
+}
+
+.pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--spacing-4);
+    margin-top: var(--spacing-6);
+}
+
+/* Accessibility */
+
+/* Hidden visually, still read by screen readers. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* First Tab stop on every page; visible only when focused. */
+.skip-link {
+    position: absolute;
+    left: 0.5rem;
+    top: -3rem;
+    z-index: 1000;
+    padding: 0.5rem 1rem;
+    background: #000;
+    color: #fff;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.skip-link:focus {
+    top: 0.5rem;
+}
+
+/* The skip link's target: focused by script, needs no ring. */
+main:focus {
+    outline: none;
+}
+
+/* A clear, two-tone ring that shows on light and dark backgrounds. */
+:focus-visible {
+    outline: 3px solid #1a5fb4;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px #fff;
+}
+
+/* Windows High Contrast / forced colors: let the system colours through. */
+@media (forced-colors: active) {
+    :focus-visible {
+        outline-color: Highlight;
+        box-shadow: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
     }
 }

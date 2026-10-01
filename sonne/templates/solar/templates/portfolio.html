@@ -8,7 +8,7 @@
         <p class="page-subtitle">{{ page.subtitle }}</p>
         {% endif %}
     </header>
-    
+
     {# Lists the other pages in this page's section, e.g. content/projects/*.md
        for content/projects/index.md. #}
     {% set this_page = all_pages | selectattr('source_path', 'equalto', page.source_path) | first %}
@@ -20,15 +20,15 @@
         <article class="project-card">
             {% if project.image %}
             <div class="project-image">
-                <img src="{{ project.image }}" alt="{{ project.title }}" loading="lazy">
+                <img src="{{ project.image }}" alt="{{ project.image_alt | default('') }}" loading="lazy">
             </div>
             {% endif %}
-            
+
             <div class="project-content">
                 <h2 class="project-title">{{ project.title }}</h2>
                 <div class="project-category">{{ project.category }}</div>
                 <p class="project-description">{{ project.description or project.subtitle }}</p>
-                
+
                 {% if project.technologies %}
                 <div class="project-technologies">
                     {% for tech in project.technologies %}
@@ -36,8 +36,8 @@
                     {% endfor %}
                 </div>
                 {% endif %}
-                
-                <a href="{{ project.url }}" class="btn">View Project</a>
+
+                <a href="{{ project.url }}" class="btn">View Project<span class="sr-only">: {{ project.title }}</span></a>
             </div>
         </article>
         {% endfor %}
@@ -45,7 +45,7 @@
     {% else %}
     <p>No projects found.</p>
     {% endif %}
-    
+
     {% if content %}
     <div class="page-content">
         {{ content }}

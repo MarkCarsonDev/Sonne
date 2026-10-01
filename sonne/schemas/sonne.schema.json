@@ -484,6 +484,12 @@
           "type": "boolean",
           "description": "Inject a page-size label (with image-weight tooltip) into generated pages",
           "default": false
+        },
+        "accessibility_checks": {
+          "type": "string",
+          "enum": ["warn", "error", "off"],
+          "description": "Check generated pages for machine-detectable WCAG 2.2 failures (missing alt text, unnamed links and buttons, unlabelled form fields, missing page language or title, duplicate ids, positive tabindex, skipped heading levels). 'warn' reports them, 'error' also fails the build (for CI; `sonne build --a11y-strict` does the same), 'off' skips the check.",
+          "default": "warn"
         }
       }
     }

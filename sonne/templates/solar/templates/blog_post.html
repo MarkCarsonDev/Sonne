@@ -4,35 +4,37 @@
 <article class="blog-post">
     <header class="blog-post-header">
         <h1>{{ page.title }}</h1>
-        
+
         <div class="blog-meta">
             <time datetime="{{ page.date_str }}">{{ page.date_formatted }}</time>
             {% if page.author %} • By {{ page.author }}{% endif %}
-            
+
             {% if page.categories %}
-            • In 
+            • In
             {% for category in page.categories %}
             <a href="{{ category_url(category) }}">{{ category }}</a>{% if not loop.last %}, {% endif %}
             {% endfor %}
             {% endif %}
         </div>
     </header>
-    
+
     {% set cover = page.cover_img_dithered or page.cover_img %}
     {% if cover %}
     <div class="post-cover">
-        {# A dithered cover names its original so dithering.js adds the toggle. #}
-        <img src="{{ cover }}" alt="{{ page.title }}"{% if page.cover_img_dithered %} class="dithered" data-original-src="{{ page.cover_img_original }}"{% endif %}>
+        {# A dithered cover names its original so dithering.js adds the toggle.
+           The cover is decorative unless the post describes it with cover_alt
+           (posts' own front-matter keys are under page.metadata). #}
+        <img src="{{ cover }}" alt="{{ page.metadata.cover_alt | default('') }}"{% if page.cover_img_dithered %} class="dithered" data-original-src="{{ page.cover_img_original }}"{% endif %}>
     </div>
     {% endif %}
-    
+
     <div class="blog-content">
         {{ content }}
     </div>
-    
+
     {% if page.tags %}
     <footer class="blog-tags">
-        <h3>Tags</h3>
+        <h2>Tags</h2>
         <div class="tags">
             {% for tag in page.tags %}
             <a href="{{ tag_url(tag) }}" class="tag">{{ tag }}</a>
@@ -40,17 +42,17 @@
         </div>
     </footer>
     {% endif %}
-    
-    <nav class="post-navigation">
+
+    <nav class="post-navigation" aria-label="More posts">
         {% if page.prev_post %}
         <a href="{{ page.prev_post.url }}" class="prev-post">
-            &larr; {{ page.prev_post.title }}
+            <span aria-hidden="true">&larr;</span><span class="sr-only">Newer post:</span> {{ page.prev_post.title }}
         </a>
         {% endif %}
-        
+
         {% if page.next_post %}
         <a href="{{ page.next_post.url }}" class="next-post">
-            {{ page.next_post.title }} &rarr;
+            <span class="sr-only">Older post:</span> {{ page.next_post.title }} <span aria-hidden="true">&rarr;</span>
         </a>
         {% endif %}
     </nav>

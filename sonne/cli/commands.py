@@ -170,13 +170,20 @@ def cli(ctx, verbose, quiet):
 @click.option("--no-progress", is_flag=True, help="Disable progress bars.")
 @click.option("--perf", is_flag=True, help="Show detailed performance breakdown after build.")
 @click.option(
+    "--a11y-strict",
+    is_flag=True,
+    help="Fail the build on accessibility issues (build.accessibility_checks: error); for CI.",
+)
+@click.option(
     "--yes",
     "-y",
     is_flag=True,
     help="Continue past confirmation prompts (e.g. template errors); for CI.",
 )
 @click.pass_context
-def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, perf, yes):
+def build(
+    ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, perf, a11y_strict, yes
+):
     """Build the static site.
 
     This command processes your content, templates, and assets to generate
@@ -195,6 +202,8 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         _announce_build(path, no_progress)
 
         config_obj = _load_build_config(path, config, dev)
+        if a11y_strict:
+            config_obj.set("build", "accessibility_checks", value="error")
         generator = SiteGenerator(config_obj, base_dir=path)
         _confirm_templates_or_exit(generator, yes)
 
@@ -206,6 +215,8 @@ def build(ctx, path, config, clean, skip_images, skip_cache, dev, no_progress, p
         )
 
         _announce_build_complete(time.time() - ctx.obj["start_time"], output_dir)
+        if generator.accessibility_report is not None:
+            click.echo(generator.accessibility_report.summary())
         if perf and stats:
             _echo_degrading_unencodable(stats.format_report(verbose=True, perf=True))
 

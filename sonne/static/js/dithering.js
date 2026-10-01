@@ -13,6 +13,17 @@
 // - Blog post figures (<figure class="dithered-image-figure">) are rendered
 //   by the blog pipeline with a caption and a "view original" button, which
 //   is wired up here.
+//
+// Visitor preference "always show original images" (dithered images can be
+// hard to read with low vision):
+// - Stored in localStorage; without a stored choice it follows
+//   prefers-contrast: more and forced-colors: active.
+// - Any element with the data-sonne-original-images attribute is a control
+//   for it: a <button> (gets aria-pressed) or a checkbox (gets checked).
+//   If a page has dithered images and no such control, one small button is
+//   added before the first of them.
+// - Scripts can use window.sonneDithering.showOriginals(true|false) and
+//   .showsOriginals(), and listen for the "sonne:original-images" event.
 (function () {
 	"use strict";
 
@@ -27,11 +38,23 @@
 	// toggle button, pressed"), so the label never contradicts it.
 	var TOGGLE_LABEL = "Show original image";
 
+	var PREFERENCE_ATTRIBUTE = "data-sonne-original-images";
+	var PREFERENCE_CONTROL_CLASS = "sonne-original-images-toggle";
+	var PREFERENCE_CONTROL_LABEL = "Always show original images";
+	var PREFERENCE_STORAGE_KEY = "sonne-show-original-images";
+	var PREFERENCE_EVENT = "sonne:original-images";
+	// Visitors who asked their system for more contrast, or use forced
+	// colours (e.g. Windows High Contrast), get the originals by default.
+	var ORIGINALS_BY_DEFAULT_QUERIES = ["(prefers-contrast: more)", "(forced-colors: active)"];
+
 	// 3x3 grid forming an X: filled corners and centre.
 	var TOGGLE_DOT_IS_FILLED = [true, false, true, false, true, false, true, false, true];
 
 	function start() {
 		wrapImagesWithin(document.body);
+		addPreferenceControlIfMissing();
+		applyPreference();
+		followSystemPreference();
 		watchForNewImages();
 	}
 
@@ -43,6 +66,7 @@
 		matchesWithin(root, BLOG_FIGURE_SELECTOR + " " + FIGURE_BUTTON_SELECTOR).forEach(
 			bindFigureButton
 		);
+		matchesWithin(root, "[" + PREFERENCE_ATTRIBUTE + "]").forEach(bindPreferenceControl);
 	}
 
 	function imagesWithin(root) {
@@ -74,6 +98,7 @@
 		var originalImg = document.createElement("img");
 		originalImg.src = img.getAttribute("data-original-src");
 		originalImg.className = "original";
+		// Both images describe the same picture, so they share its alt text.
 		originalImg.alt = img.getAttribute("alt") || "";
 		originalImg.loading = img.getAttribute("loading") || "lazy";
 		// Only the image on show is exposed to assistive technology.
@@ -84,7 +109,11 @@
 		img.parentNode.insertBefore(container, img);
 		container.appendChild(img);
 		container.appendChild(originalImg);
-		container.appendChild(createToggle());
+		var toggle = createToggle();
+		container.appendChild(toggle);
+		if (currentPreference()) {
+			showOriginal(container, toggle, true);
+		}
 	}
 
 	function createToggle() {
@@ -172,27 +201,163 @@
 			return;
 		}
 		button.addEventListener("click", function () {
-			var figure = button.closest(BLOG_FIGURE_SELECTOR);
-			var img = figure && figure.querySelector("img");
-			if (!img) {
-				return;
-			}
-			var isOriginalShown = !button.classList.contains(FIGURE_SHOWING_ORIGINAL_CLASS);
-			img.src = img.getAttribute(isOriginalShown ? "data-original-src" : "data-dithered-src");
-			button.classList.toggle(FIGURE_SHOWING_ORIGINAL_CLASS, isOriginalShown);
-			figure.classList.toggle(FIGURE_SHOWING_ORIGINAL_CLASS, isOriginalShown);
-			var label = button.querySelector(".btn-text");
-			if (label) {
-				label.textContent = isOriginalShown ? ditheredLabel(button) : "view original";
-			}
+			showFigureOriginal(button, !button.classList.contains(FIGURE_SHOWING_ORIGINAL_CLASS));
 		});
 		button.setAttribute(BOUND_ATTRIBUTE, "true");
+		if (currentPreference()) {
+			showFigureOriginal(button, true);
+		}
+	}
+
+	function showFigureOriginal(button, isOriginalShown) {
+		var figure = button.closest(BLOG_FIGURE_SELECTOR);
+		var img = figure && figure.querySelector("img");
+		if (!img) {
+			return;
+		}
+		img.src = img.getAttribute(isOriginalShown ? "data-original-src" : "data-dithered-src");
+		button.classList.toggle(FIGURE_SHOWING_ORIGINAL_CLASS, isOriginalShown);
+		figure.classList.toggle(FIGURE_SHOWING_ORIGINAL_CLASS, isOriginalShown);
+		var label = button.querySelector(".btn-text");
+		if (label) {
+			label.textContent = isOriginalShown ? ditheredLabel(button) : "view original";
+		}
 	}
 
 	function ditheredLabel(button) {
 		var originalSize = button.getAttribute("data-original-size");
 		return originalSize ? "dithered (" + originalSize + ")" : "dithered";
 	}
+
+	// --- "Always show original images" -------------------------------------
+
+	function storedPreference() {
+		try {
+			var stored = window.localStorage.getItem(PREFERENCE_STORAGE_KEY);
+			return stored === "true" || stored === "false" ? stored === "true" : null;
+		} catch (e) {
+			return null; // storage blocked (private mode, sandbox): use the default
+		}
+	}
+
+	function systemPrefersOriginals() {
+		if (!window.matchMedia) {
+			return false;
+		}
+		return ORIGINALS_BY_DEFAULT_QUERIES.some(function (query) {
+			return window.matchMedia(query).matches;
+		});
+	}
+
+	function showsOriginals() {
+		var stored = storedPreference();
+		return stored === null ? systemPrefersOriginals() : stored;
+	}
+
+	function setShowOriginals(value) {
+		try {
+			window.localStorage.setItem(PREFERENCE_STORAGE_KEY, String(Boolean(value)));
+		} catch (e) {
+			// Not persisted, but still applied to this page.
+			sessionOverride = Boolean(value);
+		}
+		applyPreference();
+	}
+
+	// Used only when storage is unavailable, so a choice holds for the page.
+	var sessionOverride = null;
+
+	function currentPreference() {
+		return sessionOverride === null ? showsOriginals() : sessionOverride;
+	}
+
+	function applyPreference() {
+		var showOriginals = currentPreference();
+		matchesWithin(document.body, "." + CONTAINER_CLASS).forEach(function (container) {
+			var toggle = container.querySelector("." + TOGGLE_CLASS);
+			if (toggle) {
+				showOriginal(container, toggle, showOriginals);
+			}
+		});
+		matchesWithin(document.body, BLOG_FIGURE_SELECTOR + " " + FIGURE_BUTTON_SELECTOR).forEach(
+			function (button) {
+				showFigureOriginal(button, showOriginals);
+			}
+		);
+		matchesWithin(document.body, "[" + PREFERENCE_ATTRIBUTE + "]").forEach(function (control) {
+			reflectPreference(control, showOriginals);
+		});
+		document.dispatchEvent(
+			new CustomEvent(PREFERENCE_EVENT, { detail: { showOriginals: showOriginals } })
+		);
+	}
+
+	function bindPreferenceControl(control) {
+		if (control.hasAttribute(BOUND_ATTRIBUTE)) {
+			return;
+		}
+		var isCheckbox = control.tagName === "INPUT" && control.type === "checkbox";
+		if (!isCheckbox && control.tagName === "BUTTON") {
+			control.type = "button";
+		}
+		control.addEventListener(isCheckbox ? "change" : "click", function () {
+			setShowOriginals(isCheckbox ? control.checked : !currentPreference());
+		});
+		control.setAttribute(BOUND_ATTRIBUTE, "true");
+		reflectPreference(control, currentPreference());
+	}
+
+	function reflectPreference(control, showOriginals) {
+		if (control.tagName === "INPUT" && control.type === "checkbox") {
+			control.checked = showOriginals;
+		} else {
+			control.setAttribute("aria-pressed", String(showOriginals));
+		}
+	}
+
+	// Pages whose template has no control of its own get one small button,
+	// placed right before the first dithered image it affects.
+	function addPreferenceControlIfMissing() {
+		if (document.querySelector("[" + PREFERENCE_ATTRIBUTE + "]")) {
+			return;
+		}
+		var first = document.querySelector("." + CONTAINER_CLASS + ", " + BLOG_FIGURE_SELECTOR);
+		if (!first) {
+			return;
+		}
+		var control = document.createElement("button");
+		control.type = "button";
+		control.className = PREFERENCE_CONTROL_CLASS;
+		control.setAttribute(PREFERENCE_ATTRIBUTE, "");
+		control.textContent = PREFERENCE_CONTROL_LABEL;
+		first.parentNode.insertBefore(control, first);
+		bindPreferenceControl(control);
+	}
+
+	// Without a stored choice, follow the system setting as it changes.
+	function followSystemPreference() {
+		if (!window.matchMedia) {
+			return;
+		}
+		ORIGINALS_BY_DEFAULT_QUERIES.forEach(function (query) {
+			var list = window.matchMedia(query);
+			var onChange = function () {
+				if (storedPreference() === null && sessionOverride === null) {
+					applyPreference();
+				}
+			};
+			if (list.addEventListener) {
+				list.addEventListener("change", onChange);
+			} else if (list.addListener) {
+				list.addListener(onChange);
+			}
+		});
+	}
+
+	window.sonneDithering = {
+		showOriginals: setShowOriginals,
+		showsOriginals: currentPreference,
+	};
 
 	// Only newly added subtrees are scanned, so a page that keeps changing
 	// does not re-walk the whole document each time.

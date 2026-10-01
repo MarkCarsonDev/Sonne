@@ -3,6 +3,7 @@
 import re
 
 import pytest
+from bs4 import BeautifulSoup
 
 from sonne.core.config import Config
 from sonne.core.site_generator import SiteGenerator
@@ -242,3 +243,39 @@ class TestTemplateStatistics:
     def test_missing_template_is_counted_as_error(self, site):
         stats = self.render(site, "missing.html")
         assert (stats.templates_rendered, stats.template_errors) == (0, 1)
+
+
+class TestBlogFigures:
+    """Blog post images: an accessible figure with its caption and a named toggle."""
+
+    def figure(self, site, markdown):
+        processor = make_processor(site, {("images", "dither"): True})
+        _, html = processor.process_markdown(markdown)
+        soup = BeautifulSoup(html, "html.parser")
+        figure = soup.find("figure")
+        assert figure is not None
+        return figure
+
+    def test_caption_holds_only_the_caption(self, site):
+        figure = self.figure(site, '![A red square](pic.png "Red square")')
+
+        figcaption = figure.find("figcaption")
+        assert figcaption is not None
+        assert figcaption.get_text(strip=True) == "Red square"
+        assert figcaption.find("button") is None
+        assert figure.contents[-1] is figcaption  # a figcaption must be first or last
+
+    def test_toggle_is_a_button_named_by_its_text(self, site):
+        figure = self.figure(site, "![A red square](pic.png)")
+
+        button = figure.find("button")
+        assert button is not None
+        assert button["type"] == "button"
+        assert not button.has_attr("aria-label")
+        assert button.get_text(strip=True) == "view original"
+
+    def test_no_caption_without_caption_text(self, site):
+        figure = self.figure(site, "![](pic.png)")
+
+        assert figure.find("figcaption") is None
+        assert figure.find("button") is not None

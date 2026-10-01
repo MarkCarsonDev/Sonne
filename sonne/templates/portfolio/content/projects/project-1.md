@@ -20,8 +20,6 @@ gallery:
     alt: Mobile responsive design
 ---
 
-# Modern E-commerce Website
-
 ## Overview
 
 Boutique Clothing Co. needed a modern online store that would showcase their products while providing a seamless shopping experience. The goal was to create a responsive website with an intuitive interface that would help increase conversion rates and customer satisfaction.

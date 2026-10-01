@@ -19,7 +19,7 @@
                 <div class="blog-card-image">
                     <picture>
                         <source srcset="{{ post.cover_img | replace('.jpg', '_400.webp') | replace('.png', '_400.webp') }}" type="image/webp">
-                        <img src="{{ post.cover_img | replace('.jpg', '_400.jpg') | replace('.png', '_400.png') }}" alt="{{ post.title }}" loading="lazy">
+                        <img src="{{ post.cover_img | replace('.jpg', '_400.jpg') | replace('.png', '_400.png') }}" alt="" loading="lazy">
                     </picture>
                 </div>
                 {% endif %}
@@ -42,7 +42,7 @@
                     
                     <div class="blog-card-excerpt">{{ post.excerpt }}</div>
                     
-                    <a href="{{ post.full_url }}" class="btn btn-primary">Read More</a>
+                    <a href="{{ post.full_url }}" class="btn btn-primary">Read more<span class="visually-hidden"> of {{ post.title }}</span></a>
                 </div>
             </div>
             {% endfor %}
