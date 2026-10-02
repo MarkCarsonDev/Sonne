@@ -46,6 +46,10 @@ DEFAULT_SERVE_PORT = 8000
 BROWSER_OPEN_DELAY_SECONDS = 1.0
 OBSERVER_STOP_TIMEOUT_SECONDS = 5
 
+# watchdog (>= 2.3) also reports files being read. A build reads the watched
+# files, so treating these as changes makes every rebuild trigger another.
+READ_ONLY_WATCH_EVENTS = frozenset({"opened", "closed_no_write"})
+
 # The installed Sonne package, watched by `serve` for code changes.
 SONNE_PACKAGE_DIR = Path(__file__).resolve().parent.parent
 
@@ -731,13 +735,16 @@ def _source_fingerprint(package_dir: Path) -> SourceFingerprint:
 
 
 def _paths_touched_by(event) -> list[str]:
-    """Paths a watchdog event affects.
+    """Paths a watchdog event changed.
 
     A move reports both ends: editors that save by writing a temp file and
     renaming it over the original produce only a move whose destination is
     the real file. Moves count for directories too (a folder of posts moved
-    into content/); other directory events are ignored.
+    into content/); other directory events are ignored, and so are events
+    that only read a file.
     """
+    if event.event_type in READ_ONLY_WATCH_EVENTS:
+        return []
     if event.event_type == "moved":
         return [path for path in (event.src_path, getattr(event, "dest_path", "")) if path]
     return [] if event.is_directory else [event.src_path]

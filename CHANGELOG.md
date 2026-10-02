@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `sonne_global(name, value)` alongside `sonne_var`, making real Python
   functions callable from every template and (with content Jinja) every
   content file. Names shadowing built-ins are ignored with a warning.
-- Implementation plans for the whole backlog in `docs/plans/`.
 - `sonne.script_api`: data scripts can `from sonne.script_api import
   sonne_var, get_post, sonne_filter, sonne_global`, so editors,
   Pylance/pyright and ruff resolve them. The functions are typed and
@@ -56,8 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whose system asks for more contrast or uses forced colours.
 - A built-in blog index template (fallback) with accessible pagination,
   for sites without their own `blog_list.html`.
-- README: an Accessibility section (what Sonne checks, what the starter
-  templates provide, what no checker can decide, how to test by hand).
 - Template helpers `blog_url()`, `tag_url()`, `category_url()` and
   `archive_url()` for linking to blog pages. They follow `blog.directory`
   and `url_style` and slugify terms like the pages themselves. The bundled
@@ -170,8 +167,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (built-in names win, as for other built-ins).
 - Generated listing pages name their template explicitly; template
   selection no longer depends on synthetic source-path prefixes.
-- README: the URL Configuration section now describes `url_style` and the
-  environments accurately (it described a default that no longer exists).
 - The dithered/original image toggle is a keyboard-operable button
   (labelled "Show original image", state in `aria-pressed`) with a visible
   focus ring; only the image on show is exposed to screen readers. Toggles
@@ -194,9 +189,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `v12.txt`); names made only of dots still become `unnamed`. Slugs are
   unaffected.
 - The "could not clean" message of `sonne build --clean` names the error type.
-- README documents that `footer.py` (in `data/`, `paths.data` or
-  `scripts/`) runs as trusted code and that data scripts run in
-  alphabetical order; `blog.rss` may be a boolean.
 - The "Processing images (N images)" progress line counts exactly the
   images the build processes: `static/images` files are included, hidden
   files and (with `images.only_used`) unreferenced images are left out. It
@@ -212,13 +204,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   misses, static-image byte savings, and templates rendered and failed.
 - `dithering.js` scans only newly added content when the page changes,
   instead of the whole document.
-- README: complete Configuration Reference, config-file discovery rules,
-  and a "Dithered/Original Toggle" section with the dithering.css/js
-  include snippet. It replaces the unreferenced `sonne/static/base.html`,
-  which is removed. Keys that are accepted but currently have no effect
-  (`build.incremental`, `build.show_progress`, `build.statistics`,
-  `security.csp.*`, `images.grayscale_before_dither`,
-  `images.lazy_loading`) are marked as such.
+- README rewritten against the current code. It now covers every config
+  key, config-file discovery, the three image pipelines and their output
+  paths, template variables, functions and filters, the script API and
+  accessibility. Corrected: Sonne is installed from GitHub (the `sonne`
+  package on PyPI is an unrelated project), `sonne serve` rebuilds but does
+  not reload the browser, and `-v` goes before the command
+  (`sonne -v build`).
+- The unreferenced `sonne/static/base.html` is removed.
 - `data/footer.py` scripts can call `get_post()`, and their `footer_custom`
   is marked HTML-safe exactly like `scripts/footer.py`.
 - A data script's `sonne_var()` that replaces an existing site variable (a
@@ -235,6 +228,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paint, and the JS no longer polls the nonexistent `/api/battery-status`.
 
 ### Fixed
+- `sonne serve --watch` no longer rebuilds in an endless loop. watchdog 2.3
+  and newer also reports files being read; the build reads the watched
+  content, so each rebuild triggered the next. Only changes rebuild now.
+- `cover_alt` front matter reaches the `blog` and `portfolio` starter
+  templates and the showcase example as `page.cover_alt`; their post covers
+  always had empty alt text. (The `solar` template already read it.)
 - `portfolio` starter: the blog index and every blog post were blank (the
   templates were empty files), posts lived at `/blog/blog/<slug>/`, the
   category filter never showed any category, and four listed projects
@@ -261,7 +260,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a 404. They now use the `slugify` filter (B15).
 - The `blog` and `portfolio` scaffolds shipped without `archive.html` (and
   portfolio without tag/category templates), so date archives and taxonomy
-  pages rendered the fallback page. Both scaffolds now include them (B16).
+  pages rendered a bare fallback page. Built-in templates now cover them
+  (B16).
 - Image syntax inside fenced code blocks or inline code in a blog post
   (e.g. a Markdown tutorial) is no longer treated as a real image, which
   logged a spurious "Image not found" warning per sample (B26).
@@ -379,14 +379,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   front-matter template use `page.html` (or the blog post template under
   `blog.directory`); they rendered as a bare fallback page without the site
   layout (B30).
-- The `process_image` filter inserts `_original` before the file extension,
-  matching `dithering.js` (`/v_1.2/a.png` → `/v_1.2/a_original.png`) (B29).
 - `dithering.js` no longer adds a second, broken toggle to blog-post
-  figures, and no longer wraps images that have no `_original` copy
-  (external URLs, `data:` URIs, SVGs including `logo.svg?v=2` and `.SVG`).
-- `dithering.js` builds `_original` URLs from the file name only, so a
-  query string or a dotted directory no longer yields a 404
-  (`q.png?v=1.2` → `q_original.png?v=1.2`).
+  figures.
 - Clicking the dithering toggle on a linked image no longer follows the link.
 - The image toggle and the original image line up with the image even when
   the theme gives images a margin.

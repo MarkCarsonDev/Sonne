@@ -1,6 +1,6 @@
 # Sonne — project guide for Claude
 
-Sonne is a minimalist static site generator (~5k LOC Python): Markdown +
+Sonne is a minimalist static site generator (~8k LOC Python): Markdown +
 Jinja2 templating, a blog pipeline (tags/categories/RSS), and an image
 pipeline (resize, format conversion, dithering). Python >= 3.9. Windows is a
 first-class platform — never assume POSIX paths or separators.

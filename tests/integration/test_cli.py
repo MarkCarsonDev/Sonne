@@ -185,6 +185,33 @@ class TestWatchRebuilds:
 
         assert str(tmp_path / "content" / "post.md") in _paths_touched_by(event)
 
+    @pytest.mark.parametrize("event_type", ["opened", "closed_no_write"])
+    def test_reading_a_file_is_not_a_change(self, tmp_path, event_type):
+        # watchdog >= 2.3 reports reads. A build reads the watched content,
+        # so counting them made every rebuild trigger the next one, forever.
+        from types import SimpleNamespace
+
+        from sonne.cli.commands import _paths_touched_by
+
+        event = SimpleNamespace(
+            event_type=event_type,
+            is_directory=False,
+            src_path=str(tmp_path / "content" / "post.md"),
+        )
+
+        assert _paths_touched_by(event) == []
+
+    @pytest.mark.parametrize("event_type", ["modified", "created", "deleted", "closed"])
+    def test_writing_a_file_is_a_change(self, tmp_path, event_type):
+        from types import SimpleNamespace
+
+        from sonne.cli.commands import _paths_touched_by
+
+        post = str(tmp_path / "content" / "post.md")
+        event = SimpleNamespace(event_type=event_type, is_directory=False, src_path=post)
+
+        assert _paths_touched_by(event) == [post]
+
 
 class TestServeDev:
     @pytest.fixture

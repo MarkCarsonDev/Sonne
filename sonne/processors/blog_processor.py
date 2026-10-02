@@ -261,6 +261,7 @@ class BlogProcessor:
                 "template", self.config.get("blog", "template", default="blog_post.html")
             ),
             "cover_img": _first_present(front_matter, "cover_img", "cover_image"),
+            "cover_alt": front_matter.get("cover_alt") or "",  # "" = decorative cover
             "cover_crop": front_matter.get("cover_crop"),
             "cover_rotate": front_matter.get("cover_rotate"),
             "source_path": str(file_path),
