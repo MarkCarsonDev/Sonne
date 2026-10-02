@@ -486,3 +486,19 @@ class TestFigureWithoutDitheredCopy:
         figure = re.search(r'<figure[^>]*>(?:(?!</figure>).)*alt="Broken".*?</figure>', html, re.S)
         assert figure, "figure for the broken image"
         assert "request-original-btn" not in figure.group(0)
+
+
+class TestCoverAltText:
+    @pytest.mark.parametrize("template", ["blog", "portfolio"])
+    def test_cover_alt_front_matter_is_the_covers_alt_text(
+        self, site_factory, builder, image_factory, template
+    ):
+        site = site_factory(template)
+        front_matter = "title: Covered\ndate: 2025-06-03\ncover_img: c.png\ncover_alt: A grey cat"
+        write_post(site, "covered.md", front_matter)
+        image_factory(site / "content" / "blog" / "c.png")
+
+        _, out = builder(site, {"url_style": "directory"})
+
+        [post] = out.glob("blog/**/covered/index.html")
+        assert 'alt="A grey cat"' in post.read_text(encoding="utf-8")

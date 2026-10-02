@@ -1,118 +1,58 @@
-# Backlog — issue-ready improvements
+# Backlog
 
-Known, deliberately deferred improvements from the 0.4.0 readiness pass.
-Each entry is written so it can be pasted into a GitHub issue as-is
-(`gh issue create -t "<title>" -F <body>`). File references are as of 0.4.0.
+Known improvements that are not done yet. Each has a plan in
+[plans/](plans/00-INDEX.md); the index says how much of each plan is
+already implemented.
 
-> **Full implementation plans now exist for every item** — see
-> [plans/00-INDEX.md](plans/00-INDEX.md) for the priority-ordered set with
-> design decisions, files, and test plans. Item #8 is resolved by
-> [plans/01-jinja-consolidation.md](plans/01-jinja-consolidation.md), which
-> deletes the embedded-Python executor.
+## Performance
 
----
+- **Cache blog-pipeline image outputs** ([plan 03](plans/03-blog-image-caching.md)).
+  Images beside a post, and post covers, are resized and dithered on every
+  build. `ImageProcessor` has a hash-based cache; the blog pipeline does not
+  use it.
+- **Parse each page once** ([plan 04](plans/04-single-parse-html-pipeline.md)).
+  With dithering on, `TemplateProcessor.finish_page` parses every rendered
+  page with BeautifulSoup, including pages without images.
+- **Related posts at scale** ([plan 13](plans/13-related-posts-performance.md)).
+  Every post is scored against every other post, and `related_posts` stores
+  whole post dicts (content included), which inflates what scripts get from
+  `get_variable("all_blog_posts")`.
 
-## 1. Perf: vectorize LAB k-means dithering
-**Labels:** performance
-`color_lab` dithering runs a pure-Python per-pixel double loop with a
-`to_lab` call per pixel (`sonne/processors/image_processor.py`,
-`_lab_kmeans_dither`). On a 1200px image this takes minutes. Vectorize the
-Floyd–Steinberg diffusion / nearest-palette lookup with numpy (serpentine
-scan or block-based approximation are acceptable trade-offs).
+## Features
 
-## 2. Perf: cache blog-pipeline image outputs
-**Labels:** performance
-`BlogProcessor._save_resized` / `_process_blog_image` re-resize and
-re-dither every post image on every build. ImageProcessor has a hash-based
-cache; the blog pipeline needs the same (share the cache, key on source
-hash + transforms + widths + dither settings).
+- **Date formats and month names** ([plan 10](plans/10-date-format-i18n.md)).
+  `%B %d, %Y` and English month names are hardcoded for post dates and
+  archive titles, so a non-English site cannot change them.
+- **Word-based excerpts** ([plan 11](plans/11-word-excerpts.md)).
+  `blog.excerpt_length` counts characters and cuts mid-word.
+- **Config keys for remaining constants** ([plan 12](plans/12-configurable-constants.md)).
+  JPEG/WebP quality (85), the number of related posts (3) and the `_drafts`
+  folder name are fixed in code.
+- **`images.lazy_loading` and `images.grayscale_before_dither`**
+  ([plan 08](plans/08-dead-config-keys.md)). Both are accepted and do
+  nothing. Implement the first, remove the second through
+  `sonne/core/deprecations.py`.
+- **More image formats.** `.avif` and `.tiff` are not processed, and an
+  animated `.gif` is flattened to one frame.
 
-## 3. Perf: single HTML parse per page; inject dither assets only when needed
-**Labels:** performance
-Each page can be BeautifulSoup-parsed multiple times: `_process_image_tags`,
-`inject_dithering_assets`, and per-image size stamping in
-`_copy_post_images`. Restructure to one parse/serialize per page, and skip
-injecting dithering CSS/JS into pages with no images.
+## Cleanup
 
-## 4. Perf: related-posts scoring is O(n²) and stores full post dicts
-**Labels:** performance
-`BlogProcessor._set_navigation_links` scores every post against every other
-post and stores complete post dicts in `related_posts`, inflating memory
-and the variable payload. Store (title, url, excerpt) refs and consider an
-inverted tag index.
+- **`Config.normalize_paths` creates directories** ([plan 06](plans/06-path-normalization.md)).
+  Something named "normalize" should only resolve paths; creating the
+  output and cache directories belongs to `SiteGenerator`.
+- **Project detection and config discovery disagree** ([plan 07](plans/07-config-discovery.md)).
+  `is_sonne_directory` accepts any folder containing `content/`,
+  `templates/` or `static/`, while config discovery needs a config file in
+  the folder or one of two parents. `sonne build` in the wrong folder can
+  "succeed" on defaults.
+- **Showcase example** ([plan 14](plans/14-showcase-template-cleanup.md)).
+  Its nav hardcodes `.html` URLs and it sets no `url_style`. A test that
+  every starter template builds without warnings is also missing.
 
-## 5. Make blog date formatting configurable / localizable
-**Labels:** enhancement, i18n
-`'%B %d, %Y'` and English month names are hardcoded in
-`blog_processor.py` (`date_formatted`, `date_posted`, date archives).
-Add `blog.date_format` (strftime string) and use `site.language` where
-sensible. Schema + README + CHANGELOG in lockstep.
+## Packaging
 
-## 6. Expose remaining hardcoded constants as config
-**Labels:** enhancement
-Currently hardcoded: RSS is schema-covered now, but these are not:
-JPEG/WebP quality 85, resample-threshold width 400, related-posts count 3,
-slug length cap 100 (`sonne/utils/text.py::MAX_SLUG_LENGTH`), `_drafts`
-directory name, `assets/images` output subdir. Decide which deserve config
-keys and which stay constants.
-
-## 7. Excerpts: implement word-based length option
-**Labels:** enhancement
-`blog.excerpt_length` is characters and cuts mid-word
-(`_generate_excerpt`). Docs/schema now say characters, but a
-`blog.excerpt_unit: words|chars` (default chars for compat) would match
-what most users expect.
-
-## 8. Embedded-python "safe_builtins" is not a sandbox
-**Labels:** security, documentation
-`variable_manager.substitute_variables` executes `{p}{#...#}` blocks with a
-curated `__builtins__` dict. This is escapable by construction (object
-traversal). Either rename/reframe it as "reduced conveniences, NOT a
-sandbox" everywhere it appears, or adopt a real sandboxing approach.
-README already carries a warning; the code comments still oversell it.
-
-## 9. Unify path normalization (Config.normalize_paths vs SiteGenerator)
-**Labels:** refactor
-`Config.normalize_paths` duplicates the relative→absolute + mkdir logic
-that `SiteGenerator.__init__` implements independently, and is effectively
-dead. Pick one owner (suggest: Config), and drop the directory-creation
-side effect from anything named "normalize".
-
-## 10. Reconcile project detection with config discovery
-**Labels:** refactor, ux
-`is_sonne_directory` accepts any dir containing `content/`, `templates/`,
-or `static/` (no config needed), while `Config._find_config` walks up 3
-parent levels (now with a warning). Decide the real contract: probably
-"config file required, parent search opt-in", and make the 3-level depth a
-named constant or config.
-
-## 11. Define image/page extension sets once
-**Labels:** refactor
-`{'.jpg', '.jpeg', '.png', '.gif', '.webp'}` and page-extension sets are
-each defined in multiple modules (site_generator, image_processor). Move to
-one constants module; consider `.avif`/`.tiff` support while at it
-(`.gif` is currently flattened to a static frame — document or fix).
-
-## 12. Remove or implement deprecated no-op image keys
-**Labels:** cleanup
-`images.grayscale_before_dither` and `images.lazy_loading` are accepted but
-never read (schema now marks them DEPRECATED). Either implement them or
-remove them via `sonne/core/deprecations.py` with a warning.
-
-## 13. Unify the two dithered-image conventions
-**Labels:** refactor, breaking
-Blog pipeline: dithered copy at `dithered/<stem>.png`, original keeps its
-URL (figure markup with data attributes). Static pipeline: dithered at the
-main path + `_original` suffix (client-side `dithering.js` computes the
-original path). Unifying on the blog convention requires updating
-`sonne/static/js/dithering.js`'s standalone-image path logic and a
-CHANGELOG "Changed" entry for `_original` deep links. See
-`sonne/processors/CLAUDE.md`.
-
-## 14. Showcase template cleanup
-**Labels:** templates, good-first-issue
-`sonne/examples/showcase-template` hardcodes `.html` nav URLs
-(`/features.html`, `/blog/index.html`) and omits `url_style`, unlike the
-bundled templates (directory style). Align it, and add `category.html` /
-`categories.html` to the blog template (categories are enabled by default
-but their templates are missing, producing warnings).
+- **The PyPI name `sonne` belongs to another project.** `pip install sonne`
+  installs an unrelated terminal-styling library. Publishing needs a
+  different distribution name in `pyproject.toml` (the import name and the
+  `sonne` command can stay), or the README's install-from-GitHub
+  instructions stay as they are.
