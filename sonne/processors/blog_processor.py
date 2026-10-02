@@ -239,7 +239,10 @@ class BlogProcessor:
         tags, categories = (
             _split_terms(front_matter.get(taxonomy_type, [])) for taxonomy_type in TAXONOMY_TYPES
         )
+        # The post's own front matter keys first, so templates read them as
+        # page.<key> like on a regular page; Sonne's keys below win.
         return {
+            **front_matter,
             "title": front_matter.get("title", "Untitled"),
             "date": date,
             "date_str": date.strftime("%Y-%m-%d"),

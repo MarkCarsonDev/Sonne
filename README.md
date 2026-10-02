@@ -275,7 +275,7 @@ The starter templates are fuller examples; run `sonne new` and read the `templat
 
 On a regular page, `page` is the page's front matter plus `page.url` and `page.source_path`.
 
-On a post, `page` has these keys. A post's other front matter keys are under `page.metadata`.
+On a post, `page` is the post's front matter plus the keys below. Where a front matter key has the same name as one of them, the value below wins.
 
 | Key | Contents |
 |-----|----------|
@@ -289,7 +289,7 @@ On a post, `page` has these keys. A post's other front matter keys are under `pa
 | `related_posts` | Up to three posts, ranked by shared tags. |
 | `cover_img`, `cover_alt` | As written in the front matter. |
 | `cover_img_dithered`, `cover_img_original` | Paths of the published cover, relative to the post, when the cover is a file beside the post. |
-| `metadata` | The post's whole front matter. |
+| `metadata` | The post's front matter as written. |
 
 On the generated blog pages:
 

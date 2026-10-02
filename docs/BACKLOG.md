@@ -53,11 +53,6 @@ already implemented.
 
 Changes to how Sonne is put together. None has a plan yet.
 
-- **Post front matter on `page`.** A regular page's front matter keys are
-  on `page`; a post's are only under `page.metadata`, apart from a fixed
-  list (`title`, `tags`, `cover_img`, ...). A template that reads
-  `page.<key>` on a post gets nothing, without a warning. Put every
-  front matter key on the post, with Sonne's computed keys winning.
 - **Listing page data only under `page`.** Tag, category, archive and index
   templates get `page.posts`, `page.tag` and so on. Templates that read a
   top-level `posts` or `tag` render "no posts" without a warning. Either

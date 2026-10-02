@@ -23,8 +23,8 @@
     <div class="post-cover">
         {# A dithered cover names its original so dithering.js adds the toggle.
            The cover is decorative unless the post describes it with cover_alt
-           (posts' own front-matter keys are under page.metadata). #}
-        <img src="{{ cover }}" alt="{{ page.metadata.cover_alt | default('') }}"{% if page.cover_img_dithered %} class="dithered" data-original-src="{{ page.cover_img_original }}"{% endif %}>
+           (a key of the post's front matter). #}
+        <img src="{{ cover }}" alt="{{ page.cover_alt | default('') }}"{% if page.cover_img_dithered %} class="dithered" data-original-src="{{ page.cover_img_original }}"{% endif %}>
     </div>
     {% endif %}
 

@@ -124,6 +124,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- A post's own front matter keys are available as `page.<key>` (and
+  `post.<key>` in listings), as on a regular page. Before, only a fixed
+  list was, and the rest were under `page.metadata`, which still works.
+  Keys Sonne sets itself (`url`, `date`, `tags`, `content`, ...) win over
+  front matter keys of the same name.
 - **Breaking (pre-1.0):** static images keep their original at their own
   URL, and the dithered copy is `<dir>/dithered/<name>.png` (always PNG).
   Before, `/images/a.png` served the dithered image and the original was

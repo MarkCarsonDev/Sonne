@@ -502,3 +502,37 @@ class TestCoverAltText:
 
         [post] = out.glob("blog/**/covered/index.html")
         assert 'alt="A grey cat"' in post.read_text(encoding="utf-8")
+
+
+class TestPostFrontMatter:
+    def post_page(self, site_factory, builder, front_matter, template_body):
+        site = site_factory("blog")
+        write_post(site, "probe.md", f"title: Probe\ndate: 2025-06-03\n{front_matter}")
+        (site / "templates" / "blog_post.html").write_text(template_body, encoding="utf-8")
+        _, out = builder(site, {"url_style": "directory"}, skip_images=True)
+        [post] = out.glob("blog/**/probe/index.html")
+        return post.read_text(encoding="utf-8")
+
+    def test_own_keys_are_on_page_like_on_a_regular_page(self, site_factory, builder):
+        html = self.post_page(site_factory, builder, "series: Harbour notes", "[{{ page.series }}]")
+
+        assert "[Harbour notes]" in html
+
+    def test_sonnes_own_keys_win_over_front_matter(self, site_factory, builder):
+        html = self.post_page(
+            site_factory, builder, "url: /elsewhere\ncontent: mine", "[{{ page.url }}]{{ content }}"
+        )
+
+        assert "[/blog/2025/06/03/probe/]" in html
+        assert "Body text." in html
+
+    def test_listing_entries_carry_them_too(self, site_factory, builder):
+        site = site_factory("blog")
+        write_post(site, "probe.md", "title: Probe\ndate: 2025-06-03\nseries: Harbour notes")
+        (site / "templates" / "blog_list.html").write_text(
+            "{% for post in page.posts %}[{{ post.series }}]{% endfor %}", encoding="utf-8"
+        )
+
+        _, out = builder(site, {"url_style": "directory"}, skip_images=True)
+
+        assert "[Harbour notes]" in (out / "blog" / "index.html").read_text(encoding="utf-8")
