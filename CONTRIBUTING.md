@@ -26,6 +26,9 @@ pyright                     # type check (what VS Code/Pylance shows)
 ```
 
 CI runs all four, on Linux (Python 3.9, 3.11, 3.13) and Windows (3.13).
+Run all four locally and get them green before you push: CI is a backstop,
+not the place to find out. `pip install -e ".[dev]"` installs the exact
+ruff and pyright versions CI uses, so local and CI results match.
 
 To try your changes against a real site:
 

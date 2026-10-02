@@ -57,6 +57,12 @@ config JSON schema in `sonne/schemas/sonne.schema.json`; core static assets
 
 ## Testing workflow
 
+- **Run CI locally before every push**: `pip install -e ".[dev]"` (picks
+  up the pinned ruff/pyright), then `ruff check .`, `ruff format --check .`,
+  `pyright` and `pytest`; all must pass. Never push to find out whether CI
+  passes. CI also runs Python 3.9 and Windows: avoid newer-Python-only APIs
+  and POSIX-only assumptions you can't test locally. Bump the ruff/pyright
+  pins deliberately, in their own commit, fixing what they newly flag.
 - The suite is a **characterization suite**: it pins current behavior.
   Refactors must keep it green; intentional behavior changes update the
   pinned test in the same commit with a CHANGELOG note.
