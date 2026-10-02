@@ -228,6 +228,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paint, and the JS no longer polls the nonexistent `/api/battery-status`.
 
 ### Fixed
+- `sonne serve --watch` no longer rebuilds in an endless loop. watchdog 2.3
+  and newer also reports files being read; the build reads the watched
+  content, so each rebuild triggered the next. Only changes rebuild now.
 - `cover_alt` front matter reaches the `blog` and `portfolio` starter
   templates and the showcase example as `page.cover_alt`; their post covers
   always had empty alt text. (The `solar` template already read it.)
