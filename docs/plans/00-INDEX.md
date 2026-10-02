@@ -18,7 +18,6 @@ Rules that apply to every plan (see also `/CLAUDE.md`):
 
 | # | Plan | Size | Status |
 |---|------|------|--------|
-| 03 | [Blog image caching](03-blog-image-caching.md) | M | Open. Post images are still resized and dithered on every build. |
 | 04 | [Single-parse HTML pipeline](04-single-parse-html-pipeline.md) | M | Mostly done: a post's HTML is parsed once for size data, and the dithering assets are linked instead of inlined. Left: `TemplateProcessor.finish_page` parses every page when dithering is on. |
 | 06 | [Path normalization](06-path-normalization.md) | S | Partly done: `SiteGenerator` uses `Config.normalize_paths`. Left: `normalize_paths` still creates the output and cache directories. |
 | 08 | [Dead image config keys](08-dead-config-keys.md) | S | Open. `images.lazy_loading` and `images.grayscale_before_dither` still do nothing. |
@@ -29,5 +28,5 @@ Rules that apply to every plan (see also `/CLAUDE.md`):
 | 14 | [Showcase template cleanup](14-showcase-template-cleanup.md) | S | Partly done: category pages come from the built-in templates, and the content uses real Jinja. Left: the showcase nav hardcodes `.html` URLs and sets no `url_style`; no zero-warnings scaffold test. |
 
 Finished and removed (see the CHANGELOG and `git log`): 01 Jinja
-consolidation, 02 dithered-convention unification, 05 faster LAB dither,
+consolidation, 03 blog image caching, 02 dithered-convention unification, 05 faster LAB dither,
 07 config discovery contract, 09 extension-set constants.

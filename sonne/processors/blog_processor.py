@@ -4,6 +4,7 @@ Handles parsing, rendering, and generating blog posts and related pages.
 """
 
 import heapq
+import json
 import logging
 import math
 import os
@@ -14,7 +15,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 from xml.sax.saxutils import escape
 
 from sonne.processors.blog_urls import BlogUrls
@@ -144,6 +145,8 @@ class BlogProcessor:
 
         self.posts = []
         self.taxonomies = {taxonomy_type: {} for taxonomy_type in TAXONOMY_TYPES}
+        # Set per build by process_all_posts(): rewrite every post image.
+        self._skip_image_cache = False
         self.url_style = self.config.get_url_style()
         logger.debug(f"Using URL style: {self.url_style}")
 
@@ -163,8 +166,13 @@ class BlogProcessor:
             return
         logger.info(f"Collected metadata for {len(self.posts)} blog posts")
 
-    def process_all_posts(self) -> None:
-        """Render all blog posts and generate indexes, taxonomies, archives and RSS."""
+    def process_all_posts(self, skip_cache: bool = False) -> None:
+        """Render all blog posts and generate indexes, taxonomies, archives and RSS.
+
+        Args:
+            skip_cache: Rewrite every post image, ignoring the image cache.
+        """
+        self._skip_image_cache = skip_cache
         if not os.path.exists(self.blog_content_dir):
             logger.warning(f"Blog directory does not exist: {self.blog_content_dir}")
             return
@@ -399,6 +407,8 @@ class BlogProcessor:
         """
         for post in self.posts:
             self._prepare_post(post)
+        if self.image_processor is not None:
+            self.image_processor.save_cache()
         # Templates (not content Jinja) get site.images, from pass 2 on.
         self._expose_images_config()
         for post in self.posts:
@@ -621,12 +631,20 @@ class BlogProcessor:
     def _publish_image(
         self, source_path: str, image_ref: str, transforms: dict, output_dir: str, dither: bool
     ) -> _PublishedImage:
-        """Write the size-capped original and, if requested, its dithered PNG."""
+        """Write the size-capped original and, if requested, its dithered PNG.
+
+        A file the image cache shows to be current is left as it is.
+        """
+        cache_key = self._image_cache_keys(source_path, transforms)
         rel_path = strip_relative_prefix(image_ref)
         original_path = os.path.join(output_dir, rel_path)
         os.makedirs(os.path.dirname(original_path), exist_ok=True)
         original_max_width = self.config.get("images", "blog_original_max_width", default=1600)
-        original_kb = self._save_resized(source_path, original_path, original_max_width, transforms)
+        original_kb = self._write_unless_cached(
+            cache_key and cache_key("original", original_path, original_max_width),
+            original_path,
+            lambda: self._save_resized(source_path, original_path, original_max_width, transforms),
+        )
 
         dithered_rel_path = dithered_kb = None
         if dither:
@@ -635,10 +653,60 @@ class BlogProcessor:
             dithered_path = os.path.join(output_dir, dithered_rel_path)
             os.makedirs(os.path.dirname(dithered_path), exist_ok=True)
             dithered_max_width = self.config.get("images", "blog_dithered_max_width", default=400)
-            dithered_kb = self._save_dithered(
-                source_path, dithered_path, dithered_max_width, transforms
+            dither_settings = (
+                self.config.get("images", "dither_method", default="bayer"),
+                self.config.get("images", "dither_colors", default=4),
+            )
+            dithered_kb = self._write_unless_cached(
+                cache_key
+                and cache_key("dithered", dithered_path, dithered_max_width, *dither_settings),
+                dithered_path,
+                lambda: self._save_dithered(
+                    source_path, dithered_path, dithered_max_width, transforms
+                ),
             )
         return _PublishedImage(image_ref, rel_path, dithered_rel_path, original_kb, dithered_kb)
+
+    def _image_cache_keys(self, source_path: str, transforms: dict) -> Optional[Callable[..., str]]:
+        """A function making cache keys for this source image's outputs; None if not caching.
+
+        A key covers the source's bytes, the output path and every setting
+        that affects the file: its kind, width, transforms and, for the
+        dithered copy, the dither settings passed as extra arguments.
+        """
+        if self.image_processor is None or self._skip_image_cache:
+            return None
+        source_hash = self.image_processor.source_hash(source_path)
+        transforms_key = json.dumps(transforms, sort_keys=True)
+
+        def cache_key(kind: str, output_path: str, max_width: int, *settings: Any) -> str:
+            parts = [kind, source_path, source_hash, output_path, max_width, transforms_key]
+            return "blog-v1:" + ":".join(map(str, [*parts, *settings]))
+
+        return cache_key
+
+    def _write_unless_cached(
+        self, cache_key: Optional[str], output_path: str, write: Callable[[], bool]
+    ) -> Optional[float]:
+        """Write an image file unless the cache shows the one in place is current.
+
+        Args:
+            cache_key: Key of this output, or None to always write.
+            output_path: The file to write.
+            write: Writes the file; returns whether it was processed as
+                intended (only such a file is remembered in the cache).
+
+        Returns:
+            The file's size in KB, or None if there is no file.
+        """
+        cache = self.image_processor
+        if cache_key and cache and cache.output_is_current(cache_key, output_path):
+            logger.debug(f"Using cached post image: {output_path}")
+            return _size_kb(output_path)
+        processed = write()
+        if processed and cache_key and cache:
+            cache.remember_output(cache_key, output_path)
+        return _size_kb(output_path) if os.path.exists(output_path) else None
 
     def _update_figure_markup(self, post: dict[str, Any], images: list[_PublishedImage]) -> None:
         """Bring the post's <figure> markup in line with the published images.
@@ -664,13 +732,13 @@ class BlogProcessor:
 
     def _save_resized(
         self, source_path: str, output_path: str, max_width: int, transforms: dict
-    ) -> float:
+    ) -> bool:
         """Resize source image to max_width and save it in its original format.
 
         Falls back to a plain copy if the image cannot be processed.
 
         Returns:
-            Output file size in KB.
+            Whether the image was processed (False for the plain copy).
         """
         from PIL import Image
 
@@ -695,11 +763,12 @@ class BlogProcessor:
         except Exception as e:
             logger.error(f"Error saving resized image {source_path}: {e}")
             shutil.copy2(source_path, output_path)
-        return _size_kb(output_path)
+            return False
+        return True
 
     def _save_dithered(
         self, source_path: str, dithered_path: str, max_width: int, transforms: dict
-    ) -> Optional[float]:
+    ) -> bool:
         """Resize and dither an image with the shared ImageProcessor pipeline.
 
         Args:
@@ -709,8 +778,8 @@ class BlogProcessor:
             transforms: Transform directives (crop, rotate); may be empty.
 
         Returns:
-            Dithered file size in KB, or None if dithering failed. Nothing is
-            left at dithered_path then; callers link the original instead.
+            Whether the dithered file was written. If not, nothing is left at
+            dithered_path; callers link the original instead.
         """
         from PIL import Image
 
@@ -733,9 +802,9 @@ class BlogProcessor:
         except Exception as e:
             logger.error(f"Error processing blog image {source_path}: {e}")
             _remove_if_present(dithered_path)  # a failed save may leave a partial file
-            return None
+            return False
         logger.debug(f"Created dithered PNG: {source_path} -> {dithered_path}")
-        return _size_kb(dithered_path)
+        return True
 
     # Listing pages
 

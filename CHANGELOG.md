@@ -124,6 +124,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- Images beside a blog post, and post covers, are cached like other images:
+  a build leaves a published image alone when its source, its settings
+  (width, crop/rotate, dither method and colors) and the published file are
+  unchanged. Before, every build and every `sonne serve` rebuild resized
+  and dithered every post image again. `sonne build --skip-cache` rewrites
+  them all.
 - **Breaking (pre-1.0):** `sonne build` and `sonne serve` need a config
   file, in the site folder or one of its two parents (the rule config
   discovery already used). A folder with only `content/`, `templates/` or

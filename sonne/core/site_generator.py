@@ -168,7 +168,7 @@ class SiteGenerator:
         if not skip_images:
             self._process_images(skip_cache)
         if blog_enabled:
-            self._render_posts()
+            self._render_posts(skip_cache)
         self._render_pages(page_files)
         self._finalize()
 
@@ -259,11 +259,11 @@ class SiteGenerator:
         with self._timed_phase("images"):
             self.image_processor.process_all(content_dir, skip_cache=skip_cache)
 
-    def _render_posts(self) -> None:
+    def _render_posts(self, skip_cache: bool) -> None:
         post_count = _count(len(self.blog_processor.posts), "post")
         self._progress.step(f"Rendering blog posts  ({post_count})")
         with self._timed_phase("blog"):
-            self.blog_processor.process_all_posts()
+            self.blog_processor.process_all_posts(skip_cache=skip_cache)
 
     def _render_pages(self, page_files: list[Path]) -> None:
         self._progress.step(f"Rendering pages  ({_count(len(page_files), 'page')})")

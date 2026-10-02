@@ -6,10 +6,6 @@ already implemented.
 
 ## Performance
 
-- **Cache blog-pipeline image outputs** ([plan 03](plans/03-blog-image-caching.md)).
-  Images beside a post, and post covers, are resized and dithered on every
-  build. `ImageProcessor` has a hash-based cache; the blog pipeline does not
-  use it.
 - **Parse each page once** ([plan 04](plans/04-single-parse-html-pipeline.md)).
   With dithering on, `TemplateProcessor.finish_page` parses every rendered
   page with BeautifulSoup, including pages without images.

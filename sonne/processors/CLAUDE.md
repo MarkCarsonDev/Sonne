@@ -4,7 +4,9 @@
   (dither method, colors, formats, sizes, webp method, quality...). A cache
   key that omits a setting serves stale images when that setting changes —
   this was a real bug (B4). When adding an image option, add it to the cache
-  key and bump the `v<N>:` cache-key version prefix.
+  key and bump the `v<N>:` cache-key version prefix. Post images and covers
+  have their own keys (`blog-v1:`, one per output file, in
+  `BlogProcessor._image_cache_keys`): the same rule applies there.
 - **One dithered-image convention**: an original keeps its own URL; its
   dithered copy sits beside it (`<dir>/dithered/<stem>.png`, or a sized
   variant `x_400.webp` next to `x_400_original.webp`). The image pipeline

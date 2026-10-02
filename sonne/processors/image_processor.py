@@ -216,6 +216,30 @@ class ImageProcessor:
             # Return a deterministic fallback based on path and mtime
             return hashlib.sha256(f"{file_path}:{os.path.getmtime(file_path)}".encode()).hexdigest()
 
+    def save_cache(self) -> None:
+        """Write the cache to disk (after outputs were recorded with remember_output)."""
+        self._save_cache()
+
+    def source_hash(self, source_path: str) -> str:
+        """Hash of a source image's bytes, for cache keys."""
+        return self._file_hash(source_path)
+
+    def output_is_current(self, cache_key: str, output_path: str) -> bool:
+        """Whether output_path is still the file recorded under cache_key.
+
+        The entry records the file's size and mtime; anything else at that
+        path (e.g. --clean wiped it) is a miss, as is an entry from an
+        older cache layout.
+        """
+        cached_signature = self.cache.get(cache_key)
+        return isinstance(cached_signature, dict) and (
+            _file_signature(output_path) == cached_signature
+        )
+
+    def remember_output(self, cache_key: str, output_path: str) -> None:
+        """Record the file just written to output_path as the output for cache_key."""
+        self.cache[cache_key] = _file_signature(output_path)
+
     def process_all(self, content_dir: str, skip_cache: bool = False) -> None:
         """Process content images and static/images, then save the cache.
 
@@ -397,7 +421,7 @@ class ImageProcessor:
         # "static-v2": the dithered copy moved from the image's own URL to dithered/.
         cache_key = f"static-v2:{source_path}:{file_hash}:{dither}:{dither_method}:{dither_colors}"
 
-        if not skip_cache and self._static_cache_hit(cache_key, dithered_path):
+        if not skip_cache and self.output_is_current(cache_key, dithered_path):
             logger.debug(f"Using cached version of static image: {source_path}")
             self._register_static_pair(original_path, dithered_path)
             self._count(images_cached=1, cache_hits=1)
@@ -406,7 +430,7 @@ class ImageProcessor:
         try:
             self._write_static_dithered(source_path, dithered_path, dither_method, dither_colors)
             if not skip_cache:
-                self.cache[cache_key] = _file_signature(dithered_path)
+                self.remember_output(cache_key, dithered_path)
             self._register_static_pair(original_path, dithered_path)
             self._count(
                 images_processed=1,
@@ -420,21 +444,6 @@ class ImageProcessor:
                 f"Error dithering static image {source_path}: {e}",
                 exc_info=logger.isEnabledFor(logging.DEBUG),
             )
-
-    def _static_cache_hit(self, cache_key: str, dithered_path: str) -> bool:
-        """Whether the cached dithered copy is still the file in the output dir.
-
-        The entry records the dithered file's size and mtime; anything else
-        at that path (e.g. --clean wiped it) is a miss, as is an entry from
-        an older cache layout.
-        """
-        cached_signature = self.cache.get(cache_key)
-        if not isinstance(cached_signature, dict):
-            return False
-        if _file_signature(dithered_path) == cached_signature:
-            return True
-        logger.debug(f"Dithered static image changed since it was cached: {dithered_path}")
-        return False
 
     def _write_static_dithered(
         self, source_path: str, dithered_path: str, dither_method: str, dither_colors: int

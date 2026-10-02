@@ -536,3 +536,104 @@ class TestPostFrontMatter:
         _, out = builder(site, {"url_style": "directory"}, skip_images=True)
 
         assert "[Harbour notes]" in (out / "blog" / "index.html").read_text(encoding="utf-8")
+
+
+DITHER_ON = {("images", "dither"): True, "url_style": "directory"}
+
+
+class TestPostImageCache:
+    """Post images are written once; later builds leave current files alone."""
+
+    @pytest.fixture
+    def site(self, site_factory, image_factory):
+        site = site_factory("blog")
+        write_post(site, "pic.md", "title: Pic\ndate: 2025-06-03", '![Boat](boat.png "A boat")\n')
+        image_factory(site / "content" / "blog" / "boat.png", size=(64, 64))
+        return site
+
+    @pytest.fixture
+    def writes(self, monkeypatch):
+        """Names of the image-writing methods BlogProcessor calls, in order."""
+        from sonne.processors.blog_processor import BlogProcessor
+
+        calls = []
+        for name in ("_save_resized", "_save_dithered"):
+            original = getattr(BlogProcessor, name)
+
+            def counting(self, *args, _name=name, _original=original):
+                calls.append(_name)
+                return _original(self, *args)
+
+            monkeypatch.setattr(BlogProcessor, name, counting)
+        return calls
+
+    def test_second_build_writes_nothing_and_keeps_the_markup(self, site, builder, writes):
+        _, out = builder(site, DITHER_ON)
+        [post] = out.glob("blog/**/pic/index.html")
+        first_html = post.read_text(encoding="utf-8")
+        assert writes == ["_save_resized", "_save_dithered"]
+        writes.clear()
+
+        builder(site, DITHER_ON)
+
+        assert writes == []
+        assert post.read_text(encoding="utf-8") == first_html  # size captions included
+
+    def test_changed_dither_setting_rewrites_only_the_dithered_copy(self, site, builder, writes):
+        builder(site, DITHER_ON)
+        writes.clear()
+
+        builder(site, {**DITHER_ON, ("images", "dither_colors"): 2})
+
+        assert writes == ["_save_dithered"]
+
+    def test_changed_transform_rewrites_both(self, site, builder, writes):
+        builder(site, DITHER_ON)
+        writes.clear()
+        write_post(
+            site,
+            "pic.md",
+            "title: Pic\ndate: 2025-06-03",
+            '![Boat](boat.png "A boat | crop=1:2")\n',
+        )
+
+        builder(site, DITHER_ON)
+
+        assert writes == ["_save_resized", "_save_dithered"]
+
+    def test_changed_source_image_rewrites_both(self, site, builder, writes, image_factory):
+        builder(site, DITHER_ON)
+        writes.clear()
+        image_factory(site / "content" / "blog" / "boat.png", size=(64, 64), color=(0, 0, 200))
+
+        builder(site, DITHER_ON)
+
+        assert writes == ["_save_resized", "_save_dithered"]
+
+    def test_missing_output_is_written_again(self, site, builder, writes):
+        _, out = builder(site, DITHER_ON)
+        [dithered] = out.glob("blog/**/pic/dithered/boat.png")
+        dithered.unlink()
+        writes.clear()
+
+        builder(site, DITHER_ON)
+
+        assert writes == ["_save_dithered"]
+        assert dithered.exists()
+
+    def test_skip_cache_rewrites_everything(self, site, builder, writes):
+        builder(site, DITHER_ON)
+        writes.clear()
+
+        builder(site, DITHER_ON, skip_cache=True)
+
+        assert writes == ["_save_resized", "_save_dithered"]
+
+    def test_image_that_cannot_be_processed_is_not_cached(self, site, builder, writes):
+        (site / "content" / "blog" / "boat.png").write_bytes(b"not an image")
+        builder(site, DITHER_ON)
+        writes.clear()
+
+        builder(site, DITHER_ON)
+
+        assert writes == ["_save_resized", "_save_dithered"]  # the error is reported again
