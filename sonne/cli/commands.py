@@ -311,7 +311,7 @@ def _echo_degrading_unencodable(text: str) -> None:
     cannot encode; printing them must never turn a finished build into a
     failed one.
     """
-    encoding = getattr(click.get_text_stream("stdout"), "encoding", None) or "utf-8"
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
     click.echo(text.encode(encoding, errors="replace").decode(encoding))
 
 

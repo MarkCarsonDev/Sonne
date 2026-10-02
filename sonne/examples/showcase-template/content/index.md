@@ -67,8 +67,8 @@ Register real Python functions in `scripts/*.py` and call them anywhere:
 
 ```python
 # scripts/tools.py
-sonne_global('roll', lambda: __import__('random').randint(1, 100))
-sonne_filter('shout', lambda s: str(s).upper())
+sonne_global("roll", lambda: __import__("random").randint(1, 100))
+sonne_filter("shout", lambda s: str(s).upper())
 ```
 
 ```markdown
@@ -84,7 +84,7 @@ Random number: {{ roll() }} — {{ 'hello'|shout }}
 # Generate data
 projects = [
     {"title": "Project 1", "url": "/projects/1/"},
-    {"title": "Project 2", "url": "/projects/2/"}
+    {"title": "Project 2", "url": "/projects/2/"},
 ]
 
 # Make it available in templates

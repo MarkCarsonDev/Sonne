@@ -135,7 +135,7 @@ class TestPageDiscovery:
             (site / "content" / name).write_text(f"---\ntitle: {name}\n---\nx\n", "utf-8")
         real_glob = Path.glob
         monkeypatch.setattr(
-            Path, "glob", lambda self, pattern: reversed(list(real_glob(self, pattern)))
+            Path, "glob", lambda self, pattern, **kw: reversed(list(real_glob(self, pattern, **kw)))
         )
         rendered = []
         from sonne.core.site_generator import SiteGenerator

@@ -288,8 +288,9 @@ You can add custom Jinja2 filters to extend templating capabilities. These are d
 def word_count(text):
     return len(text.split())
 
+
 # Register filter in template_processor.py
-self.jinja_env.filters['word_count'] = word_count
+self.jinja_env.filters["word_count"] = word_count
 ```
 
 Then use in templates:

@@ -225,10 +225,11 @@ def truncate_words(text, length=30):
     words = text.split()
     if len(words) <= length:
         return text
-    return ' '.join(words[:length]) + '...'
+    return " ".join(words[:length]) + "..."
+
 
 # Register filter in template_processor.py
-self.jinja_env.filters['truncate_words'] = truncate_words
+self.jinja_env.filters["truncate_words"] = truncate_words
 ```
 
 Then use it in templates:
@@ -345,16 +346,16 @@ import requests
 # Ignore any linting warnings
 
 try:
-    response = requests.get('https://api.example.com/data')
+    response = requests.get("https://api.example.com/data")
     if response.status_code == 200:
         api_data = response.json()
-        sonne_var('api_data', api_data)
+        sonne_var("api_data", api_data)
     else:
-        sonne_var('api_data', None)
-        sonne_var('api_error', f"API Error: {response.status_code}")
+        sonne_var("api_data", None)
+        sonne_var("api_error", f"API Error: {response.status_code}")
 except Exception as e:
-    sonne_var('api_data', None)
-    sonne_var('api_error', f"Exception: {str(e)}")
+    sonne_var("api_data", None)
+    sonne_var("api_error", f"Exception: {str(e)}")
 ```
 
 Then in your template:

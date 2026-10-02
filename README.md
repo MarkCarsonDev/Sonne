@@ -382,10 +382,13 @@ Every `*.py` file directly in `scripts/` runs on each build, in alphabetical ord
 # scripts/team.py
 from sonne.script_api import sonne_var
 
-sonne_var("team", [
-    {"name": "John Doe", "role": "Developer"},
-    {"name": "Jane Smith", "role": "Designer"},
-])
+sonne_var(
+    "team",
+    [
+        {"name": "John Doe", "role": "Developer"},
+        {"name": "Jane Smith", "role": "Designer"},
+    ],
+)
 ```
 
 ```html
@@ -415,18 +418,22 @@ A filter or global whose name is already taken by a built-in one is ignored, wit
 # scripts/tools.py
 from sonne.script_api import get_variable, sonne_config, sonne_filter, sonne_global, sonne_var
 
+
 def read_time(html):
     return f"{max(1, round(len(html.split()) / 220))} min read"
 
-sonne_filter("shout", lambda text: str(text).upper())   # {{ title | shout }}
-sonne_global("read_time", read_time)                    # {{ read_time(content) }}
+
+sonne_filter("shout", lambda text: str(text).upper())  # {{ title | shout }}
+sonne_global("read_time", read_time)  # {{ read_time(content) }}
 
 city = sonne_config("site", "weather", "city", default="Berlin")
 sonne_var("weather_city", city)
 
 pages = get_variable("all_pages", [])
 projects = [p for p in pages if p["section"] == "projects" and p["url"] != "/projects/"]
-sonne_var("recent_projects", sorted(projects, key=lambda p: str(p.get("date", "")), reverse=True)[:3])
+sonne_var(
+    "recent_projects", sorted(projects, key=lambda p: str(p.get("date", "")), reverse=True)[:3]
+)
 ```
 
 The functions work only while Sonne runs the script. Called anywhere else, for example when you run the script with plain `python`, they raise `RuntimeError`. Older scripts that use the same names without importing them keep working.

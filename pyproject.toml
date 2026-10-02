@@ -55,8 +55,8 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
-    "ruff>=0.4.0",
-    "pyright>=1.1.400",
+    "ruff==0.16.10",  # pinned: CI and local must format identically
+    "pyright==1.1.414",  # pinned: new releases add checks
     "build>=1.0.0",
 ]
 
@@ -83,6 +83,7 @@ sonne = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-ra"
 
 [tool.ruff]

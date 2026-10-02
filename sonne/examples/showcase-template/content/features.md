@@ -169,11 +169,7 @@ Create dynamic data with Python scripts.
 # Ignore any linting warnings
 
 # Generate data
-stats = {
-    "posts": 42,
-    "words": 12500,
-    "build_time": "1.2s"
-}
+stats = {"posts": 42, "words": 12500, "build_time": "1.2s"}
 
 # Make it available in templates
 sonne_var("stats", stats)
@@ -315,7 +311,8 @@ This site was last built on {{ build_time }}.
 ```python
 # scripts/tools.py
 import random
-sonne_global('lucky_number', lambda: random.randint(1, 100))
+
+sonne_global("lucky_number", lambda: random.randint(1, 100))
 ```
 
 ```markdown

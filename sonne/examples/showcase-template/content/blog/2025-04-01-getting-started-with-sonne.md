@@ -165,7 +165,7 @@ Create Python scripts in the `scripts` directory:
 # Generate data
 projects = [
     {"title": "Project 1", "url": "/projects/1/"},
-    {"title": "Project 2", "url": "/projects/2/"}
+    {"title": "Project 2", "url": "/projects/2/"},
 ]
 
 # Make it available in templates
@@ -231,7 +231,8 @@ register Jinja functions that content and templates can call:
 ```python
 # scripts/numbers.py
 import random
-sonne_var('build_number', random.randint(1, 100))
+
+sonne_var("build_number", random.randint(1, 100))
 ```
 
 ```markdown
@@ -255,7 +256,8 @@ Sonne supports code syntax highlighting:
 ```python
 def hello_world():
     print("Hello, Sonne!")
-    
+
+
 if __name__ == "__main__":
     hello_world()
 ```
