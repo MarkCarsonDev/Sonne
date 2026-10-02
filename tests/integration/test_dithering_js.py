@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,9 @@ DITHERING_JS = STATIC / "js" / "dithering.js"
 DITHERING_CSS = STATIC / "css" / "dithering.css"
 
 BROWSER_CANDIDATES = [
+    # Chrome's dedicated headless build: CI installs it on Linux, where the
+    # full browser fails to start, and it is much faster everywhere.
+    "chrome-headless-shell",
     "chromium",
     "chromium-browser",
     "google-chrome",
@@ -196,6 +200,9 @@ def run_page(tmp_path_factory, page_html, switches=()):
             browser,
             "--headless=new",
             "--disable-gpu",
+            # Linux CI runners cannot start Chrome's sandbox; these pages are
+            # the suite's own local files.
+            *(["--no-sandbox"] if sys.platform.startswith("linux") else []),
             f"--user-data-dir={page_dir / 'profile'}",
             *switches,
             "--virtual-time-budget=3000",
@@ -208,7 +215,10 @@ def run_page(tmp_path_factory, page_html, switches=()):
         timeout=120,
     )
     match = re.search(r'<pre id="results">(.*?)</pre>', completed.stdout, re.S)
-    assert match, f"page produced no results: {completed.stdout[-500:]}"
+    assert match, (
+        f"page produced no results (exit {completed.returncode}): "
+        f"stdout={completed.stdout[-500:]!r} stderr={completed.stderr[-1500:]!r}"
+    )
     return json.loads(html.unescape(match.group(1)))
 
 
@@ -393,6 +403,7 @@ CONTROLS
 CLICK_CONTROL = 'document.querySelector("[data-sonne-original-images]").click();'
 STORAGE_KEY = "sonne-show-original-images"
 FORCED_COLORS = ("--force-high-contrast",)  # forced-colors: active + prefers-contrast: more
+REDUCED_MOTION = ("--force-prefers-reduced-motion",)
 
 
 def preference_page(before="", controls="", actions=""):
@@ -417,6 +428,11 @@ def stored_preference(tmp_path_factory):
 @pytest.fixture(scope="module")
 def forced_colors(tmp_path_factory):
     return run_page(tmp_path_factory, preference_page(), FORCED_COLORS)
+
+
+@pytest.fixture(scope="module")
+def reduced_motion(tmp_path_factory):
+    return run_page(tmp_path_factory, preference_page(), REDUCED_MOTION)
 
 
 @pytest.fixture(scope="module")
@@ -510,9 +526,8 @@ class TestHighContrastAndForcedColors:
 
 
 class TestMotionAndContrast:
-    def test_reduced_motion_turns_transitions_off(self, default_preference):
-        # Headless Chromium reports prefers-reduced-motion: reduce.
-        assert default_preference["css"]["transition"] == "0s"
+    def test_reduced_motion_turns_transitions_off(self, reduced_motion):
+        assert reduced_motion["css"]["transition"] == "0s"
 
     def test_toggle_is_not_faded(self, default_preference):
         assert default_preference["css"]["toggleOpacity"] == "1"

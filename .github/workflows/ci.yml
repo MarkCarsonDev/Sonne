@@ -48,6 +48,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      # The preinstalled Chrome does not start headless on Linux runners;
+      # the dithering.js browser tests use Chrome's headless build instead.
+      - if: runner.os == 'Linux'
+        run: |
+          npx -y @puppeteer/browsers install chrome-headless-shell@154.0.8037.92 --path "$RUNNER_TEMP/browsers"
+          dirname "$(find "$RUNNER_TEMP/browsers" -type f -name chrome-headless-shell)" >> "$GITHUB_PATH"
       - run: pip install -e ".[dev]"
       - run: pytest -q
 
