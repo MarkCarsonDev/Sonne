@@ -49,6 +49,50 @@ already implemented.
   Its nav hardcodes `.html` URLs and it sets no `url_style`. A test that
   every starter template builds without warnings is also missing.
 
+## Design
+
+Changes to how Sonne is put together. None has a plan yet.
+
+- **Post front matter on `page`.** A regular page's front matter keys are
+  on `page`; a post's are only under `page.metadata`, apart from a fixed
+  list (`title`, `tags`, `cover_img`, ...). A template that reads
+  `page.<key>` on a post gets nothing, without a warning. Put every
+  front matter key on the post, with Sonne's computed keys winning.
+- **Listing page data only under `page`.** Tag, category, archive and index
+  templates get `page.posts`, `page.tag` and so on. Templates that read a
+  top-level `posts` or `tag` render "no posts" without a warning. Either
+  expose them at the top level too, or make an undefined listing variable
+  an error.
+- **Finish the `data` namespace.** `variables.flatten_data` still defaults
+  to `true`, so data files and script variables can replace site config.
+  Flip the default to `false` in a release that says so.
+- **Finish the one dithered-image layout.** Static and post images use
+  `<dir>/dithered/<name>.png`. Sized content images still use
+  `<name>_<width>.<format>` beside `<name>_<width>_original.<format>`, and
+  they are named by file name alone, so two images with the same name in
+  different folders overwrite each other in `/assets/images/`. The
+  `<name>_original` copies of static images go in 0.6.0.
+- **Image references from the rendered post.** Post images are found with
+  regular expressions over raw Markdown, with separate code to skip code
+  blocks. Collect them from the rendered HTML instead.
+- **Who writes `output/images/`.** The static copy and the image pipeline
+  both write there. One clash is handled with a skip check
+  (`ImageProcessor.owns_static_file`); there is no general rule.
+- **Constructors with side effects.** `SiteGenerator.__init__` changes the
+  `Config` it is given (fills default paths) and creates directories, and
+  the CLI module configures logging when it is imported. See also plan 06.
+- **Two path-resolution rules.** `VariableManager` resolves the data and
+  scripts folders itself, not through `Config.normalize_paths`.
+- **Heading ids can collide.** Markdown's generated heading ids
+  (`### Email` gives `id="email"`) can match ids in templates or inline
+  HTML and break `<label for>` and anchors. The accessibility check reports
+  duplicates; nothing prevents them.
+- **Savings for content images in the build report.** A content image
+  becomes many variants, so there is no "processed size" to report. Pick a
+  definition or leave it out for good.
+- **Solar starter ships its own listing templates.** The other starters use
+  the built-in ones.
+
 ## Packaging
 
 - **The PyPI name `sonne` belongs to another project.** `pip install sonne`
