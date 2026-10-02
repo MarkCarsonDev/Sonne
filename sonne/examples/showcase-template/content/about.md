@@ -41,7 +41,7 @@ Sonne is developed and maintained by a small team of passionate developers, desi
 ### Core Team Members
 
 <div class="team-grid">
-{% for member in team_members %}
+{% for member in data.team.team_members %}
     <div class="team-member">
         <div class="team-member-image">
             <img src="{{ member.image }}" alt="{{ member.name }}">

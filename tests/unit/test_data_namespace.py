@@ -1,8 +1,8 @@
 """The `data` namespace: data files and script variables under data.<name>.
 
-With variables.flatten_data (the default for now) they are ALSO exposed
-flat, as before. With flatten_data: false they live only under `data`, so
-they can never collide with site config or Sonne's own variables.
+By default they live only under `data`, so they can never collide with site
+config or Sonne's own variables. With variables.flatten_data: true they are
+ALSO exposed flat, as before the namespace existed.
 """
 
 import logging
@@ -35,7 +35,8 @@ def data_namespace(vm):
     return vm.render_scopes()["global"]["data"]
 
 
-FLAT_OFF = "variables:\n  flatten_data: false\n"
+FLAT_OFF = ""  # the default
+FLAT_ON = "variables:\n  flatten_data: true\n"
 
 
 class TestDataNamespace:
@@ -64,19 +65,21 @@ class TestDataNamespace:
         assert any("people" in r.getMessage() for r in caplog.records)
 
 
-class TestFlattenDataDefault:
-    """Default (flatten_data: true): the old flat access keeps working."""
+class TestFlattenDataOn:
+    """flatten_data: true: the old flat access keeps working."""
 
     def test_mapping_keys_are_still_merged_into_site(self, tmp_path):
-        site = make_site(tmp_path, data={"authors.yaml": "alice: Alice A.\n"})
+        site = make_site(tmp_path, FLAT_ON, data={"authors.yaml": "alice: Alice A.\n"})
         assert loaded(site).variables["site"]["alice"] == "Alice A."
 
     def test_script_variable_is_still_a_top_level_global(self, tmp_path):
-        site = make_site(tmp_path, scripts={"s.py": "sonne_var('weather_now', 'rain')\n"})
+        site = make_site(tmp_path, FLAT_ON, scripts={"s.py": "sonne_var('weather_now', 'rain')\n"})
         assert loaded(site).variables["global"]["weather_now"] == "rain"
 
 
-class TestFlattenDataOff:
+class TestOnlyUnderData:
+    """The default."""
+
     def test_mapping_keys_are_not_merged_into_site(self, tmp_path):
         site = make_site(tmp_path, FLAT_OFF, data={"authors.yaml": "alice: Alice A.\n"})
         vm = loaded(site)
@@ -133,15 +136,81 @@ def test_templates_read_the_namespace_in_a_real_build(site_factory, builder):
     (site / "content" / "probe.md").write_text(
         "---\ntitle: Probe\njinja: true\n---\nBy {{ data.authors.alice }}\n", encoding="utf-8"
     )
-    _, out = builder(site, config_overrides={("variables", "flatten_data"): False})
+    _, out = builder(site)
     assert "By Alice A." in (out / "probe" / "index.html").read_text(encoding="utf-8")
+
+
+class TestMovedNameWarning:
+    """A template still using a flat name is told where the value is now."""
+
+    def build(self, site_factory, builder, caplog, body, overrides=None):
+        site = site_factory("minimal")
+        (site / "data").mkdir(exist_ok=True)
+        (site / "data" / "authors.yaml").write_text("alice: Alice A.\n", encoding="utf-8")
+        (site / "scripts").mkdir(exist_ok=True)
+        (site / "scripts" / "s.py").write_text("sonne_var('team', ['Ada'])\n", encoding="utf-8")
+        (site / "content" / "probe.md").write_text(
+            f"---\ntitle: Probe\njinja: true\n---\n{body}\n", encoding="utf-8"
+        )
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            _, out = builder(site, config_overrides=overrides)
+        html = (out / "probe" / "index.html").read_text(encoding="utf-8")
+        return html, [r.getMessage() for r in caplog.records if "under `data` now" in r.message]
+
+    def test_script_variable(self, site_factory, builder, caplog):
+        _, warnings = self.build(site_factory, builder, caplog, "[{{ team }}]")
+
+        [warning] = warnings
+        assert "'team'" in warning and "{{ data.team }}" in warning
+
+    def test_key_of_a_mapping_data_file(self, site_factory, builder, caplog):
+        _, warnings = self.build(site_factory, builder, caplog, "[{{ alice }}]")
+
+        [warning] = warnings
+        assert "{{ data.authors.alice }}" in warning
+
+    def test_name_read_through_site(self, site_factory, builder, caplog):
+        _, warnings = self.build(site_factory, builder, caplog, "{% if site.team %}x{% endif %}")
+
+        assert len(warnings) == 1
+
+    def test_each_name_warns_once_per_build(self, site_factory, builder, caplog):
+        body = "{% if team %}x{% endif %} {% for member in team %}y{% endfor %} [{{ team }}]"
+
+        _, warnings = self.build(site_factory, builder, caplog, body)
+
+        assert len(warnings) == 1
+
+    def test_no_warning_for_an_attribute_of_something_else(self, site_factory, builder, caplog):
+        _, warnings = self.build(site_factory, builder, caplog, "[{{ page.team }}]")
+
+        assert warnings == []
+
+    def test_no_warning_for_an_unrelated_undefined_name(self, site_factory, builder, caplog):
+        _, warnings = self.build(site_factory, builder, caplog, "[{{ nothing_like_it }}]")
+
+        assert warnings == []
+
+    def test_no_warning_and_the_old_value_with_flatten_data_on(self, site_factory, builder, caplog):
+        html, warnings = self.build(
+            site_factory,
+            builder,
+            caplog,
+            "[{{ team | join(',') }}]",
+            overrides={("variables", "flatten_data"): True},
+        )
+
+        assert "[Ada]" in html
+        assert warnings == []
 
 
 class TestRestoredVariables:
     """Variables restored from the variable file (preserve_prior) behave as before."""
 
     def saved_site(self, tmp_path):
-        config = "site:\n  weather: sunny\nvariables:\n  preserve_prior: true\n"
+        config = (
+            "site:\n  weather: sunny\nvariables:\n  preserve_prior: true\n  flatten_data: true\n"
+        )
         site = make_site(tmp_path, config, scripts={"s.py": "sonne_var('weather', 'rain')\n"})
         loaded(site).save()
         return site

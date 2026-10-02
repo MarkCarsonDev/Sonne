@@ -89,9 +89,10 @@ DEFAULT_CONFIG = {
     "variables": {
         "file": "sonne_variables.json",
         "preserve_prior": False,
-        # Also expose data files and script variables flat, next to site
-        # config (legacy). `data.<name>` always works; false avoids clashes.
-        "flatten_data": True,
+        # Data files and script variables live under `data.<name>`. True
+        # also exposes them flat, next to site config (legacy: names can
+        # then replace site config).
+        "flatten_data": False,
     },
     "content": {
         # Render content files (markdown/HTML pages and posts) through Jinja

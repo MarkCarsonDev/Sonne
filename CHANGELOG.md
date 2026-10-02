@@ -65,10 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Untitled" placeholder.
 - The `data` namespace: every data file is available in templates as
   `data.<file name>` and every script variable as `data.<name>` (also
-  `site.data.*`). New `variables.flatten_data` (default `true`) keeps the
-  old flat exposure as well; set it to `false` so data and script variables
-  can never replace site config. Two data files with the same name in
-  different folders now warn.
+  `site.data.*`), where they can never replace site config. Two data files
+  with the same name in different folders now warn.
 - `sonne migrate` updates a site's config file for deprecated keys: renames
   them, removes no-effect or removed ones, and shows a diff. Dry run by
   default; `--write` applies it and keeps a `.bak` backup. YAML comments and
@@ -102,10 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `security.csp` (`enabled`/`directives`) has no effect and will be
   removed; Sonne never added the policy to pages. Send a
   `Content-Security-Policy` header from your web server instead.
-- Flat access to data files and script variables (mapping keys merged into
-  `site`, script variables at the top level). Use `data.<name>`; set
-  `variables.flatten_data: false` to opt in now. The default will become
-  `false` in a future release.
+- `variables.flatten_data: true` (the old flat names for data files and
+  script variables) is a stopgap for updating templates and will be
+  removed.
 - Run `sonne migrate` to see (and with `--write`, apply) the config
   changes for deprecated keys.
 
@@ -124,6 +121,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- **Breaking (pre-1.0):** data files and script variables are only under
+  `data` by default: `{{ team }}` and `{{ site.team }}` become
+  `{{ data.team }}`, and a key of a mapping data file becomes
+  `{{ data.<file name>.<key> }}`. Before, they were also exposed under
+  those flat names, where a script variable or data file could replace site
+  config. A template that still uses a flat name gets a build warning
+  naming the variable and where it is now. Set
+  `variables.flatten_data: true` to keep the old names while you update
+  templates. The starter templates and the showcase example use `data.*`.
 - Images beside a blog post, and post covers, are cached like other images:
   a build leaves a published image alone when its source, its settings
   (width, crop/rotate, dither method and colors) and the published file are
@@ -231,9 +237,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The unreferenced `sonne/static/base.html` is removed.
 - `data/footer.py` scripts can call `get_post()`, and their `footer_custom`
   is marked HTML-safe exactly like `scripts/footer.py`.
-- A data script's `sonne_var()` that replaces an existing site variable (a
-  site config key, data-file key or Sonne default such as `nav`) now logs a
-  warning once per key per build; the value is still replaced (B18).
+- With `variables.flatten_data: true`, a data script's `sonne_var()` that
+  replaces an existing site variable (a site config key, data-file key or
+  Sonne default such as `nav`) logs a warning once per key per build; the
+  value is still replaced (B18).
 - `solar` scaffold: the weather data script exposes current conditions as
   `current_weather` (was `weather`, which replaced `site.weather` from
   `sonne.yaml`). Custom templates based on the solar scaffold should rename

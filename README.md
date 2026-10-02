@@ -357,7 +357,7 @@ By {{ data.authors.alice }}
 
 Variables set by data scripts are in `data` too, as `data.<name>`.
 
-For backward compatibility, both are also exposed the old flat way: the keys of a mapping data file are merged into `site`, and script variables are available without a prefix. Flat names can clash with site config (a script variable `weather` replaces `site.weather`; Sonne warns when that happens). Set `variables.flatten_data: false` to use only `data.*`, which cannot clash. That will become the default.
+Before the `data` namespace, the keys of a mapping data file were merged into `site` and script variables had no prefix, so a script variable `weather` replaced `site.weather`. A template that still uses such a name gets a build warning that says where the value is now. To keep the old names while you update templates, set `variables.flatten_data: true`; that setting will be removed.
 
 ### Pages and posts
 
@@ -401,7 +401,7 @@ Scripts talk to Sonne through seven functions in `sonne.script_api`. They are ty
 
 | Function | What it does |
 |----------|--------------|
-| `sonne_var(name, value)` | Publishes a variable to templates and content Jinja as `{{ data.name }}`, and with `variables.flatten_data` also as `{{ name }}` and `{{ site.name }}`. |
+| `sonne_var(name, value)` | Publishes a variable to templates and content Jinja as `{{ data.name }}`. |
 | `sonne_filter(name, fn)` | Registers a Jinja filter: `{{ value \| name }}`. |
 | `sonne_global(name, value)` | Registers a Jinja global value or function: `{{ name }}`, `{{ name(...) }}`. |
 | `sonne_config(*keys, default=None)` | Reads the configuration of the running build (your config file merged over the defaults), e.g. `sonne_config("site", "base_url")`. One key returns a whole section. The result is a copy. |
@@ -577,7 +577,7 @@ Relative to the site directory unless absolute.
 | `content.render_jinja` | `false` | Render content files through Jinja before Markdown. Front matter `jinja: true` or `false` overrides it per file. See [Jinja in content](#jinja-in-content). |
 | `variables.file` | `sonne_variables.json` | File used by `variables.preserve_prior`. |
 | `variables.preserve_prior` | `false` | Keep script-produced variables between builds. By default every build starts fresh. |
-| `variables.flatten_data` | `true` | Also expose data files and script variables flat, next to site config (legacy). They are always available as `data.<name>`; set `false` so they can never replace site config. The default will become `false`. |
+| `variables.flatten_data` | `false` | Legacy: also expose data files and script variables flat, next to site config, where they can replace it. They are always available as `data.<name>`. Will be removed. |
 | `serve.host` | `localhost` | `sonne serve` host (the `--host` option overrides it). |
 | `serve.port` | `8000` | `sonne serve` port (the `--port` option overrides it). |
 | `environment` | `prod` | Selects the `url_style` entry. `--dev` sets `dev`, and custom names work when `url_style` has an entry for them. |

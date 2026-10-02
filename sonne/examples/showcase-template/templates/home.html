@@ -22,7 +22,7 @@
         <h2 class="text-center mb-6">Key Features</h2>
         
         <div class="features-grid">
-            {% for feature in features %}
+            {% for feature in data.features %}
             <div class="feature-card animate-on-scroll">
                 <div class="feature-icon">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -82,7 +82,7 @@
         <h2 class="text-center mb-6">Site Statistics</h2>
         
         <div class="stats-display">
-            {% for stat in site_stats %}
+            {% for stat in data.site_stats %}
             <div class="stat-card animate-on-scroll">
                 <div class="stat-number">{{ stat.value }}</div>
                 <div class="stat-label">{{ stat.label }}</div>
@@ -98,7 +98,7 @@
         <h2 class="text-center mb-6">What People Are Saying</h2>
         
         <div class="testimonial-slider">
-            {% for testimonial in testimonials %}
+            {% for testimonial in data.testimonials %}
             <div class="testimonial-item">
                 <div class="testimonial-content">
                     <blockquote>

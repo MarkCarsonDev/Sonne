@@ -93,7 +93,10 @@ class VariableManager:
         self.scripts_dir = self._existing_dir(config.get("paths", "scripts", default="scripts"))
         # Legacy flat exposure of data files and script variables next to
         # site config; `data.<name>` is the collision-free way.
-        self.flatten_data = bool(config.get("variables", "flatten_data", default=True))
+        self.flatten_data = bool(config.get("variables", "flatten_data", default=False))
+        # Flat name -> where it lives now ("team" -> "data.team"), for every
+        # name flatten_data would expose.
+        self._flat_names: dict[str, str] = {}
 
     def _existing_dir(self, configured_path: Optional[str]) -> Optional[str]:
         """configured_path joined to base_dir if that directory exists, else None."""
@@ -125,6 +128,7 @@ class VariableManager:
         self._script_vars = set()
         self._executed_scripts = set()
         self._shadow_warned = set()
+        self._flat_names = {}
         self._image_processor = None
         self.custom_filters = {}
         self.custom_globals = {}
@@ -249,8 +253,21 @@ class VariableManager:
             )
         loaded_from[name] = file_path
         self.data[name] = data
+        if isinstance(data, dict):
+            self._flat_names.update({str(key): f"data.{name}.{key}" for key in data})
+        else:
+            self._flat_names[name] = f"data.{name}"
         if self.flatten_data:
             self._store_data(data, name, "site")
+
+    def names_only_under_data(self) -> dict[str, str]:
+        """Names templates could use bare before the `data` namespace, and no longer can.
+
+        Maps each to where it lives now ("team" -> "data.team"; a key of a
+        mapping data file -> "data.<file>.<key>"). Empty with
+        variables.flatten_data on, when the bare names still work.
+        """
+        return {} if self.flatten_data else dict(self._flat_names)
 
     def _store_data(self, data: Any, name: str, scope: str) -> None:
         """Merge a mapping into scope; store anything else (e.g. CSV rows) under name."""
@@ -399,12 +416,14 @@ class VariableManager:
         sets it again, and a script setting it still gets the B18 warning).
         """
         self.data[name] = value
+        self._flat_names[name] = f"data.{name}"
         if self.flatten_data:
             self.variables["global"][name] = value
 
     def _store_script_variable(self, name: str, value: Any) -> None:
         """Store a script variable as data.<name>, and flat too when flatten_data."""
         self.data[name] = value
+        self._flat_names[name] = f"data.{name}"
         if self.flatten_data:
             self.variables["global"][name] = value
             self.variables["site"][name] = value

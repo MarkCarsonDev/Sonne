@@ -49,9 +49,10 @@ Changes to how Sonne is put together. None has a plan yet.
   top-level `posts` or `tag` render "no posts" without a warning. Either
   expose them at the top level too, or make an undefined listing variable
   an error.
-- **Finish the `data` namespace.** `variables.flatten_data` still defaults
-  to `true`, so data files and script variables can replace site config.
-  Flip the default to `false` in a release that says so.
+- **Remove `variables.flatten_data`.** It defaults to `false` now and only
+  exists so sites can keep the old flat names while updating templates.
+  Remove it, and the flat code paths in `VariableManager`, through
+  `sonne/core/deprecations.py`.
 - **Finish the one dithered-image layout.** Static and post images use
   `<dir>/dithered/<name>.png`. Sized content images still use
   `<name>_<width>.<format>` beside `<name>_<width>_original.<format>`, in

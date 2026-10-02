@@ -12,7 +12,7 @@ computed at build time.
 
 - The current year is **{{ year }}**.
 - This site is *{{ title }}* by *{{ author }}*.
-- This build's random number: **{{ build_number }}**.
+- This build's random number: **{{ data.build_number }}**.
 - There are **{{ all_blog_posts | length }}** blog posts:
 {% for post in all_blog_posts %}
   - [{{ post.title }}]({{ post.full_url }}) ({{ post.date_str }})

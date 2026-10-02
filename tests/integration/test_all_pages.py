@@ -113,5 +113,5 @@ class TestAllPages:
             "sonne_var('project_titles', titles)\n",
         )
         generator, _ = builder(site_with_projects)
-        titles = generator.variable_manager.variables["global"]["project_titles"]
+        titles = generator.variable_manager.data["project_titles"]
         assert titles == ["Projects", "Solar Monitor", "untitled"]

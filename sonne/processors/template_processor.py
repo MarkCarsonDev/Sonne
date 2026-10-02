@@ -7,8 +7,9 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterator
 from pathlib import PurePath
-from typing import Any, Callable, Optional
+from typing import Any, Callable, NoReturn, Optional
 
 import jinja2
 import markdown
@@ -119,6 +120,10 @@ class TemplateProcessor:
         self.dithered_images = DitheredImages()
         self.dithering_enabled = self.config.get("images", "dither", default=True)
         logger.info(f"Dithering enabled: {self.dithering_enabled}")
+        # Bare names that moved under `data` (name -> where it is now); a
+        # template that still uses one gets a warning saying so, once.
+        self._names_under_data: dict[str, str] = {}
+        self._names_hinted: set[str] = set()
         self.jinja_env = self._create_jinja_env()
         # Per instance, so every build (including `sonne serve` rebuilds)
         # warns once per file.
@@ -139,6 +144,7 @@ class TemplateProcessor:
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(template_dirs),
             autoescape=jinja2.select_autoescape(["html", "xml"]),
+            undefined=_undefined_with_data_hints(self._names_under_data, self._names_hinted),
             trim_blocks=True,
             lstrip_blocks=True,
         )
@@ -259,6 +265,16 @@ class TemplateProcessor:
                 "(or `jinja: true` front matter), and data scripts with "
                 "sonne_global()/sonne_filter() for Python."
             )
+
+    def hint_names_under_data(self, names: dict[str, str]) -> None:
+        """Set the bare names that now live under `data`, for this build's warnings.
+
+        Args:
+            names: Bare name -> where it is now, e.g. {"team": "data.team"}.
+        """
+        self._names_under_data.clear()
+        self._names_under_data.update(names)
+        self._names_hinted.clear()
 
     def register_extensions(self, filters: dict[str, Any], globals_: dict[str, Any]) -> None:
         """Register script-provided Jinja filters and globals.
@@ -659,6 +675,62 @@ class TemplateProcessor:
         original_url, dithered_url = pair
         img["src"] = dithered_url + suffix
         img["data-original-src"] = original_url + suffix
+
+
+def _undefined_with_data_hints(
+    names_under_data: dict[str, str], hinted: set[str]
+) -> type[jinja2.Undefined]:
+    """Jinja's Undefined, plus a warning when the missing name moved under `data`.
+
+    A template written for the flat names renders nothing (or fails) once
+    data files and script variables are only under `data`; the warning
+    names the variable and where it is now. Each name warns once per build.
+
+    Args:
+        names_under_data: Bare name -> where it is now; read at render time.
+        hinted: Names already warned about.
+    """
+
+    class UndefinedWithDataHint(jinja2.Undefined):
+        __slots__ = ()
+
+        def _hint(self) -> None:
+            name = self._undefined_name
+            if not isinstance(name, str) or name in hinted or name not in names_under_data:
+                return
+            # A top-level name, or site.<name>; not some other object's attribute.
+            owner = self._undefined_obj
+            if owner is not jinja2.utils.missing and not _is_site_scope(owner):
+                return
+            hinted.add(name)
+            logger.warning(
+                f"Template variable '{name}' is not defined: data files and script "
+                f"variables are under `data` now. Use {{{{ {names_under_data[name]} }}}}, or "
+                "set variables.flatten_data: true to keep the old names for now."
+            )
+
+        def _fail_with_undefined_error(self, *args: Any, **kwargs: Any) -> NoReturn:
+            self._hint()
+            return super()._fail_with_undefined_error(*args, **kwargs)
+
+        def __str__(self) -> str:
+            self._hint()
+            return super().__str__()
+
+        def __iter__(self) -> Iterator[Any]:
+            self._hint()
+            return super().__iter__()
+
+        def __bool__(self) -> bool:
+            self._hint()
+            return super().__bool__()
+
+    return UndefinedWithDataHint
+
+
+def _is_site_scope(value: Any) -> bool:
+    """Whether value is the `site` variable templates get (it carries Sonne's generator keys)."""
+    return isinstance(value, dict) and "generator_version" in value
 
 
 def _ensure_head(soup: BeautifulSoup) -> Tag:

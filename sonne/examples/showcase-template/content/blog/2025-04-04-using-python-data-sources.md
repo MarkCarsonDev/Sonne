@@ -109,10 +109,10 @@ Use in templates:
 
 ```html
 <div class="site-stats">
-    <p>This site contains {{ site_stats.total_pages }} pages, 
-       including {{ site_stats.blog_posts }} blog posts and 
-       {{ site_stats.images }} images.</p>
-    <p>Last updated: {{ site_stats.last_updated }}</p>
+    <p>This site contains {{ data.site_stats.total_pages }} pages, 
+       including {{ data.site_stats.blog_posts }} blog posts and 
+       {{ data.site_stats.images }} images.</p>
+    <p>Last updated: {{ data.site_stats.last_updated }}</p>
 </div>
 ```
 
@@ -336,7 +336,7 @@ Use in templates:
     <h2>What People Are Saying</h2>
   
     <div class="testimonials-slider">
-        {% for testimonial in testimonials %}
+        {% for testimonial in data.testimonials %}
         <div class="testimonial-item">
             <div class="testimonial-content">
                 <blockquote>
@@ -715,7 +715,7 @@ Data structure:
 }
 
 Usage in templates:
-{% for project in projects %}
+{% for project in data.projects %}
     <h2>{{ project.title }}</h2>
     <p>{{ project.description }}</p>
 {% endfor %}

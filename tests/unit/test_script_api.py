@@ -42,10 +42,10 @@ class TestDuringABuild:
 
         vm = load(site, posts=[{"slug": "a", "title": "Post A", "tags": []}])
 
-        assert vm.get("team") == ["Ada"]
+        assert vm.data["team"] == ["Ada"]
         assert vm.custom_filters["shout"]("hi") == "HI"
         assert vm.custom_globals["answer"] == 42
-        assert vm.get("found") == "Post A"
+        assert vm.data["found"] == "Post A"
 
     def test_keyword_arguments_match_the_injected_functions(self, tmp_path):
         site = make_site(
@@ -58,12 +58,12 @@ class TestDuringABuild:
 
         vm = load(site)
 
-        assert vm.get("x") == 1 and vm.custom_filters["f"] is str
+        assert vm.data["x"] == 1 and vm.custom_filters["f"] is str
 
     def test_injected_globals_still_work(self, tmp_path):
         site = make_site(tmp_path, {"legacy.py": "sonne_var('legacy', True)\n"})
 
-        assert load(site).get("legacy") is True
+        assert load(site).data["legacy"] is True
 
     def test_footer_script_can_use_the_import(self, tmp_path):
         (tmp_path / "data").mkdir()
@@ -73,7 +73,7 @@ class TestDuringABuild:
 
         vm = load(tmp_path)
 
-        assert str(vm.get("footer_custom")) == "<b>f</b>"
+        assert str(vm.data["footer_custom"]) == "<b>f</b>"
 
 
 class TestOutsideABuild:
@@ -122,7 +122,7 @@ class TestNoLeaks:
 
         vm_one, vm_two = load(first), load(second)
 
-        assert (vm_one.get("who"), vm_two.get("who")) == ("one", "two")
+        assert (vm_one.data["who"], vm_two.data["who"]) == ("one", "two")
 
     def test_helper_called_later_reaches_the_script_running_now(self, tmp_path):
         # A script can keep a reference to the API (e.g. in a helper) and
@@ -141,7 +141,7 @@ class TestNoLeaks:
             },
         )
 
-        assert load(site).get("from_helper") == "ok"
+        assert load(site).data["from_helper"] == "ok"
 
 
 CONFIG_IMPORT = "from sonne.script_api import sonne_config, sonne_var\n"
@@ -168,10 +168,10 @@ class TestSonneConfig:
 
         vm = load(site)
 
-        assert vm.get("city") == "Oslo"
-        assert vm.get("per_page") == 10  # built-in default config
-        assert vm.get("missing") == "fallback"
-        assert vm.get("no_keys") == "whole"
+        assert vm.data["city"] == "Oslo"
+        assert vm.data["per_page"] == 10  # built-in default config
+        assert vm.data["missing"] == "fallback"
+        assert vm.data["no_keys"] == "whole"
 
     def test_configured_null_is_returned_not_the_default(self, tmp_path):
         site = site_with_config(
@@ -182,7 +182,7 @@ class TestSonneConfig:
             },
         )
 
-        assert load(site).get("tagline") is None
+        assert load(site).data["tagline"] is None
 
     def test_default_is_returned_as_given(self, tmp_path):
         site = site_with_config(
@@ -194,7 +194,7 @@ class TestSonneConfig:
             },
         )
 
-        assert load(site).get("same") is True
+        assert load(site).data["same"] is True
 
     def test_changing_the_result_does_not_change_the_build_config(self, tmp_path):
         site = site_with_config(
@@ -226,7 +226,7 @@ class TestSonneConfig:
 
         vm = load(site)
 
-        assert vm.get("imported") == vm.get("injected") == {"city": "Oslo"}
+        assert vm.data["imported"] == vm.data["injected"] == {"city": "Oslo"}
 
 
 READ_IMPORT = "from sonne.script_api import get_variable, sonne_var\n"
@@ -247,9 +247,9 @@ class TestGetVariable:
 
         vm = load(site, posts=[{"slug": "a", "title": "A", "tags": []}])
 
-        assert vm.get("post_count") == 1
-        assert vm.get("site_title") == "Real"
-        assert vm.get("team_seen") == ["Ada"]
+        assert vm.data["post_count"] == 1
+        assert vm.data["site_title"] == "Real"
+        assert vm.data["team_seen"] == ["Ada"]
 
     def test_missing_variable_returns_the_default_as_given(self, tmp_path):
         site = make_site(
@@ -264,8 +264,8 @@ class TestGetVariable:
 
         vm = load(site)
 
-        assert vm.get("none") is None
-        assert vm.get("same") is True
+        assert vm.data["none"] is None
+        assert vm.data["same"] is True
 
     def test_changing_the_result_does_not_change_the_build(self, tmp_path):
         site = make_site(
@@ -293,7 +293,7 @@ class TestGetVariable:
 
         vm = load(site)
 
-        assert vm.get("imported") == vm.get("injected") == "Real"
+        assert vm.data["imported"] == vm.data["injected"] == "Real"
 
 
 DITHER_IMPORT = "from PIL import Image\nfrom sonne.script_api import dither_image, sonne_var\n"
@@ -320,8 +320,8 @@ class TestDitherImage:
 
         gradient = Image.linear_gradient("L").resize((32, 32))
         expected = ImageProcessor(vm.config, {}).dither(gradient).convert("L").tobytes()
-        assert vm.get("pixels") == expected
-        assert set(vm.get("pixels")) <= {0, 255}  # 1bit: only black and white
+        assert vm.data["pixels"] == expected
+        assert set(vm.data["pixels"]) <= {0, 255}  # 1bit: only black and white
 
     def test_one_image_processor_serves_every_call_in_a_build(self, tmp_path, monkeypatch):
         created = []

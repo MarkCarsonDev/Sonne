@@ -7,12 +7,23 @@ import textwrap
 import pytest
 
 import sonne
+import sonne.core.config as config_module
 from sonne.core.config import Config
 from sonne.core.variable_manager import VariableManager
 
 
 def make_vm(base_dir):
     return VariableManager(Config(base_dir=str(base_dir)), str(base_dir))
+
+
+@pytest.fixture
+def flat_names(monkeypatch):
+    """variables.flatten_data on: data files and script variables also get flat names.
+
+    The legacy exposure the classes using this fixture pin; the default
+    (only under `data`) is pinned in test_data_namespace.py.
+    """
+    monkeypatch.setitem(config_module.DEFAULT_CONFIG["variables"], "flatten_data", True)
 
 
 class TestScopes:
@@ -40,6 +51,7 @@ def shadow_warnings(caplog, name):
     return [r for r in caplog.records if r.levelno == logging.WARNING and f"'{name}'" in r.message]
 
 
+@pytest.mark.usefixtures("flat_names")
 class TestScriptVariableShadowing:
     """B18: sonne_var replacing a site/config variable must not be silent."""
 
@@ -105,6 +117,7 @@ class TestScriptExtensions:
         assert "stale" not in vm.custom_filters
 
 
+@pytest.mark.usefixtures("flat_names")
 class TestDataScripts:
     def test_sonne_var_sets_global_and_site(self, tmp_path):
         scripts = tmp_path / "scripts"
@@ -219,6 +232,7 @@ class TestSiteConfigVariables:
         assert vm.get("all_blog_posts", scope="site") == [{"slug": "a"}]
 
 
+@pytest.mark.usefixtures("flat_names")
 class TestDataFiles:
     def test_yaml_data_file_loaded_into_site_scope(self, tmp_path):
         data = tmp_path / "data"
@@ -277,6 +291,7 @@ class TestVersion:
         assert vm._get_version() == "99.0.0-test"
 
 
+@pytest.mark.usefixtures("flat_names")
 class TestDeterministicOrder:
     @pytest.fixture
     def reversed_glob(self, monkeypatch):

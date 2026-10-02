@@ -27,11 +27,11 @@ class TestDefaults:
     def test_braces_render_literally_by_default(self, jinja_site, builder):
         write(
             jinja_site / "content" / "sample.md",
-            "---\ntitle: Sample\n---\nColor is {{ color }}.\n",
+            "---\ntitle: Sample\n---\nColor is {{ data.color }}.\n",
         )
         _, out = builder(jinja_site)
         html = (out / "sample" / "index.html").read_text(encoding="utf-8")
-        assert "{{ color }}" in html
+        assert "{{ data.color }}" in html
 
     def test_legacy_markers_warn(self, jinja_site, builder, caplog):
         write(
@@ -70,7 +70,7 @@ class TestOptIn:
         write(
             jinja_site / "content" / "sample.md",
             "---\ntitle: Sample\n---\n"
-            "Color {{ color }}, doubled {{ double(3) }}, {{ 'hi'|shout }}, title {{ page.title }}.\n",
+            "Color {{ data.color }}, doubled {{ double(3) }}, {{ 'hi'|shout }}, title {{ page.title }}.\n",
         )
         _, out = builder(jinja_site, config_overrides={("content", "render_jinja"): True})
         html = (out / "sample" / "index.html").read_text(encoding="utf-8")
@@ -82,7 +82,7 @@ class TestOptIn:
     def test_per_file_opt_in_overrides_site_off(self, jinja_site, builder):
         write(
             jinja_site / "content" / "sample.md",
-            "---\ntitle: Sample\njinja: true\n---\nColor is {{ color }}.\n",
+            "---\ntitle: Sample\njinja: true\n---\nColor is {{ data.color }}.\n",
         )
         _, out = builder(jinja_site)  # site default: off
         html = (out / "sample" / "index.html").read_text(encoding="utf-8")
@@ -91,11 +91,11 @@ class TestOptIn:
     def test_per_file_opt_out_overrides_site_on(self, jinja_site, builder):
         write(
             jinja_site / "content" / "sample.md",
-            "---\ntitle: Sample\njinja: false\n---\nColor is {{ color }}.\n",
+            "---\ntitle: Sample\njinja: false\n---\nColor is {{ data.color }}.\n",
         )
         _, out = builder(jinja_site, config_overrides={("content", "render_jinja"): True})
         html = (out / "sample" / "index.html").read_text(encoding="utf-8")
-        assert "{{ color }}" in html
+        assert "{{ data.color }}" in html
 
     def test_jinja_error_falls_back_and_logs(self, jinja_site, builder, caplog):
         write(
@@ -115,7 +115,7 @@ class TestBlogPosts:
         write(
             site / "content" / "blog" / "2025-06-01-jinja-post.md",
             "---\ntitle: Jinja Post\ndate: 2025-06-01\njinja: true\n---\n"
-            "The color is {{ color }} and there are {{ all_blog_posts|length }} posts.\n",
+            "The color is {{ data.color }} and there are {{ all_blog_posts|length }} posts.\n",
         )
         _, out = builder(site)
         post = out / "blog" / "2025" / "06" / "01" / "jinja-post" / "index.html"
@@ -129,12 +129,12 @@ class TestBlogPosts:
         write(
             site / "content" / "blog" / "2025-06-02-excerpt-check.md",
             "---\ntitle: Excerpt Check\ndate: 2025-06-02\njinja: true\n---\n"
-            "Starts with {{ color }} and continues long enough to excerpt.\n",
+            "Starts with {{ data.color }} and continues long enough to excerpt.\n",
         )
         _, out = builder(site)
         index_html = (out / "blog" / "index.html").read_text(encoding="utf-8")
         assert "Starts with teal" in index_html
-        assert "{{ color }}" not in index_html
+        assert "{{ data.color }}" not in index_html
 
 
 class TestFilterCollisions:

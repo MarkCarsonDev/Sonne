@@ -293,23 +293,23 @@
     </header>
 
     <div class="container">
-        {% if battery or current_weather %}
+        {% if data.battery or data.current_weather %}
         {# The text carries the meaning; the meter and the icons only illustrate it. #}
         <aside class="status-bar" aria-label="Server power and weather">
-            {% if battery %}
+            {% if data.battery %}
             <div class="battery-status">
                 <span class="battery-icon" aria-hidden="true">⚡</span>
                 <div class="battery-level" aria-hidden="true">
-                    <div class="battery-fill" style="width: {{ battery.percentage }}%;"></div>
+                    <div class="battery-fill" style="width: {{ data.battery.percentage }}%;"></div>
                 </div>
-                <span><span class="sr-only">Battery </span>{{ battery.percentage }}%{% if battery.charging %} (Charging){% endif %}</span>
+                <span><span class="sr-only">Battery </span>{{ data.battery.percentage }}%{% if data.battery.charging %} (Charging){% endif %}</span>
             </div>
             {% endif %}
 
-            {% if current_weather %}
+            {% if data.current_weather %}
             <div class="weather-status">
-                <span class="weather-icon" role="img" aria-label="{{ current_weather.description }}" title="{{ current_weather.description }}">{{ current_weather.icon_text }}</span>
-                <span>{{ current_weather.temperature }}°{{ current_weather.unit_symbol }} | {{ current_weather.location }}</span>
+                <span class="weather-icon" role="img" aria-label="{{ data.current_weather.description }}" title="{{ data.current_weather.description }}">{{ data.current_weather.icon_text }}</span>
+                <span>{{ data.current_weather.temperature }}°{{ data.current_weather.unit_symbol }} | {{ data.current_weather.location }}</span>
             </div>
             {% endif %}
         </aside>

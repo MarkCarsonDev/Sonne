@@ -176,7 +176,7 @@ Then use this data in your templates:
 
 ```html
 <div class="team">
-    {% for member in team %}
+    {% for member in data.team.team %}
     <div class="member">
         <h3>{{ member.name }}</h3>
         <p>{{ member.role }}</p>
@@ -235,7 +235,7 @@ sonne_var('build_number', random.randint(1, 100))
 ```
 
 ```markdown
-This build's number is {{ build_number }}.
+This build's number is {{ data.build_number }}.
 ```
 
 (Rendered live on the [Jinja demo page](/jinja-demo/).)

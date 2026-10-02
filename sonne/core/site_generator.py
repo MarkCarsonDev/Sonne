@@ -228,6 +228,9 @@ class SiteGenerator:
                 self.variable_manager.custom_filters,
                 self.variable_manager.custom_globals,
             )
+            self.template_processor.hint_names_under_data(
+                self.variable_manager.names_only_under_data()
+            )
         variables = self.variable_manager.variables
         logger.debug(f"Global variables: {list(variables.get('global', {}).keys())}")
         logger.debug(f"Site variables: {list(variables.get('site', {}).keys())}")

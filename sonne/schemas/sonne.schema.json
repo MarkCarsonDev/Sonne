@@ -353,8 +353,8 @@
         },
         "flatten_data": {
           "type": "boolean",
-          "description": "Also expose data files and script variables flat (data file mapping keys in site scope, script variables at top level), as before the `data` namespace. They are always available as data.<name>; set false so they can never replace site config. The default will become false.",
-          "default": true
+          "description": "Data files and script variables are available as data.<name>. Set true to ALSO expose them flat, as before the `data` namespace (data file mapping keys in site scope, script variables at top level); flat names can replace site config. Legacy; will be removed.",
+          "default": false
         }
       }
     },
