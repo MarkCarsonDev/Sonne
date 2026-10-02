@@ -4,7 +4,7 @@ import logging
 import re
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageStat
 
 from sonne.core.config import Config
 from sonne.processors.image_processor import ImageProcessor
@@ -279,6 +279,74 @@ class TestImageDiscovery:
         image_factory(site / "content" / "blog" / "CAMERA.JPG", size=(64, 64), fmt="JPEG")
         _, out = builder(site)
         assert (out / "assets" / "images" / "CAMERA_400_original.webp").exists()
+
+
+class TestSharedFileNames:
+    """Variants of every content image share /assets/images/, so their names must differ."""
+
+    RED, BLUE = (200, 0, 0), (0, 0, 200)
+
+    def site_with_two_photos(self, site_factory, image_factory, second="b/photo.jpg"):
+        site = site_factory("minimal")
+        image_factory(site / "content" / "a" / "photo.jpg", size=(64, 64), color=self.RED)
+        image_factory(site / "content" / second, size=(64, 64), color=self.BLUE)
+        return site
+
+    @staticmethod
+    def dominant_channel(path):
+        red, _green, blue = ImageStat.Stat(Image.open(path).convert("RGB")).mean
+        return "red" if red > blue else "blue"
+
+    def test_each_image_keeps_its_own_pixels(self, site_factory, builder, image_factory):
+        site = self.site_with_two_photos(site_factory, image_factory)
+
+        _, out = builder(site)
+
+        assets = out / "assets" / "images"
+        assert self.dominant_channel(assets / "photo_400_original.jpg") == "red"
+        assert self.dominant_channel(assets / "b-photo_400_original.jpg") == "blue"
+
+    def test_the_renamed_image_is_reported(self, site_factory, builder, image_factory, caplog):
+        site = self.site_with_two_photos(site_factory, image_factory)
+
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            builder(site)
+
+        [warning] = [r.message for r in caplog.records if "share a file name" in r.message]
+        assert "b/photo.jpg -> b-photo_<width>.<format>" in warning
+
+    def test_names_differing_only_in_case_count_as_shared(
+        self, site_factory, builder, image_factory
+    ):
+        site = self.site_with_two_photos(site_factory, image_factory, second="b/Photo.jpg")
+
+        _, out = builder(site)
+
+        assert (out / "assets" / "images" / "b-Photo_400_original.jpg").exists()
+
+    def test_rebuild_from_cache_keeps_both(self, site_factory, builder, image_factory):
+        site = self.site_with_two_photos(site_factory, image_factory)
+        builder(site)
+
+        _, out = builder(site)
+
+        assets = out / "assets" / "images"
+        assert self.dominant_channel(assets / "photo_400_original.jpg") == "red"
+        assert self.dominant_channel(assets / "b-photo_400_original.jpg") == "blue"
+
+    def test_distinct_names_are_untouched_and_silent(
+        self, site_factory, builder, image_factory, caplog
+    ):
+        site = site_factory("minimal")
+        image_factory(site / "content" / "a" / "boat.jpg", size=(64, 64))
+        image_factory(site / "content" / "b" / "harbour.jpg", size=(64, 64))
+
+        with caplog.at_level(logging.WARNING, logger="sonne"):
+            _, out = builder(site)
+
+        assert (out / "assets" / "images" / "boat_400_original.jpg").exists()
+        assert (out / "assets" / "images" / "harbour_400_original.jpg").exists()
+        assert not [r for r in caplog.records if "share a file name" in r.message]
 
 
 class TestSiteLocation:

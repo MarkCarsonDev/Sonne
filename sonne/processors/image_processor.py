@@ -4,6 +4,7 @@ Handles optimizing, resizing, and converting images.
 """
 
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -23,6 +24,7 @@ from PIL import Image, ImageOps
 from sonne.processors.dithered_images import DitheredImages
 from sonne.utils.build_stats import BuildStatistics
 from sonne.utils.constants import IMAGE_EXTENSIONS, PAGE_EXTENSIONS
+from sonne.utils.path_utils import sorted_paths
 
 logger = logging.getLogger("sonne")
 
@@ -32,6 +34,9 @@ DEFAULT_DITHER_FORMATS = ["webp"]
 
 # Where sized variants are written, relative to the output root.
 VARIANTS_DIR = "assets/images"
+
+# How many renamed images the shared-file-name warning lists.
+MAX_SHARED_NAMES_LISTED = 5
 
 # Lossy quality for WebP and JPEG variants.
 LOSSY_QUALITY = 85
@@ -122,14 +127,15 @@ class VariantSettings:
     dither_formats: list[str]
     dither_sizes: set[int]
 
-    def cache_key(self, source_path: str, file_hash: Optional[str]) -> str:
-        """Cache key covering the source file and every output-affecting setting.
+    def cache_key(self, source_path: str, file_hash: Optional[str], name: str) -> str:
+        """Cache key covering the source file, its output name and every output-affecting setting.
 
-        The "v2" prefix was bumped when dither settings joined the key, so
-        entries in the old layout are invalidated once.
+        The "v3" prefix was bumped when the output name joined the key (an
+        image's name changes when another image takes or frees its file
+        name), so entries in the old layout are invalidated once.
         """
         return (
-            f"v2:{source_path}:{file_hash}:{self.dither}:{self.optimize}"
+            f"v3:{source_path}:{name}:{file_hash}:{self.dither}:{self.optimize}"
             f":{_joined(self.formats)}:{_joined(self.sizes)}"
             f":{self.dither_method}:{self.dither_colors}"
             f":{self.webp_method}:{self.webp_method_original}"
@@ -220,8 +226,11 @@ class ImageProcessor:
         images = self.images_to_process(content_dir)
         if images.content:
             logger.info(f"Processing images in content directory: {content_dir}")
+            names = _variant_names(images.content, content_dir)
+            _warn_about_shared_file_names(names, content_dir)
             self._run_for_each(
-                lambda path: self.process_image(path, skip_cache=skip_cache), images.content
+                lambda path: self.process_image(path, names[path], skip_cache=skip_cache),
+                images.content,
             )
         if images.static:
             logger.info(
@@ -509,8 +518,9 @@ class ImageProcessor:
             path. On an unexpected error, the variants written so far.
         """
         settings = self._variant_settings(options)
+        stem = output_filename or Path(source_path).stem
         file_hash = None if skip_cache else self._file_hash(source_path)
-        cache_key = settings.cache_key(source_path, file_hash)
+        cache_key = settings.cache_key(source_path, file_hash, stem)
         started = time.perf_counter()
 
         if not skip_cache:
@@ -529,7 +539,6 @@ class ImageProcessor:
             with Image.open(source_path) as opened:
                 image = upright_image(opened)
                 width, height = image.size
-                stem = output_filename or Path(source_path).stem
                 for key, fmt, rel_path in self._write_variants(image, stem, settings):
                     results.setdefault(key, {})[fmt] = rel_path
             if not skip_cache and self.cache_file:
@@ -847,9 +856,62 @@ def _find_images(directory: str, used_paths: Optional[set[str]]) -> list[str]:
     root = Path(directory)
     return [
         str(file_path)
-        for file_path in sorted(root.rglob("*"))
+        for file_path in sorted_paths(root.rglob("*"))
         if _is_processable_image(file_path, root, used_paths)
     ]
+
+
+def _variant_names(image_paths: list[str], content_dir: str) -> dict[str, str]:
+    """The name each content image's variants are written under in VARIANTS_DIR.
+
+    Variants of every content image share one folder, so the names must be
+    unique. An image keeps its own file name unless an earlier image (in
+    processing order) has it; then its folder is added ("b/photo.jpg" ->
+    "b-photo"), then its extension, then a number. Names are compared
+    without case, because Windows and macOS file systems do not keep
+    "Photo" and "photo" apart.
+    """
+    taken: set[str] = set()
+    names = {}
+    for image_path in image_paths:
+        rel_path = Path(os.path.relpath(image_path, content_dir))
+        name = next(
+            candidate for candidate in _name_candidates(rel_path) if candidate.lower() not in taken
+        )
+        taken.add(name.lower())
+        names[image_path] = name
+    return names
+
+
+def _name_candidates(rel_path: Path) -> Iterator[str]:
+    """Variant names to try for an image, plainest first; never runs out."""
+    yield rel_path.stem
+    with_folder = "-".join([*rel_path.parent.parts, rel_path.stem])
+    if with_folder != rel_path.stem:
+        yield with_folder
+    with_extension = f"{with_folder}-{rel_path.suffix.lstrip('.').lower()}"
+    yield with_extension
+    for number in itertools.count(2):
+        yield f"{with_extension}-{number}"
+
+
+def _warn_about_shared_file_names(names: dict[str, str], content_dir: str) -> None:
+    """Warn once about the images that could not keep their own file name."""
+    renamed = [
+        f"{Path(os.path.relpath(image_path, content_dir)).as_posix()} -> {name}_<width>.<format>"
+        for image_path, name in names.items()
+        if name != Path(image_path).stem
+    ]
+    if not renamed:
+        return
+    listed = "; ".join(renamed[:MAX_SHARED_NAMES_LISTED])
+    more = len(renamed) - MAX_SHARED_NAMES_LISTED
+    logger.warning(
+        f"{len(renamed)} content image(s) share a file name with another image, so their "
+        f"variants in /{VARIANTS_DIR}/ are named after their folder too: {listed}"
+        f"{f'; and {more} more' if more > 0 else ''}. "
+        "Rename the files to choose the names yourself."
+    )
 
 
 def _is_processable_image(file_path: Path, root: Path, used_paths: Optional[set[str]]) -> bool:

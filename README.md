@@ -197,7 +197,7 @@ Sonne handles images in three places. Remote images and SVGs are never processed
 /assets/images/boat_400.webp              (dithered)
 ```
 
-Images are never enlarged. Files are named by the image's file name alone, so two images with the same name in different folders overwrite each other. An animated GIF becomes a single frame.
+Images are never enlarged, and an animated GIF becomes a single frame. Files are named by the image's file name alone. When two images have the same file name, the second gets its folder in the name as well (`content/trips/boat.jpg` becomes `trips-boat_400.webp`) and the build warns; give the files different names to choose the names yourself.
 
 **Images in a blog post.** An image a post refers to by a relative path (`![A boat](boat.jpg)`) is copied next to the published post, at most `images.blog_original_max_width` wide. With dithering on, a dithered PNG goes to `dithered/boat.png` beside it, at most `images.blog_dithered_max_width` wide, and the image is shown in a `<figure>` with a caption and a "view original" button. The caption is the image's title, or its alt text. The title can also carry transforms after a `|`:
 

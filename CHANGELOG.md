@@ -239,6 +239,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paint, and the JS no longer polls the nonexistent `/api/battery-status`.
 
 ### Fixed
+- Content images with the same file name in different folders no longer
+  overwrite each other's variants in `/assets/images/` (one image's pixels
+  were served under both). The first keeps its name; the others get their
+  folder in the name (`trips/boat.jpg` becomes `trips-boat_400.webp`), and
+  the build warns once. Sites without such images are unaffected, apart
+  from content images being reprocessed once (new cache key).
 - `sonne serve --watch` no longer rebuilds in an endless loop. watchdog 2.3
   and newer also reports files being read; the build reads the watched
   content, so each rebuild triggered the next. Only changes rebuild now.

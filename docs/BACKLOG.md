@@ -58,10 +58,9 @@ Changes to how Sonne is put together. None has a plan yet.
   Flip the default to `false` in a release that says so.
 - **Finish the one dithered-image layout.** Static and post images use
   `<dir>/dithered/<name>.png`. Sized content images still use
-  `<name>_<width>.<format>` beside `<name>_<width>_original.<format>`, and
-  they are named by file name alone, so two images with the same name in
-  different folders overwrite each other in `/assets/images/`. The
-  `<name>_original` copies of static images go in 0.6.0.
+  `<name>_<width>.<format>` beside `<name>_<width>_original.<format>`, in
+  one flat folder (`/assets/images/`). The `<name>_original` copies of
+  static images go in 0.6.0.
 - **Image references from the rendered post.** Post images are found with
   regular expressions over raw Markdown, with separate code to skip code
   blocks. Collect them from the rendered HTML instead.
