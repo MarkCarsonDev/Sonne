@@ -40,11 +40,6 @@ already implemented.
 - **`Config.normalize_paths` creates directories** ([plan 06](plans/06-path-normalization.md)).
   Something named "normalize" should only resolve paths; creating the
   output and cache directories belongs to `SiteGenerator`.
-- **Project detection and config discovery disagree** ([plan 07](plans/07-config-discovery.md)).
-  `is_sonne_directory` accepts any folder containing `content/`,
-  `templates/` or `static/`, while config discovery needs a config file in
-  the folder or one of two parents. `sonne build` in the wrong folder can
-  "succeed" on defaults.
 - **Showcase example** ([plan 14](plans/14-showcase-template-cleanup.md)).
   Its nav hardcodes `.html` URLs and it sets no `url_style`. A test that
   every starter template builds without warnings is also missing.

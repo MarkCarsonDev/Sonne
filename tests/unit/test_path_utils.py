@@ -41,13 +41,25 @@ class TestIsSonneDirectory:
         (tmp_path / "sonne.yaml").write_text("site: {}\n", encoding="utf-8")
         assert is_sonne_directory(tmp_path)
 
-    def test_true_with_only_content_dir(self, tmp_path):
-        # Pinned current behavior: a bare content/ dir counts as a project.
+    def test_site_folders_without_a_config_are_not_a_project(self, tmp_path):
         (tmp_path / "content").mkdir()
-        assert is_sonne_directory(tmp_path)
+        assert not is_sonne_directory(tmp_path)
 
     def test_false_for_empty_dir(self, tmp_path):
         assert not is_sonne_directory(tmp_path)
+
+    def test_config_in_a_near_ancestor_counts(self, tmp_path):
+        # The same rule as config discovery, so the two cannot disagree.
+        (tmp_path / "sonne.yaml").write_text("site: {}\n", encoding="utf-8")
+        nested = tmp_path / "a" / "b"
+        nested.mkdir(parents=True)
+        assert is_sonne_directory(nested)
+
+    def test_config_beyond_the_search_depth_does_not_count(self, tmp_path):
+        (tmp_path / "sonne.yaml").write_text("site: {}\n", encoding="utf-8")
+        nested = tmp_path / "a" / "b" / "c"
+        nested.mkdir(parents=True)
+        assert not is_sonne_directory(nested)
 
 
 class TestPathValidation:

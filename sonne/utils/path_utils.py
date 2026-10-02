@@ -4,10 +4,11 @@ Provides secure path handling, validation, and sanitization.
 """
 
 import logging
+import os
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 logger = logging.getLogger("sonne")
 
@@ -30,6 +31,9 @@ CONFIG_FILENAMES = [
 # How many directories config discovery examines: the base directory and
 # its ancestors.
 CONFIG_SEARCH_DEPTH = 3
+
+# Folders a site usually has; finding them without a config file earns a hint.
+SITE_FOLDER_NAMES = ("content", "templates", "static")
 
 # Device names Windows reserves regardless of extension.
 WINDOWS_RESERVED_NAMES = frozenset(
@@ -144,25 +148,54 @@ def strip_relative_prefix(path: str) -> str:
     return re.sub(r"^(\./)+", "", path)
 
 
+def config_file_in(directory: Union[str, Path]) -> Optional[str]:
+    """The first recognized config file in directory, in discovery order."""
+    for filename in CONFIG_FILENAMES:
+        candidate = os.path.join(directory, filename)
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def find_config_file(start_dir: Union[str, Path]) -> Optional[tuple[str, int]]:
+    """The config file of the site in start_dir.
+
+    Looks in start_dir, then in its nearest ancestors: CONFIG_SEARCH_DEPTH
+    directories in all, stopping at the filesystem root.
+
+    Args:
+        start_dir: The site directory.
+
+    Returns:
+        (config path, level), where level 0 is start_dir itself and 1 its
+        parent; None if no config file was found.
+    """
+    directory = os.path.abspath(start_dir)
+    for level in range(CONFIG_SEARCH_DEPTH):
+        config_path = config_file_in(directory)
+        if config_path:
+            return config_path, level
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    return None
+
+
 def is_sonne_directory(directory: Union[str, Path]) -> bool:
-    """Check if a directory appears to be a valid Sonne project.
+    """Whether a directory is a Sonne site: one that config discovery finds a config for.
+
+    A content/, templates/ or static/ folder alone does not make a site.
 
     Args:
         directory: Directory to check.
-
-    Returns:
-        True if directory looks like a Sonne project, False otherwise.
     """
-    directory = Path(directory)
+    return find_config_file(directory) is not None
 
-    # Check for config file
-    has_config = any((directory / f).exists() for f in CONFIG_FILENAMES)
 
-    # Check for typical Sonne directories
-    typical_dirs = ["content", "templates", "static"]
-    has_typical_structure = any((directory / d).exists() for d in typical_dirs)
-
-    return has_config or has_typical_structure
+def has_site_folders(directory: Union[str, Path]) -> bool:
+    """Whether a directory holds content/, templates/ or static/ (a site missing its config?)."""
+    return any((Path(directory) / name).is_dir() for name in SITE_FOLDER_NAMES)
 
 
 def normalize_web_path(path: Union[str, Path]) -> str:

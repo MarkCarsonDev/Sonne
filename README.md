@@ -437,7 +437,7 @@ A script named `footer.py` in `data/`, in your `paths.data` folder, or in `scrip
 
 ## Configuration
 
-The config file is YAML or JSON. Sonne looks for, in order, `sonne.yaml`, `sonne.yml`, `sonne.json`, `.sonne/config.yaml`, `sonne.config` (JSON), `.sonne.yaml` and `.sonne.json`, first in the site directory and then in up to two parent directories (with a warning when a parent's config is used). Every key is optional. Editors can validate and complete the file with the JSON schema in `sonne/schemas/sonne.schema.json`.
+The config file is YAML or JSON. Sonne looks for, in order, `sonne.yaml`, `sonne.yml`, `sonne.json`, `.sonne/config.yaml`, `sonne.config` (JSON), `.sonne.yaml` and `.sonne.json`, first in the site directory and then in up to two parent directories (with a warning when a parent's config is used). `sonne build` and `sonne serve` stop with an error when there is none; an empty `sonne.yaml` is enough, since every key is optional. Editors can validate and complete the file with the JSON schema in `sonne/schemas/sonne.schema.json`.
 
 ```yaml
 site:

@@ -124,6 +124,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `path_utils.safe_join`, `get_relative_path_safe`.
 
 ### Changed
+- **Breaking (pre-1.0):** `sonne build` and `sonne serve` need a config
+  file, in the site folder or one of its two parents (the rule config
+  discovery already used). A folder with only `content/`, `templates/` or
+  `static/` used to build on defaults, which let a build in the wrong
+  folder "succeed". Add a `sonne.yaml` (an empty one uses every default)
+  or pass `sonne build --config`.
 - A post's own front matter keys are available as `page.<key>` (and
   `post.<key>` in listings), as on a regular page. Before, only a fixed
   list was, and the rest were under `page.metadata`, which still works.

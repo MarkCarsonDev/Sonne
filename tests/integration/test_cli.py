@@ -56,6 +56,29 @@ class TestBuild:
         result = runner.invoke(cli, ["build", "-p", str(empty)])
         assert result.exit_code != 0
 
+    def test_build_refuses_site_folders_without_a_config(self, runner, tmp_path):
+        (tmp_path / "content").mkdir()
+        (tmp_path / "content" / "index.md").write_text("# Hi\n", encoding="utf-8")
+
+        result = runner.invoke(cli, ["build", "-p", str(tmp_path)])
+
+        assert result.exit_code == 1
+        assert not (tmp_path / "output").exists()
+        assert "sonne.yaml" in result.output  # says what is missing
+
+    def test_build_accepts_an_explicit_config_for_such_a_folder(self, runner, tmp_path):
+        site = tmp_path / "site"
+        (site / "content").mkdir(parents=True)
+        (site / "content" / "index.md").write_text("# Hi\n", encoding="utf-8")
+        config = tmp_path / "elsewhere.yaml"
+        config.write_text("site: {title: Elsewhere}\n", encoding="utf-8")
+
+        # --yes: the folder has no templates, which build asks about.
+        result = runner.invoke(cli, ["build", "-p", str(site), "-c", str(config), "--yes"])
+
+        assert result.exit_code == 0, result.output
+        assert (site / "output" / "index.html").exists()
+
     def test_perf_report_survives_non_utf8_output(self, tmp_path):
         """--perf on a cp1252 pipe (Windows redirect) must not fail the build."""
         target = tmp_path / "perf"

@@ -21,7 +21,6 @@ Rules that apply to every plan (see also `/CLAUDE.md`):
 | 03 | [Blog image caching](03-blog-image-caching.md) | M | Open. Post images are still resized and dithered on every build. |
 | 04 | [Single-parse HTML pipeline](04-single-parse-html-pipeline.md) | M | Mostly done: a post's HTML is parsed once for size data, and the dithering assets are linked instead of inlined. Left: `TemplateProcessor.finish_page` parses every page when dithering is on. |
 | 06 | [Path normalization](06-path-normalization.md) | S | Partly done: `SiteGenerator` uses `Config.normalize_paths`. Left: `normalize_paths` still creates the output and cache directories. |
-| 07 | [Config discovery contract](07-config-discovery.md) | S | Partly done: `CONFIG_SEARCH_DEPTH` is a named constant. Left: `is_sonne_directory` still accepts a folder with only `content/`, `templates/` or `static/`. |
 | 08 | [Dead image config keys](08-dead-config-keys.md) | S | Open. `images.lazy_loading` and `images.grayscale_before_dither` still do nothing. |
 | 10 | [Date formats and i18n groundwork](10-date-format-i18n.md) | S/M | Open. |
 | 11 | [Word-based excerpts](11-word-excerpts.md) | S | Open. |
@@ -31,4 +30,4 @@ Rules that apply to every plan (see also `/CLAUDE.md`):
 
 Finished and removed (see the CHANGELOG and `git log`): 01 Jinja
 consolidation, 02 dithered-convention unification, 05 faster LAB dither,
-09 extension-set constants.
+07 config discovery contract, 09 extension-set constants.

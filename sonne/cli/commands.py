@@ -27,9 +27,14 @@ from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
 from sonne.cli.migrate import MigrationPlan, plan_migration, write_migration
-from sonne.core.config import Config, config_file_in
+from sonne.core.config import Config
 from sonne.core.site_generator import SiteGenerator
-from sonne.utils.path_utils import CONFIG_FILENAMES, is_sonne_directory
+from sonne.utils.path_utils import (
+    CONFIG_FILENAMES,
+    config_file_in,
+    has_site_folders,
+    is_sonne_directory,
+)
 
 # Set up logging
 logging.basicConfig(
@@ -78,34 +83,28 @@ def check_sonne_directory(path: str) -> bool:
     if is_sonne_directory(path):
         return True
 
+    if has_site_folders(path):
+        advice = [
+            "It has site folders but no config file. Add a sonne.yaml next to them",
+            "(an empty file uses every default), or pass one with --config.",
+        ]
+    else:
+        advice = ["To create a new Sonne site:", "  sonne new -p my-site -t blog"]
     if _use_rich():
         console.print(
             Panel(
                 "[bold red]Not a Sonne Project[/bold red]\n\n"
                 f"The directory [cyan]{path}[/cyan] doesn't contain a Sonne configuration file.\n\n"
-                "[bold]To create a new Sonne site:[/bold]\n"
-                "  sonne new -p my-site -t blog\n\n"
-                "[bold]Expected files:[/bold]\n"
-                "  • sonne.yaml or sonne.yml\n"
-                "  • content/ directory\n"
-                "  • templates/ directory\n",
+                + "\n".join(advice)
+                + "\n",
                 title="Error",
                 border_style="red",
             )
         )
     else:
-        # Plain ASCII: emoji raise UnicodeEncodeError on cp1252 Windows consoles
         for line in [
-            "\nThis doesn't appear to be a Sonne project directory.\n",
-            f"The directory {path} doesn't contain a Sonne configuration file.",
-            "",
-            "To create a new Sonne site:",
-            "  sonne new -p my-site -t blog",
-            "",
-            "Expected files:",
-            "  • sonne.yaml or sonne.yml",
-            "  • content/ directory",
-            "  • templates/ directory",
+            f"Not a Sonne project: {path} doesn't contain a Sonne configuration file.",
+            *advice,
         ]:
             logger.error(line)
     return False
@@ -201,7 +200,8 @@ def build(
     """
     path = path or os.getcwd()
     try:
-        if not check_sonne_directory(path):
+        # An explicit --config says where the site's settings are.
+        if not config and not check_sonne_directory(path):
             sys.exit(1)
         _announce_build(path, no_progress)
 

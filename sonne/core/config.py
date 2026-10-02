@@ -13,7 +13,7 @@ from typing import Any, Optional
 import yaml
 
 from sonne.core.deprecations import apply_config_deprecations
-from sonne.utils.path_utils import CONFIG_FILENAMES, CONFIG_SEARCH_DEPTH
+from sonne.utils.path_utils import find_config_file
 
 logger = logging.getLogger("sonne")
 
@@ -152,25 +152,22 @@ class Config:
         Returns:
             Path to the first config file found, or None.
         """
-        start_dir = os.path.abspath(self.base_dir)
-        for level, directory in enumerate(_self_and_ancestors(start_dir, CONFIG_SEARCH_DEPTH)):
-            config_path = config_file_in(directory)
-            if not config_path:
-                continue
-            if level == 0:
-                logger.info(f"Found configuration file at {config_path}")
-            else:
-                # Adopting a config from a parent directory is easy to do by
-                # accident (e.g. running from a subfolder of another Sonne
-                # project) — be loud about it.
-                logger.warning(
-                    f"Using configuration from a parent directory: "
-                    f"{config_path} (searched from {start_dir})"
-                )
-            return config_path
-
-        logger.info("No configuration file found, using defaults")
-        return None
+        found = find_config_file(self.base_dir)
+        if found is None:
+            logger.info("No configuration file found, using defaults")
+            return None
+        config_path, level = found
+        if level == 0:
+            logger.info(f"Found configuration file at {config_path}")
+        else:
+            # Adopting a config from a parent directory is easy to do by
+            # accident (e.g. running from a subfolder of another Sonne
+            # project) — be loud about it.
+            logger.warning(
+                f"Using configuration from a parent directory: "
+                f"{config_path} (searched from {os.path.abspath(self.base_dir)})"
+            )
+        return config_path
 
     def _load_config(self) -> dict[str, Any]:
         """Load configuration from file and merge with defaults.
@@ -472,26 +469,6 @@ class Config:
         if url.endswith("/") and url != "/":
             return url[:-1]
         return url
-
-
-def _self_and_ancestors(directory: str, depth: int) -> list[str]:
-    """directory followed by up to depth-1 of its ancestors (stopping at the root)."""
-    directories = [directory]
-    while len(directories) < depth:
-        parent = os.path.dirname(directories[-1])
-        if parent == directories[-1]:
-            break
-        directories.append(parent)
-    return directories
-
-
-def config_file_in(directory: str) -> Optional[str]:
-    """The first recognized config file in directory, in discovery order."""
-    for filename in CONFIG_FILENAMES:
-        candidate = os.path.join(directory, filename)
-        if os.path.exists(candidate):
-            return candidate
-    return None
 
 
 def _scalars_in_place_of_sections(
